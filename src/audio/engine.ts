@@ -83,7 +83,7 @@ class AudioEngine {
   constructor() {
     this.audio = new Audio();
     this.audio.preload = 'auto';
-    this.audio.crossOrigin = 'anonymous';
+    this.audio.crossOrigin = 'anonymous'; // S3 bucket has CORS configured
 
     this.setupAudioEvents();
     this.setupMediaSession();
