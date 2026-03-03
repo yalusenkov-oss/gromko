@@ -73,6 +73,8 @@ class AudioEngine {
   private _quality: StreamQuality = 'auto';
   private _state: PlaybackState = 'idle';
   private _crossfadeDuration = 0; // ms, 0 = no crossfade (reserved for future use)
+  private _retryCount: number = 0;
+  private _maxRetries: number = 2;
 
   private listeners: Set<EngineListener> = new Set();
   private animFrameId: number | null = null;
@@ -98,6 +100,11 @@ class AudioEngine {
       if (this.queueIndex === -1) this.queueIndex = 0;
     }
 
+    // Reset retry count when user explicitly plays a new track
+    if (track.id !== this.currentTrack?.id) {
+      this._retryCount = 0;
+    }
+
     this.currentTrack = track;
     this._state = 'loading';
     this.notify();
@@ -105,8 +112,8 @@ class AudioEngine {
     const url = this.getStreamUrl(track);
     this.audio.src = url;
     this.audio.load();
-    this.audio.play().catch(err => {
-      console.warn('Autoplay blocked:', err);
+    this.audio.play().catch(() => {
+      // Autoplay blocked by browser — expected, user needs to click
       this._state = 'paused';
       this.notify();
     });
@@ -386,6 +393,7 @@ class AudioEngine {
     this.audio.addEventListener('canplay', () => {
       if (this._state === 'buffering' || this._state === 'loading') {
         this._state = this.audio.paused ? 'paused' : 'playing';
+        this._retryCount = 0; // successful load — reset retries
         this.notify();
       }
     });
@@ -400,16 +408,23 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('error', () => {
-      console.error('Audio error:', this.audio.error);
+      const err = this.audio.error;
+      // Only log real errors (not aborted loads)
+      if (err && err.code !== MediaError.MEDIA_ERR_ABORTED) {
+        console.error('Audio error:', err.code, err.message);
+      }
       this._state = 'error';
       this.notify();
 
-      // Auto-retry after 2 seconds
-      setTimeout(() => {
-        if (this.currentTrack && this._state === 'error') {
-          this.play(this.currentTrack);
-        }
-      }, 2000);
+      // Auto-retry up to _maxRetries times
+      if (this.currentTrack && this._retryCount < this._maxRetries) {
+        this._retryCount++;
+        setTimeout(() => {
+          if (this.currentTrack && this._state === 'error') {
+            this.play(this.currentTrack);
+          }
+        }, 2000 * this._retryCount);
+      }
     });
 
     this.audio.addEventListener('loadedmetadata', () => {
