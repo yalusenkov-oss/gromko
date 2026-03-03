@@ -79,7 +79,7 @@ export interface PlayerState {
 
 export const GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic'];
 
-const API = '/api';
+const API = (import.meta.env.VITE_API_URL as string) || '/api';
 
 function getToken(): string | null {
   return localStorage.getItem('gromko_token');

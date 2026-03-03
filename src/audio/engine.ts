@@ -18,7 +18,7 @@
  * ✅ Buffering state tracking
  */
 
-const API_BASE = ''; // Uses Vite proxy in dev (/api → localhost:3001)
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, ''); // strip /api suffix if any
 
 export type StreamQuality = 'low' | 'medium' | 'high' | 'lossless' | 'auto';
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
