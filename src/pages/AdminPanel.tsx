@@ -1,1192 +1,1170 @@
-import { useState } from 'react';
-import { useStore, GENRES, Track } from '../store';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { useStore, GENRES, type Track, type Artist } from '../store';
+import { formatDuration, formatPlays } from '../utils/format';
 import {
-  LayoutDashboard, Music, Users, Clock, Shield,
-  TrendingUp, CheckCircle, XCircle, Timer, Edit2, Trash2,
-  Plus, Eye, EyeOff, Star, Save, X, Upload, Link2,
-  List, ChevronDown, ChevronUp, Tag, Disc,
-  AlertTriangle, RefreshCw, Search, ExternalLink,
-  ArrowLeft, ArrowRight, Globe
+  LayoutDashboard, Music, Users, Mic2, FileCheck, Settings,
+  Search, Trash2, Edit3, Check, X, ChevronRight, ExternalLink,
+  Activity, TrendingUp, Clock, Shield, ShieldOff, Image, Upload,
+  Crown, User as UserIcon, Loader2, RefreshCw, AlertCircle, Link2, Unlink,
+  Play, BarChart3, Globe, Ban, Home, Plus, Save, ArrowLeft,
 } from 'lucide-react';
-import { formatPlays, formatDuration } from '../utils/format';
 
-type AdminTab = 'dashboard' | 'tracks' | 'artists' | 'pending' | 'users' | 'site';
+type Tab = 'dashboard' | 'tracks' | 'artists' | 'users' | 'moderation' | 'settings';
+
+/* ── Transliteration helper ── */
+const TRANSLIT: Record<string, string> = {
+  а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'yo',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',
+  н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'kh',ц:'ts',ч:'ch',ш:'sh',щ:'shch',
+  ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',
+};
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .split('')
+    .map(ch => TRANSLIT[ch] ?? ch)
+    .join('')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const API = (import.meta.env.VITE_API_URL as string) || '/api';
+function getToken() { return localStorage.getItem('gromko_token'); }
+async function adminFetch(path: string, opts: RequestInit = {}) {
+  const token = getToken();
+  const headers: Record<string, string> = { ...(opts.headers as Record<string, string> || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  ADMIN PANEL                                    */
+/* ═══════════════════════════════════════════════ */
 
 export default function AdminPanel() {
-  const { currentUser } = useStore();
-  const navigate = useNavigate();
-  const [tab, setTab] = useState<AdminTab>('dashboard');
+  const [tab, setTab] = useState<Tab>('dashboard');
+  const currentUser = useStore(s => s.currentUser);
 
   if (!currentUser || currentUser.role !== 'admin') {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="text-center">
-          <Shield size={48} className="text-red-500 mx-auto mb-4" />
-          <p className="text-xl font-bold mb-2">Доступ запрещён</p>
-          <p className="text-zinc-500 mb-4">Только для администраторов</p>
-          <button onClick={() => navigate('/')} className="px-6 py-2.5 bg-red-500 rounded-lg text-sm">На главную</button>
+          <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-white mb-2">Доступ запрещён</h1>
+          <p className="text-zinc-400">У вас нет прав администратора</p>
+          <Link to="/" className="mt-4 inline-flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300">
+            <ArrowLeft className="w-4 h-4" /> На главную
+          </Link>
         </div>
       </div>
     );
   }
 
-  const navItems: { id: AdminTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: 'dashboard', label: 'Дашборд', icon: <LayoutDashboard size={18} /> },
-    { id: 'tracks', label: 'Треки', icon: <Music size={18} /> },
-    { id: 'artists', label: 'Артисты', icon: <Users size={18} /> },
-    { id: 'pending', label: 'Модерация', icon: <Clock size={18} /> },
-    { id: 'users', label: 'Пользователи', icon: <Shield size={18} /> },
-    { id: 'site', label: 'Управление сайтом', icon: <Globe size={18} /> },
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'dashboard', label: 'Обзор', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: 'tracks', label: 'Треки', icon: <Music className="w-4 h-4" /> },
+    { id: 'artists', label: 'Артисты', icon: <Mic2 className="w-4 h-4" /> },
+    { id: 'users', label: 'Пользователи', icon: <Users className="w-4 h-4" /> },
+    { id: 'moderation', label: 'Модерация', icon: <FileCheck className="w-4 h-4" /> },
+    { id: 'settings', label: 'Настройки', icon: <Settings className="w-4 h-4" /> },
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 flex">
-      {/* Sidebar */}
-      <div className="w-60 bg-zinc-900/70 border-r border-white/5 flex-shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
-        <div className="p-4">
-          <div className="mb-6 px-2">
-            <p className="text-xs font-black text-red-500 uppercase tracking-widest">GROMKO</p>
-            <p className="text-xs text-zinc-600 mt-0.5">Панель управления</p>
-          </div>
-          <nav className="space-y-1">
-            {navItems.map(item => (
-              <button key={item.id} onClick={() => setTab(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${tab === item.id ? 'bg-red-500/20 text-red-400 border border-red-500/20' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>
-                {item.icon}
-                <span className="flex-1 text-left">{item.label}</span>
-                {item.badge && <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{item.badge}</span>}
-              </button>
-            ))}
-          </nav>
+    <div className="min-h-screen bg-zinc-950 pb-12">
+      {/* Header — own sticky bar, no Navbar overlap */}
+      <div className="bg-zinc-900/90 backdrop-blur-xl border-b border-zinc-800 sticky top-0 z-50">
+        <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center gap-4">
+          <Shield className="w-6 h-6 text-purple-500" />
+          <h1 className="text-lg font-bold text-white">GROMKO Admin</h1>
+          <div className="flex-1" />
+          <Link to="/" className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white transition">
+            <Home className="w-3.5 h-3.5" /> На сайт
+          </Link>
+          <Link to="/profile" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-white transition">
+            <img src={currentUser.avatar} alt="" className="w-6 h-6 rounded-full" />
+            {currentUser.name}
+          </Link>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="max-w-[1400px] mx-auto px-4 mt-4">
+        <div className="flex gap-1 bg-zinc-900/50 rounded-xl p-1 overflow-x-auto">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition whitespace-nowrap ${
+                tab === t.id
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+              }`}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto pb-32 min-w-0">
-        <div className="p-6 max-w-6xl">
-          {tab === 'dashboard' && <Dashboard />}
-          {tab === 'tracks' && <TracksAdmin />}
-          {tab === 'artists' && <ArtistsAdmin />}
-          {tab === 'pending' && <PendingAdmin />}
-          {tab === 'users' && <UsersAdmin />}
-          {tab === 'site' && <SiteAdmin />}
-        </div>
+      <div className="max-w-[1400px] mx-auto px-4 mt-6">
+        {tab === 'dashboard' && <DashboardTab />}
+        {tab === 'tracks' && <TracksTab />}
+        {tab === 'artists' && <ArtistsTab />}
+        {tab === 'users' && <UsersTab />}
+        {tab === 'moderation' && <ModerationTab />}
+        {tab === 'settings' && <SettingsTab />}
       </div>
     </div>
   );
 }
 
-/* ─────────────────── DASHBOARD ─────────────────── */
-function Dashboard() {
-  const { tracks, artists, users, submissions } = useStore();
-  const pending = submissions.filter(s => s.status === 'pending');
+/* ═══════════════════════════════════════════════ */
+/*  DASHBOARD TAB                                  */
+/* ═══════════════════════════════════════════════ */
 
-  const stats = [
-    { label: 'Треков', value: tracks.length, icon: <Music size={20} />, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    { label: 'Артистов', value: artists.length, icon: <Users size={20} />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-    { label: 'Пользователей', value: users.filter(u => u.role !== 'admin').length, icon: <Shield size={20} />, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-    { label: 'На модерации', value: pending.length, icon: <Clock size={20} />, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-    { label: 'Прослушиваний', value: tracks.reduce((s, t) => s + t.plays, 0), icon: <TrendingUp size={20} />, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-  ];
+function DashboardTab() {
+  const { adminStats, fetchAdminStats } = useStore();
+  const [loading, setLoading] = useState(false);
 
-  const topTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 5);
+  useEffect(() => {
+    setLoading(true);
+    fetchAdminStats().finally(() => setLoading(false));
+    const iv = setInterval(() => fetchAdminStats(), 30_000);
+    return () => clearInterval(iv);
+  }, []);
 
-  return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">Дашборд</h1>
-        <span className="text-zinc-600 text-sm">{new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {stats.map(s => (
-          <div key={s.label} className={`border rounded-2xl p-5 ${s.bg}`}>
-            <div className={`${s.color} mb-3`}>{s.icon}</div>
-            <p className="text-2xl font-black">{typeof s.value === 'number' && s.value > 1000 ? formatPlays(s.value) : s.value}</p>
-            <p className="text-zinc-500 text-sm">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {pending.length > 0 && (
-        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} className="text-yellow-400" />
-            <h2 className="font-bold text-yellow-400">Требует внимания</h2>
-          </div>
-          <p className="text-zinc-300 text-sm">{pending.length} заявок ожидают модерации</p>
-        </div>
-      )}
-
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-        <h2 className="font-bold mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-red-400" /> Топ треков</h2>
-        <div className="space-y-2">
-          {topTracks.map((t, i) => (
-            <div key={t.id} className="flex items-center gap-3">
-              <span className="text-zinc-600 w-5 text-sm text-right">{i + 1}</span>
-              <img src={t.cover} alt={t.title} className="w-9 h-9 rounded-lg object-cover" />
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-medium truncate">{t.title}</p>
-                <p className="text-zinc-500 text-xs">{t.artist}</p>
-              </div>
-              <span className="text-zinc-500 text-xs">{formatPlays(t.plays)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────── TRACKS ADMIN ─────────────────── */
-function TracksAdmin() {
-  const { tracks, updateTrack, deleteTrack, addTrack, artists } = useStore();
-  const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editData, setEditData] = useState<any>({});
-  const [tab, setTab] = useState<'list' | 'add-single' | 'add-bulk' | 'add-yandex'>('list');
-  const [newTrack, setNewTrack] = useState({ title: '', artist: '', artistSlug: '', genre: GENRES[0], year: 2024, cover: '', duration: 180, plays: 0, likes: 0, explicit: false, isNew: true });
-  const [bulkText, setBulkText] = useState('');
-  const [bulkParsed, setBulkParsed] = useState<any[]>([]);
-  const [bulkError, setBulkError] = useState('');
-  const [yandexUrl, setYandexUrl] = useState('');
-  const [yandexStatus, setYandexStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [sortBy, setSortBy] = useState<'date' | 'plays' | 'alpha'>('date');
-  const [page, setPage] = useState(0);
-  const PER_PAGE = 20;
-
-  const filtered = tracks
-    .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => sortBy === 'plays' ? b.plays - a.plays : sortBy === 'alpha' ? a.title.localeCompare(b.title) : b.year - a.year);
-
-  const paginated = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
-  const totalPages = Math.ceil(filtered.length / PER_PAGE);
-
-  const startEdit = (t: any) => { setEditing(t.id); setEditData({ ...t }); };
-  const saveEdit = () => { updateTrack(editing!, editData); setEditing(null); };
-
-  // Bulk parse JSON or line-by-line
-  const parseBulk = () => {
-    setBulkError('');
-    try {
-      const parsed = JSON.parse(bulkText);
-      if (Array.isArray(parsed)) {
-        setBulkParsed(parsed);
-      } else {
-        setBulkError('Ожидается массив JSON');
-      }
-    } catch {
-      // Try line-by-line format: "Title - Artist - Genre - Year"
-      const lines = bulkText.trim().split('\n').filter(l => l.trim());
-      const result = lines.map((line, idx) => {
-        const parts = line.split('|').map(s => s.trim());
-        if (parts.length < 2) return null;
-        return {
-          title: parts[0] || `Трек ${idx + 1}`,
-          artist: parts[1] || 'Неизвестный',
-          artistSlug: (parts[1] || 'unknown').toLowerCase().replace(/\s+/g, '-'),
-          genre: parts[2] || GENRES[0],
-          year: parseInt(parts[3]) || 2024,
-          cover: parts[4] || `https://picsum.photos/seed/${Date.now() + idx}/400/400`,
-          duration: 180,
-          plays: 0,
-          likes: 0,
-          explicit: false,
-          isNew: true,
-        };
-      }).filter(Boolean);
-      if (result.length > 0) {
-        setBulkParsed(result);
-      } else {
-        setBulkError('Не удалось распознать формат. Используйте JSON или "Название | Артист | Жанр | Год"');
-      }
-    }
-  };
-
-  const importBulk = () => {
-    bulkParsed.forEach(t => addTrack(t));
-    setBulkParsed([]);
-    setBulkText('');
-    setTab('list');
-  };
-
-  const importYandex = () => {
-    if (!yandexUrl.trim()) return;
-    setYandexStatus('loading');
-    setTimeout(() => {
-      // Simulate Yandex Disk import — in production this would call the Yandex API
-      const mockFromYandex = [
-        { title: 'Трек с Яндекс.Диска 1', artist: 'Артист', artistSlug: 'artist', genre: GENRES[0], year: 2024, cover: `https://picsum.photos/seed/yd1/400/400`, duration: 210, plays: 0, likes: 0, explicit: false, isNew: true },
-        { title: 'Трек с Яндекс.Диска 2', artist: 'Артист', artistSlug: 'artist', genre: GENRES[1], year: 2024, cover: `https://picsum.photos/seed/yd2/400/400`, duration: 185, plays: 0, likes: 0, explicit: false, isNew: true },
-        { title: 'Трек с Яндекс.Диска 3', artist: 'Другой Артист', artistSlug: 'other-artist', genre: GENRES[2], year: 2023, cover: `https://picsum.photos/seed/yd3/400/400`, duration: 240, plays: 0, likes: 0, explicit: true, isNew: true },
-      ];
-      mockFromYandex.forEach(t => addTrack(t));
-      setYandexStatus('success');
-      setYandexUrl('');
-      setTimeout(() => { setYandexStatus('idle'); setTab('list'); }, 2000);
-    }, 1800);
-  };
+  if (loading && !adminStats) return <LoadingSpinner text="Загрузка статистики..." />;
+  if (!adminStats) return <EmptyState icon={<AlertCircle />} text="Не удалось загрузить статистику" />;
+  const s = adminStats;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-black">Треки ({tracks.length})</h1>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setTab('list')} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors ${tab === 'list' ? 'bg-white/15 text-white' : 'bg-white/5 text-zinc-400 hover:text-white'}`}>
-            <List size={15} /> Список
-          </button>
-          <button onClick={() => setTab('add-single')} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors ${tab === 'add-single' ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-zinc-400 hover:text-white'}`}>
-            <Plus size={15} /> Добавить
-          </button>
-          <button onClick={() => setTab('add-bulk')} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors ${tab === 'add-bulk' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-zinc-400 hover:text-white'}`}>
-            <Upload size={15} /> Массово
-          </button>
-          <button onClick={() => setTab('add-yandex')} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors ${tab === 'add-yandex' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/5 text-zinc-400 hover:text-white'}`}>
-            <Link2 size={15} /> Яндекс.Диск
-          </button>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Треки" value={s.tracks} icon={<Music className="w-5 h-5" />} color="purple" />
+        <StatCard label="Артисты" value={s.artists} icon={<Mic2 className="w-5 h-5" />} color="blue" />
+        <StatCard label="Пользователи" value={s.users} icon={<Users className="w-5 h-5" />} color="emerald" />
+        <StatCard label="Всего прослушиваний" value={formatPlays(s.totalPlays)} icon={<TrendingUp className="w-5 h-5" />} color="amber" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Сейчас слушают" value={s.activeListeners} icon={<Activity className="w-5 h-5 animate-pulse" />} color="green" subtitle="за 15 мин" />
+        <StatCard label="Сегодня" value={formatPlays(s.playsToday)} icon={<Play className="w-5 h-5" />} color="sky" />
+        <StatCard label="За неделю" value={formatPlays(s.playsWeek)} icon={<BarChart3 className="w-5 h-5" />} color="violet" />
+        <StatCard label="За месяц" value={formatPlays(s.playsMonth)} icon={<Globe className="w-5 h-5" />} color="rose" />
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-400 mb-3 uppercase tracking-wide">Статус треков</h3>
+          <div className="space-y-2">
+            <StatusRow label="Готовы" value={s.ready} color="bg-emerald-500" />
+            <StatusRow label="Ожидают" value={s.pending} color="bg-yellow-500" />
+            <StatusRow label="Обработка" value={s.processing} color="bg-blue-500" />
+            <StatusRow label="Ошибки" value={s.errors} color="bg-red-500" />
+          </div>
+        </div>
+        <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-400 mb-3 uppercase tracking-wide">Модерация</h3>
+          <div className="space-y-2">
+            <StatusRow label="Заявки на модерацию" value={s.pendingSubmissions} color="bg-orange-500" />
+            <StatusRow label="Новых за 7 дней" value={s.recentUsers} color="bg-cyan-500" />
+          </div>
+        </div>
+        <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-400 mb-3 uppercase tracking-wide">Топ жанров</h3>
+          <div className="space-y-2">
+            {(s.topGenres || []).slice(0, 5).map((g, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <span className="text-sm text-zinc-300">{g.genre}</span>
+                <span className="text-xs font-mono text-zinc-500">{g.count}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Single add */}
-      {tab === 'add-single' && (
-        <div className="bg-white/5 border border-red-500/20 rounded-2xl p-6 space-y-4">
-          <h3 className="font-bold text-red-400 flex items-center gap-2"><Plus size={16} /> Новый трек</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { key: 'title', label: 'Название' },
-              { key: 'artist', label: 'Артист' },
-              { key: 'artistSlug', label: 'Slug артиста' },
-              { key: 'cover', label: 'Обложка (URL)' },
-            ].map(({ key, label }) => (
-              <div key={key}>
-                <label className="block text-xs text-zinc-500 mb-1">{label}</label>
-                <input
-                  value={(newTrack as any)[key]}
-                  onChange={e => setNewTrack(n => ({ ...n, [key]: e.target.value }))}
-                  list={key === 'artist' ? 'artists-list' : undefined}
-                  className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50"
-                />
-                {key === 'artist' && (
-                  <datalist id="artists-list">
-                    {artists.map(a => <option key={a.id} value={a.name} />)}
-                  </datalist>
-                )}
+      {s.topTracks && s.topTracks.length > 0 && (
+        <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-400 mb-4 uppercase tracking-wide">Топ-10 треков</h3>
+          <div className="space-y-1">
+            {s.topTracks.map((t, i) => (
+              <div key={t.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-zinc-800/40 transition">
+                <span className="text-xs font-bold text-zinc-500 w-6 text-right">{i + 1}</span>
+                {t.cover ? <img src={t.cover} alt="" className="w-9 h-9 rounded object-cover" /> : <div className="w-9 h-9 rounded bg-zinc-800 flex items-center justify-center"><Music className="w-4 h-4 text-zinc-600" /></div>}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">{t.title}</div>
+                  <div className="text-xs text-zinc-500 truncate">{t.artist}</div>
+                </div>
+                <span className="text-xs font-mono text-zinc-400">{formatPlays(t.plays)}</span>
               </div>
             ))}
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Жанр</label>
-              <select value={newTrack.genre} onChange={e => setNewTrack(n => ({ ...n, genre: e.target.value }))}
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
-                {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Год</label>
-              <input type="number" value={newTrack.year} onChange={e => setNewTrack(n => ({ ...n, year: +e.target.value }))}
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Длительность (сек)</label>
-              <input type="number" value={newTrack.duration} onChange={e => setNewTrack(n => ({ ...n, duration: +e.target.value }))}
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-            </div>
-            <div className="flex items-center gap-4 pt-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={newTrack.explicit} onChange={e => setNewTrack(n => ({ ...n, explicit: e.target.checked }))} className="w-4 h-4 accent-red-500" />
-                <span className="text-sm text-zinc-300">Explicit</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={newTrack.isNew} onChange={e => setNewTrack(n => ({ ...n, isNew: e.target.checked }))} className="w-4 h-4 accent-red-500" />
-                <span className="text-sm text-zinc-300">Новинка</span>
-              </label>
-            </div>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={() => { addTrack(newTrack); setTab('list'); }} className="px-5 py-2.5 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-medium transition-colors">Добавить трек</button>
-            <button onClick={() => setTab('list')} className="px-5 py-2.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm transition-colors">Отмена</button>
           </div>
         </div>
       )}
+      <button onClick={() => fetchAdminStats()} className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition">
+        <RefreshCw className="w-3.5 h-3.5" /> Обновить
+      </button>
+    </div>
+  );
+}
 
-      {/* Bulk add */}
-      {tab === 'add-bulk' && (
-        <div className="bg-white/5 border border-blue-500/20 rounded-2xl p-6 space-y-5">
-          <h3 className="font-bold text-blue-400 flex items-center gap-2"><Upload size={16} /> Массовая загрузка треков</h3>
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 text-sm text-blue-300 space-y-2">
-            <p className="font-semibold">Поддерживаемые форматы:</p>
-            <p className="text-blue-400/80">① JSON-массив объектов с полями: title, artist, genre, year, cover, duration</p>
-            <p className="text-blue-400/80">② Построчно: <code className="bg-blue-900/40 px-1 rounded">Название | Артист | Жанр | Год | URL обложки</code></p>
+/* ═══════════════════════════════════════════════ */
+/*  TRACKS TAB — full detail editing               */
+/* ═══════════════════════════════════════════════ */
+
+function TracksTab() {
+  const { tracks, fetchTracks, updateTrack, deleteTrack } = useStore();
+  const [search, setSearch] = useState('');
+  const [genreFilter, setGenreFilter] = useState('');
+  const [editTrack, setEditTrack] = useState<Track | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  useEffect(() => { fetchTracks(); }, []);
+
+  const filtered = useMemo(() => {
+    let list = [...tracks];
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.id.includes(q));
+    }
+    if (genreFilter) list = list.filter(t => t.genre === genreFilter);
+    return list;
+  }, [tracks, search, genreFilter]);
+
+  const handleDelete = async (id: string) => {
+    await deleteTrack(id);
+    setConfirmDelete(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Edit modal */}
+      {editTrack && (
+        <TrackEditModal
+          track={editTrack}
+          onClose={() => setEditTrack(null)}
+          onSave={async (data) => {
+            await updateTrack(editTrack.id, data);
+            await fetchTracks();
+            setEditTrack(null);
+          }}
+        />
+      )}
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию, артисту, ID..."
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500" />
+        </div>
+        <select value={genreFilter} onChange={e => setGenreFilter(e.target.value)}
+          className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none">
+          <option value="">Все жанры</option>
+          {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <span className="text-xs text-zinc-500">{filtered.length} / {tracks.length}</span>
+        <button onClick={() => fetchTracks()} className="p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
+              <th className="p-3 w-12"></th>
+              <th className="p-3">Трек</th>
+              <th className="p-3">Артист(ы)</th>
+              <th className="p-3">Жанр</th>
+              <th className="p-3">Год</th>
+              <th className="p-3 text-right">Прослуш.</th>
+              <th className="p-3 text-right">Длит.</th>
+              <th className="p-3">Флаги</th>
+              <th className="p-3 text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(t => (
+              <tr key={t.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition group">
+                <td className="p-3">
+                  {t.cover ? <img src={t.cover} alt="" className="w-10 h-10 rounded object-cover" /> : <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center"><Music className="w-4 h-4 text-zinc-600" /></div>}
+                </td>
+                <td className="p-3">
+                  <div className="text-white font-medium">{t.title}</div>
+                  <div className="text-[10px] text-zinc-600 font-mono">{t.id.slice(0, 8)}...</div>
+                </td>
+                <td className="p-3">
+                  {t.artists && t.artists.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {t.artists.map((a, i) => (
+                        <span key={i} className="text-xs bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded">{a.name}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-300 text-sm">{t.artist}</span>
+                  )}
+                </td>
+                <td className="p-3"><span className="text-zinc-400 text-xs px-2 py-0.5 bg-zinc-800 rounded-full">{t.genre}</span></td>
+                <td className="p-3 text-zinc-400">{t.year}</td>
+                <td className="p-3 text-right text-zinc-400 font-mono text-xs">{formatPlays(t.plays)}</td>
+                <td className="p-3 text-right text-zinc-400 text-xs">{formatDuration(t.duration)}</td>
+                <td className="p-3">
+                  <div className="flex gap-1">
+                    {t.explicit && <span className="text-[10px] px-1.5 py-0.5 bg-red-900/50 text-red-400 rounded">18+</span>}
+                    {t.isNew && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-900/50 text-emerald-400 rounded">NEW</span>}
+                    {t.featured && <span className="text-[10px] px-1.5 py-0.5 bg-amber-900/50 text-amber-400 rounded">★ Hero</span>}
+                  </div>
+                </td>
+                <td className="p-3 text-right">
+                  <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={() => setEditTrack(t)} className="p-1.5 rounded-lg hover:bg-purple-900/50 text-zinc-400 hover:text-purple-400 transition" title="Редактировать">
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <a href={`/track/${t.id}`} target="_blank" className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition" title="Открыть на сайте">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    {confirmDelete === t.id ? (
+                      <>
+                        <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white transition"><Check className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setConfirmDelete(null)} className="p-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition"><X className="w-3.5 h-3.5" /></button>
+                      </>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(t.id)} className="p-1.5 rounded-lg hover:bg-red-900/50 text-zinc-400 hover:text-red-400 transition" title="Удалить"><Trash2 className="w-3.5 h-3.5" /></button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="p-8 text-center text-zinc-500 text-sm">Треки не найдены</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Track Edit Modal ─── */
+
+function TrackEditModal({ track, onClose, onSave }: { track: Track; onClose: () => void; onSave: (data: Partial<Track>) => Promise<void> }) {
+  const [form, setForm] = useState({
+    title: track.title,
+    artist: track.artist,
+    genre: track.genre,
+    year: track.year,
+    explicit: track.explicit || false,
+    isNew: track.isNew || false,
+    featured: track.featured || false,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-zinc-900 rounded-2xl border border-zinc-700 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center gap-3 p-5 border-b border-zinc-800">
+          {track.cover ? <img src={track.cover} className="w-14 h-14 rounded-lg object-cover" /> : <div className="w-14 h-14 rounded-lg bg-zinc-800 flex items-center justify-center"><Music className="w-6 h-6 text-zinc-600" /></div>}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">Редактирование трека</h2>
+            <p className="text-xs text-zinc-500 font-mono">{track.id}</p>
           </div>
-          <div>
-            <label className="block text-xs text-zinc-500 mb-2">Вставьте данные:</label>
-            <textarea
-              value={bulkText}
-              onChange={e => { setBulkText(e.target.value); setBulkParsed([]); setBulkError(''); }}
-              rows={10}
-              placeholder={'[\n  {"title": "Трек 1", "artist": "Артист", "genre": "Хип-хоп", "year": 2024, "cover": "https://...", "duration": 180},\n  ...\n]\n\n— или —\n\nНазвание | Артист | Жанр | Год | https://обложка.jpg\nНазвание 2 | Артист 2 | Рэп | 2023'}
-              className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-700 focus:outline-none focus:border-blue-500/50 font-mono resize-y"
-            />
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Preview row */}
+          <div className="flex items-center gap-4 bg-zinc-800/50 rounded-xl p-4">
+            {track.cover ? <img src={track.cover} className="w-20 h-20 rounded-lg object-cover" /> : <div className="w-20 h-20 rounded-lg bg-zinc-800 flex items-center justify-center"><Music className="w-8 h-8 text-zinc-600" /></div>}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-zinc-400">Текущее состояние</div>
+              <div className="text-white font-semibold">{track.title}</div>
+              <div className="text-zinc-400 text-sm">{track.artist}</div>
+              <div className="flex gap-4 mt-2 text-xs text-zinc-500">
+                <span>{formatDuration(track.duration)}</span>
+                <span>{formatPlays(track.plays)} прослушиваний</span>
+                <span>{track.likes} лайков</span>
+              </div>
+            </div>
           </div>
-          {bulkError && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm flex items-start gap-2">
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {bulkError}
+
+          {/* Artists */}
+          {track.artists && track.artists.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2 block">Привязанные артисты</label>
+              <div className="flex flex-wrap gap-2">
+                {track.artists.map((a, i) => (
+                  <a key={i} href={`/artist/${a.slug}`} target="_blank" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition">
+                    <Mic2 className="w-3 h-3" /> {a.name} <ExternalLink className="w-3 h-3 text-zinc-500" />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
-          {bulkParsed.length > 0 && (
-            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
-              <p className="text-green-400 font-semibold mb-3 flex items-center gap-2">
-                <CheckCircle size={16} /> Распознано {bulkParsed.length} треков — предварительный просмотр:
-              </p>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {bulkParsed.map((t, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-white/5 rounded-lg p-2.5">
-                    {t.cover ? <img src={t.cover} alt="" className="w-8 h-8 rounded object-cover shrink-0" /> : <div className="w-8 h-8 bg-zinc-700 rounded shrink-0" />}
-                    <div className="min-w-0">
-                      <p className="text-white text-sm truncate">{t.title}</p>
-                      <p className="text-zinc-500 text-xs">{t.artist} · {t.genre} · {t.year}</p>
-                    </div>
+
+          {/* Streams info */}
+          {track.streams && (
+            <div>
+              <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2 block">Потоки</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {(['low', 'medium', 'high', 'lossless'] as const).map(q => (
+                  <div key={q} className={`px-3 py-2 rounded-lg text-xs ${track.streams?.[q] ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/30' : 'bg-zinc-800/50 text-zinc-600'}`}>
+                    {q === 'low' ? '64 kbps' : q === 'medium' ? '128 kbps' : q === 'high' ? '256 kbps' : 'FLAC'}
+                    {track.streams?.[q] ? ' ✓' : ' —'}
                   </div>
                 ))}
               </div>
             </div>
           )}
-          <div className="flex gap-2">
-            <button onClick={parseBulk} className="px-5 py-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-sm font-medium transition-colors">Разобрать</button>
-            {bulkParsed.length > 0 && (
-              <button onClick={importBulk} className="px-5 py-2.5 bg-green-500 hover:bg-green-400 text-white rounded-lg text-sm font-medium transition-colors">
-                Загрузить {bulkParsed.length} треков
-              </button>
-            )}
-            <button onClick={() => { setTab('list'); setBulkText(''); setBulkParsed([]); setBulkError(''); }} className="px-5 py-2.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm transition-colors">Отмена</button>
-          </div>
-        </div>
-      )}
 
-      {/* Yandex Disk */}
-      {tab === 'add-yandex' && (
-        <div className="bg-white/5 border border-yellow-500/20 rounded-2xl p-6 space-y-5">
-          <h3 className="font-bold text-yellow-400 flex items-center gap-2"><Link2 size={16} /> Загрузка с Яндекс.Диска</h3>
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-sm text-yellow-300 space-y-2">
-            <p className="font-semibold">Как использовать:</p>
-            <p className="text-yellow-400/80">1. Загрузите папку с треками на Яндекс.Диск</p>
-            <p className="text-yellow-400/80">2. Откройте общий доступ к папке</p>
-            <p className="text-yellow-400/80">3. Вставьте ссылку на публичную папку ниже</p>
-            <p className="text-yellow-400/80">4. Система автоматически распознает аудиофайлы</p>
-          </div>
-          <div>
-            <label className="block text-xs text-zinc-500 mb-2">Публичная ссылка на папку или файл:</label>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={yandexUrl}
-                onChange={e => setYandexUrl(e.target.value)}
-                placeholder="https://disk.yandex.ru/d/..."
-                className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-yellow-500/50"
-              />
-              <a href="https://disk.yandex.ru" target="_blank" rel="noopener noreferrer"
-                className="px-3 py-2.5 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white">
-                <ExternalLink size={16} />
-              </a>
-            </div>
-          </div>
-          {yandexStatus === 'loading' && (
-            <div className="flex items-center gap-3 text-yellow-400">
-              <RefreshCw size={16} className="animate-spin" />
-              <span className="text-sm">Подключение к Яндекс.Диску...</span>
-            </div>
-          )}
-          {yandexStatus === 'success' && (
-            <div className="flex items-center gap-3 text-green-400">
-              <CheckCircle size={16} />
-              <span className="text-sm">Треки успешно загружены!</span>
-            </div>
-          )}
-          {yandexStatus === 'error' && (
-            <div className="flex items-center gap-3 text-red-400">
-              <XCircle size={16} />
-              <span className="text-sm">Ошибка подключения. Проверьте ссылку.</span>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <button onClick={importYandex} disabled={!yandexUrl || yandexStatus === 'loading'}
-              className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
-              {yandexStatus === 'loading' ? <RefreshCw size={15} className="animate-spin" /> : <Link2 size={15} />}
-              Загрузить с диска
-            </button>
-            <button onClick={() => setTab('list')} className="px-5 py-2.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm transition-colors">Отмена</button>
-          </div>
-        </div>
-      )}
-
-      {/* List */}
-      {tab === 'list' && (
-        <>
-          <div className="flex gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-48">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input type="text" placeholder="Поиск треков..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-white/20" />
-            </div>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
-              className="bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
-              <option value="date">По году</option>
-              <option value="plays">По популярности</option>
-              <option value="alpha">По алфавиту</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            {paginated.map(t => (
-              <div key={t.id} className="bg-white/5 hover:bg-white/8 rounded-xl overflow-hidden transition-colors">
-                {editing === t.id ? (
-                  <div className="p-4 space-y-3 border border-red-500/20">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Название</label>
-                        <input value={editData.title} onChange={e => setEditData((d: any) => ({ ...d, title: e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Артист</label>
-                        <input value={editData.artist} onChange={e => setEditData((d: any) => ({ ...d, artist: e.target.value }))}
-                          list="artists-edit-list"
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                        <datalist id="artists-edit-list">
-                          {artists.map(a => <option key={a.id} value={a.name} />)}
-                        </datalist>
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Slug</label>
-                        <input value={editData.artistSlug} onChange={e => setEditData((d: any) => ({ ...d, artistSlug: e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Жанр</label>
-                        <select value={editData.genre} onChange={e => setEditData((d: any) => ({ ...d, genre: e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10">
-                          {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Год</label>
-                        <input type="number" value={editData.year} onChange={e => setEditData((d: any) => ({ ...d, year: +e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Длительность (сек)</label>
-                        <input type="number" value={editData.duration} onChange={e => setEditData((d: any) => ({ ...d, duration: +e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-xs text-zinc-500 block mb-1">Обложка (URL)</label>
-                        <input value={editData.cover} onChange={e => setEditData((d: any) => ({ ...d, cover: e.target.value }))}
-                          className="w-full bg-zinc-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none border border-white/10" />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="checkbox" checked={editData.explicit} onChange={e => setEditData((d: any) => ({ ...d, explicit: e.target.checked }))} className="accent-red-500" />
-                        <span className="text-zinc-300">Explicit</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="checkbox" checked={editData.isNew} onChange={e => setEditData((d: any) => ({ ...d, isNew: e.target.checked }))} className="accent-red-500" />
-                        <span className="text-zinc-300">Новинка</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="checkbox" checked={editData.featured} onChange={e => setEditData((d: any) => ({ ...d, featured: e.target.checked }))} className="accent-red-500" />
-                        <span className="text-zinc-300">Популярное</span>
-                      </label>
-                    </div>
-                    {editData.cover && (
-                      <div className="flex items-center gap-3">
-                        <img src={editData.cover} alt="" className="w-16 h-16 rounded-lg object-cover" onError={e => (e.currentTarget.style.display = 'none')} />
-                        <span className="text-zinc-600 text-xs">Предпросмотр обложки</span>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={saveEdit} className="flex items-center gap-1.5 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg text-sm hover:bg-green-500/30 transition-colors">
-                        <Save size={14} /> Сохранить
-                      </button>
-                      <button onClick={() => setEditing(null)} className="flex items-center gap-1.5 px-4 py-2 bg-white/10 text-zinc-400 rounded-lg text-sm hover:bg-white/15">
-                        <X size={14} /> Отмена
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 p-3">
-                    <img src={t.cover} alt={t.title} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-white text-sm font-medium truncate">{t.title}</p>
-                        {t.explicit && <span className="text-xs bg-zinc-700 text-zinc-400 px-1 rounded shrink-0">E</span>}
-                        {t.isNew && <span className="text-xs bg-red-500/20 text-red-400 px-1.5 rounded shrink-0">NEW</span>}
-                      </div>
-                      <p className="text-zinc-500 text-xs">{t.artist} · {t.genre} · {t.year} · {formatDuration(t.duration)}</p>
-                    </div>
-                    <div className="hidden md:flex items-center gap-3 text-xs text-zinc-600">
-                      <span>{formatPlays(t.plays)} прослушиваний</span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => startEdit(t)} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white">
-                        <Edit2 size={15} />
-                      </button>
-                      <button onClick={() => deleteTrack(t.id)} className="p-2 hover:bg-red-500/10 rounded-lg transition-colors text-zinc-600 hover:text-red-400">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-2">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white/5 rounded-lg text-sm disabled:opacity-40 hover:bg-white/10 transition-colors">
-                <ArrowLeft size={15} /> Назад
-              </button>
-              <span className="text-zinc-500 text-sm">{page + 1} / {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white/5 rounded-lg text-sm disabled:opacity-40 hover:bg-white/10 transition-colors">
-                Вперёд <ArrowRight size={15} />
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ─────────────────── ARTISTS ADMIN ─────────────────── */
-function ArtistsAdmin() {
-  const { artists, tracks, updateArtist, deleteArtist, addArtist } = useStore();
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editData, setEditData] = useState<any>({});
-  const [showAdd, setShowAdd] = useState(false);
-  const [newArtist, setNewArtist] = useState({ name: '', slug: '', photo: '', bio: '', genre: GENRES[0], tracksCount: 0, totalPlays: 0, socials: { vk: '', instagram: '', telegram: '' } });
-  const [trackSearch, setTrackSearch] = useState('');
-  const [expandedArtist, setExpandedArtist] = useState<string | null>(null);
-
-  const startEdit = (a: any) => {
-    setEditing(a.id);
-    setEditData({ ...a, socials: a.socials || { vk: '', instagram: '', telegram: '' } });
-    setExpandedArtist(null);
-  };
-  const saveEdit = () => { updateArtist(editing!, editData); setEditing(null); };
-
-  const getArtistTracks = (artistName: string) =>
-    tracks.filter(t => t.artist.toLowerCase() === artistName.toLowerCase());
-
-  const attachTrack = (artistId: string, track: Track) => {
-    updateArtist(artistId, {});
-    // Update track's artist reference
-    const { updateTrack } = useStore.getState();
-    const artist = artists.find(a => a.id === artistId);
-    if (artist) {
-      updateTrack(track.id, { artist: artist.name, artistSlug: artist.slug });
-    }
-  };
-
-  const detachTrack = (track: Track) => {
-    const { updateTrack } = useStore.getState();
-    updateTrack(track.id, { artist: '[Без артиста]', artistSlug: 'unknown' });
-  };
-
-  const filteredTracks = tracks.filter(t =>
-    !trackSearch || t.title.toLowerCase().includes(trackSearch.toLowerCase()) || t.artist.toLowerCase().includes(trackSearch.toLowerCase())
-  );
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black">Артисты ({artists.length})</h1>
-        <button onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-medium transition-colors">
-          <Plus size={16} /> Добавить артиста
-        </button>
-      </div>
-
-      {/* Add form */}
-      {showAdd && (
-        <div className="bg-white/5 border border-red-500/20 rounded-2xl p-6 space-y-5">
-          <h3 className="font-bold text-red-400 flex items-center gap-2"><Plus size={16} /> Новый артист</h3>
+          {/* Form fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { key: 'name', label: 'Имя артиста' },
-              { key: 'slug', label: 'Slug (для URL)' },
-              { key: 'photo', label: 'Фото (URL)' },
-            ].map(({ key, label }) => (
-              <div key={key}>
-                <label className="block text-xs text-zinc-500 mb-1">{label}</label>
-                <input
-                  value={(newArtist as any)[key]}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setNewArtist(n => ({
-                      ...n,
-                      [key]: val,
-                      ...(key === 'name' ? { slug: val.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '') } : {})
-                    }));
-                  }}
-                  className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500/50"
-                />
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Жанр</label>
-              <select value={newArtist.genre} onChange={e => setNewArtist(n => ({ ...n, genre: e.target.value }))}
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
+            <FormField label="Название">
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="admin-input" />
+            </FormField>
+            <FormField label="Артист (текст)">
+              <input value={form.artist} onChange={e => setForm(f => ({ ...f, artist: e.target.value }))} className="admin-input" />
+            </FormField>
+            <FormField label="Жанр">
+              <select value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} className="admin-input">
                 {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                {!GENRES.includes(form.genre) && <option value={form.genre}>{form.genre}</option>}
               </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs text-zinc-500 mb-1">Биография</label>
-              <textarea value={newArtist.bio} onChange={e => setNewArtist(n => ({ ...n, bio: e.target.value }))} rows={3}
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none resize-none" />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">ВКонтакте</label>
-              <input value={newArtist.socials.vk} onChange={e => setNewArtist(n => ({ ...n, socials: { ...n.socials, vk: e.target.value } }))}
-                placeholder="https://vk.com/..."
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Instagram</label>
-              <input value={newArtist.socials.instagram} onChange={e => setNewArtist(n => ({ ...n, socials: { ...n.socials, instagram: e.target.value } }))}
-                placeholder="https://instagram.com/..."
-                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-            </div>
+            </FormField>
+            <FormField label="Год">
+              <input type="number" value={form.year} onChange={e => setForm(f => ({ ...f, year: Number(e.target.value) }))} className="admin-input" />
+            </FormField>
           </div>
-          {newArtist.photo && (
-            <div className="flex items-center gap-3">
-              <img src={newArtist.photo} alt="" className="w-16 h-16 rounded-full object-cover" onError={e => (e.currentTarget.style.display = 'none')} />
-              <span className="text-zinc-600 text-xs">Предпросмотр фото</span>
+
+          {/* Flags */}
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2 block">Флаги</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer select-none">
+                <input type="checkbox" checked={form.explicit} onChange={e => setForm(f => ({ ...f, explicit: e.target.checked }))} className="rounded border-zinc-600 bg-zinc-800 text-red-500 focus:ring-red-500" />
+                🔞 Explicit (18+)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer select-none">
+                <input type="checkbox" checked={form.isNew} onChange={e => setForm(f => ({ ...f, isNew: e.target.checked }))} className="rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500" />
+                🆕 Новинка
+              </label>
+              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer select-none">
+                <input type="checkbox" checked={form.featured} onChange={e => setForm(f => ({ ...f, featured: e.target.checked }))} className="rounded border-zinc-600 bg-zinc-800 text-amber-500 focus:ring-amber-500" />
+                ⭐ Hero (главная)
+              </label>
             </div>
-          )}
-          <div className="flex gap-2">
-            <button onClick={() => { addArtist(newArtist); setShowAdd(false); }} className="px-5 py-2.5 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-medium">Создать артиста</button>
-            <button onClick={() => setShowAdd(false)} className="px-5 py-2.5 bg-white/10 rounded-lg text-sm">Отмена</button>
           </div>
         </div>
-      )}
 
-      {/* Artists list */}
-      <div className="space-y-3">
-        {artists.map(a => {
-          const artistTracks = getArtistTracks(a.name);
-          const isExpanded = expandedArtist === a.id;
-          return (
-            <div key={a.id} className="bg-white/5 border border-white/8 rounded-2xl overflow-hidden">
-              {editing === a.id ? (
-                /* ── EDIT FORM ── */
-                <div className="p-5 space-y-4 border border-red-500/20">
-                  <div className="flex items-center gap-3 mb-2">
-                    {editData.photo && <img src={editData.photo} alt="" className="w-14 h-14 rounded-full object-cover" />}
-                    <h3 className="font-bold text-red-400">Редактирование: {editData.name}</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[
-                      { key: 'name', label: 'Имя' },
-                      { key: 'slug', label: 'Slug' },
-                      { key: 'photo', label: 'Фото (URL)' },
-                    ].map(({ key, label }) => (
-                      <div key={key}>
-                        <label className="text-xs text-zinc-500 block mb-1">{label}</label>
-                        <input value={editData[key] || ''} onChange={e => setEditData((d: any) => ({ ...d, [key]: e.target.value }))}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                      </div>
-                    ))}
-                    <div>
-                      <label className="text-xs text-zinc-500 block mb-1">Жанр</label>
-                      <select value={editData.genre} onChange={e => setEditData((d: any) => ({ ...d, genre: e.target.value }))}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
-                        {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="text-xs text-zinc-500 block mb-1">Биография</label>
-                      <textarea value={editData.bio || ''} onChange={e => setEditData((d: any) => ({ ...d, bio: e.target.value }))} rows={3}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none resize-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-zinc-500 block mb-1">ВКонтакте</label>
-                      <input value={editData.socials?.vk || ''} onChange={e => setEditData((d: any) => ({ ...d, socials: { ...d.socials, vk: e.target.value } }))}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-zinc-500 block mb-1">Instagram</label>
-                      <input value={editData.socials?.instagram || ''} onChange={e => setEditData((d: any) => ({ ...d, socials: { ...d.socials, instagram: e.target.value } }))}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-zinc-500 block mb-1">Telegram</label>
-                      <input value={editData.socials?.telegram || ''} onChange={e => setEditData((d: any) => ({ ...d, socials: { ...d.socials, telegram: e.target.value } }))}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                    </div>
-                  </div>
-
-                  {/* Track binding in edit mode */}
-                  <div>
-                    <p className="text-xs text-zinc-500 mb-2 flex items-center gap-1.5"><Tag size={12} /> Привязанные треки ({artistTracks.length})</p>
-                    <div className="bg-zinc-900 rounded-xl p-3 space-y-2 max-h-40 overflow-y-auto">
-                      {artistTracks.length === 0 ? (
-                        <p className="text-zinc-600 text-xs text-center py-2">Нет треков</p>
-                      ) : (
-                        artistTracks.map(t => (
-                          <div key={t.id} className="flex items-center gap-2">
-                            <img src={t.cover} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
-                            <span className="text-white text-xs flex-1 truncate">{t.title}</span>
-                            <button onClick={() => detachTrack(t)} className="text-red-400 hover:text-red-300 text-xs px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 transition-colors shrink-0">
-                              Отвязать
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    {/* Attach other tracks */}
-                    <div className="mt-3">
-                      <p className="text-xs text-zinc-500 mb-2">Привязать трек:</p>
-                      <div className="relative mb-2">
-                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                        <input value={trackSearch} onChange={e => setTrackSearch(e.target.value)}
-                          placeholder="Поиск трека..."
-                          className="w-full bg-zinc-900 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none" />
-                      </div>
-                      <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {filteredTracks.filter(t => t.artist.toLowerCase() !== a.name.toLowerCase()).slice(0, 8).map(t => (
-                          <button key={t.id} onClick={() => attachTrack(a.id, t)}
-                            className="w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded-lg transition-colors text-left">
-                            <img src={t.cover} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
-                            <span className="text-zinc-300 text-xs flex-1 truncate">{t.title} — {t.artist}</span>
-                            <span className="text-blue-400 text-xs px-1.5 rounded bg-blue-500/10 shrink-0">+ Привязать</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button onClick={saveEdit} className="flex items-center gap-1.5 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg text-sm hover:bg-green-500/30 transition-colors">
-                      <Save size={14} /> Сохранить
-                    </button>
-                    <button onClick={() => setEditing(null)} className="px-4 py-2 bg-white/10 text-zinc-400 rounded-lg text-sm hover:bg-white/15">
-                      <X size={14} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* ── VIEW ROW ── */
-                <>
-                  <div className="flex items-center gap-3 p-4">
-                    <img src={a.photo} alt={a.name} className="w-14 h-14 rounded-full object-cover flex-shrink-0 ring-2 ring-white/10" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-bold">{a.name}</p>
-                      <p className="text-zinc-500 text-xs mb-1">{a.genre} · {formatPlays(a.totalPlays)} прослушиваний</p>
-                      <p className="text-zinc-600 text-xs truncate">{a.bio}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      <div className="flex gap-1.5">
-                        <button onClick={() => startEdit(a)} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white">
-                          <Edit2 size={15} />
-                        </button>
-                        <button onClick={() => setExpandedArtist(isExpanded ? null : a.id)} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white">
-                          {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                        </button>
-                        <button onClick={() => deleteArtist(a.id)} className="p-2 hover:bg-red-500/10 rounded-lg transition-colors text-zinc-600 hover:text-red-400">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                      <span className="text-xs text-zinc-600 bg-white/5 px-2 py-0.5 rounded-full">
-                        {artistTracks.length} треков
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Expanded track list */}
-                  {isExpanded && (
-                    <div className="border-t border-white/5 p-4 space-y-3">
-                      <p className="text-xs text-zinc-500 font-medium uppercase tracking-wide flex items-center gap-1.5">
-                        <Disc size={12} /> Треки артиста
-                      </p>
-                      {artistTracks.length === 0 ? (
-                        <p className="text-zinc-600 text-sm py-2">Треки не найдены</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {artistTracks.map(t => (
-                            <div key={t.id} className="flex items-center gap-2.5 p-2 bg-white/3 rounded-lg">
-                              <img src={t.cover} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-white text-sm truncate">{t.title}</p>
-                                <p className="text-zinc-600 text-xs">{t.genre} · {t.year} · {formatDuration(t.duration)}</p>
-                              </div>
-                              <button onClick={() => detachTrack(t)} className="text-red-400 text-xs px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 transition-colors shrink-0">
-                                Отвязать
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {/* Quick attach */}
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-2 mt-3">Привязать трек к артисту:</p>
-                        <div className="relative mb-2">
-                          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                          <input value={trackSearch} onChange={e => setTrackSearch(e.target.value)}
-                            placeholder="Поиск трека..."
-                            className="w-full bg-zinc-900 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none" />
-                        </div>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                          {tracks.filter(t =>
-                            t.artist.toLowerCase() !== a.name.toLowerCase() &&
-                            (!trackSearch || t.title.toLowerCase().includes(trackSearch.toLowerCase()) || t.artist.toLowerCase().includes(trackSearch.toLowerCase()))
-                          ).slice(0, 6).map(t => (
-                            <button key={t.id} onClick={() => attachTrack(a.id, t)}
-                              className="w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded-lg transition-colors text-left">
-                              <img src={t.cover} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
-                              <span className="text-zinc-400 text-xs flex-1 truncate">{t.title} — {t.artist}</span>
-                              <span className="text-blue-400 text-xs px-1.5 rounded bg-blue-500/10 shrink-0">+ Привязать</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
+        {/* Footer */}
+        <div className="flex items-center gap-3 p-5 border-t border-zinc-800">
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition">Отмена</button>
+          <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Сохранение...' : 'Сохранить изменения'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ─────────────────── PENDING ADMIN ─────────────────── */
-function PendingAdmin() {
-  const { submissions, moderateSubmission, updateSubmission, artists } = useStore();
-  const pendingList = submissions.filter(s => s.status === 'pending' || s.status === 'deferred');
-  const [rejectId, setRejectId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editData, setEditData] = useState<any>({});
+/* ═══════════════════════════════════════════════ */
+/*  ARTISTS TAB — rich cards with photo & tracks   */
+/* ═══════════════════════════════════════════════ */
 
-  const startEditSub = (sub: any) => { setEditingId(sub.id); setEditData({ ...sub }); };
-  const saveEditSub = () => { updateSubmission(editingId!, editData); setEditingId(null); };
+function ArtistsTab() {
+  const { artists, tracks, fetchArtists, updateArtist, deleteArtist } = useStore();
+  const [search, setSearch] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-black">Модерация ({pendingList.length})</h1>
+  useEffect(() => { fetchArtists(); }, []);
 
-      {pendingList.length === 0 ? (
-        <div className="text-center py-16 text-zinc-600">
-          <CheckCircle size={48} className="mx-auto mb-3 text-green-500/30" />
-          <p>Все заявки обработаны</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {pendingList.map(sub => (
-            <div key={sub.id} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-white/3">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-zinc-500/20 text-zinc-400'}`}>
-                    {sub.status === 'pending' ? '⏳ На проверке' : '⏸ Отложено'}
-                  </span>
-                  <span className="text-zinc-600 text-xs">{sub.createdAt}</span>
-                </div>
-                <button onClick={() => editingId === sub.id ? setEditingId(null) : startEditSub(sub)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${editingId === sub.id ? 'bg-red-500/20 text-red-400' : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'}`}>
-                  {editingId === sub.id ? <><X size={14} /> Закрыть</> : <><Edit2 size={14} /> Редактировать</>}
-                </button>
-              </div>
-
-              <div className="p-5">
-                {editingId === sub.id ? (
-                  /* ── EDIT FORM ── */
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Название трека</label>
-                        <input value={editData.title} onChange={e => setEditData((d: any) => ({ ...d, title: e.target.value }))}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Артист</label>
-                        <input list="artists-pending-list" value={editData.artist} onChange={e => setEditData((d: any) => ({ ...d, artist: e.target.value }))}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                        <datalist id="artists-pending-list">
-                          {artists.map(a => <option key={a.id} value={a.name} />)}
-                        </datalist>
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Жанр</label>
-                        <select value={editData.genre} onChange={e => setEditData((d: any) => ({ ...d, genre: e.target.value }))}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
-                          {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-zinc-500 block mb-1">Год</label>
-                        <input type="number" value={editData.year} onChange={e => setEditData((d: any) => ({ ...d, year: +e.target.value }))}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-xs text-zinc-500 block mb-1">Комментарий для пользователя</label>
-                        <textarea value={editData.comment || ''} onChange={e => setEditData((d: any) => ({ ...d, comment: e.target.value }))} rows={2}
-                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none resize-none" />
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={saveEditSub} className="flex items-center gap-1.5 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg text-sm hover:bg-green-500/30 transition-colors">
-                        <Save size={14} /> Сохранить изменения
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* ── VIEW ── */
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-white font-bold text-lg">{sub.title}</h3>
-                      <p className="text-zinc-400 text-sm">{sub.artist} · {sub.genre} · {sub.year}</p>
-                      {sub.comment && <p className="text-zinc-500 text-sm mt-2 italic bg-white/3 rounded-lg p-3">"{sub.comment}"</p>}
-                    </div>
-
-                    {rejectId === sub.id && (
-                      <div className="space-y-2 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-                        <label className="text-sm text-red-400 font-medium">Причина отклонения:</label>
-                        <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2}
-                          placeholder="Объясните пользователю, почему трек не принят..."
-                          className="w-full bg-zinc-900 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none resize-none" />
-                        <div className="flex gap-2">
-                          <button onClick={() => { moderateSubmission(sub.id, 'reject', rejectReason); setRejectId(null); setRejectReason(''); }}
-                            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-400 transition-colors">
-                            Подтвердить отклонение
-                          </button>
-                          <button onClick={() => setRejectId(null)} className="px-4 py-2 bg-white/10 rounded-lg text-sm text-zinc-400 hover:bg-white/15">Отмена</button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 flex-wrap">
-                      <button onClick={() => moderateSubmission(sub.id, 'approve')}
-                        className="flex items-center gap-1.5 px-5 py-2.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-xl text-sm transition-colors font-medium">
-                        <CheckCircle size={16} /> Опубликовать
-                      </button>
-                      <button onClick={() => { setRejectId(sub.id); setRejectReason(''); }}
-                        className="flex items-center gap-1.5 px-5 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-xl text-sm transition-colors font-medium">
-                        <XCircle size={16} /> Отклонить
-                      </button>
-                      <button onClick={() => moderateSubmission(sub.id, 'defer')}
-                        className="flex items-center gap-1.5 px-5 py-2.5 bg-white/10 hover:bg-white/15 text-zinc-400 rounded-xl text-sm transition-colors">
-                        <Timer size={16} /> Отложить
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* History */}
-      {submissions.filter(s => s.status === 'approved' || s.status === 'rejected').length > 0 && (
-        <div>
-          <h2 className="text-lg font-bold mb-3 text-zinc-500">История обработанных</h2>
-          <div className="space-y-2">
-            {submissions.filter(s => s.status !== 'pending' && s.status !== 'deferred').map(sub => (
-              <div key={sub.id} className="flex items-center gap-3 p-3 bg-white/3 rounded-xl">
-                {sub.status === 'approved' ? <CheckCircle size={16} className="text-green-400 shrink-0" /> : <XCircle size={16} className="text-red-400 shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm truncate">{sub.title} — {sub.artist}</p>
-                  {sub.rejectReason && <p className="text-red-400 text-xs truncate">{sub.rejectReason}</p>}
-                </div>
-                <span className="text-zinc-600 text-xs shrink-0">{sub.createdAt}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─────────────────── USERS ADMIN ─────────────────── */
-function UsersAdmin() {
-  const { users, blockUser, promoteUser } = useStore();
+  const filtered = useMemo(() => {
+    if (!search) return artists;
+    const q = search.toLowerCase();
+    return artists.filter(a => a.name.toLowerCase().includes(q) || a.slug.toLowerCase().includes(q));
+  }, [artists, search]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-black">Пользователи ({users.length})</h1>
-      <div className="space-y-2">
-        {users.map(u => (
-          <div key={u.id} className="flex items-center gap-3 p-4 bg-white/5 rounded-xl hover:bg-white/8 transition-colors">
-            <img src={u.avatar} alt={u.name} className="w-12 h-12 rounded-full object-cover flex-shrink-0 ring-2 ring-white/10" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-white font-medium">{u.name}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-400'}`}>
-                  {u.role === 'admin' ? '👑 Админ' : '👤 Пользователь'}
-                </span>
-                {u.isBlocked && <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">🔒 Заблокирован</span>}
-              </div>
-              <p className="text-zinc-500 text-xs">{u.email} · Зарегистрирован {u.joinedAt}</p>
-              <p className="text-zinc-600 text-xs">{u.likedTracks.length} лайков</p>
-            </div>
-            <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
-              <button onClick={() => blockUser(u.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs transition-colors font-medium ${u.isBlocked ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30'}`}>
-                {u.isBlocked ? 'Разблокировать' : 'Заблокировать'}
-              </button>
-              {u.role !== 'admin' && (
-                <button onClick={() => promoteUser(u.id)} className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30 transition-colors font-medium">
-                  Повысить до Админа
-                </button>
-              )}
-            </div>
-          </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск артистов..."
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500" />
+        </div>
+        <span className="text-xs text-zinc-500">{filtered.length} артистов</span>
+        <button onClick={() => fetchArtists()} className="p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
+      </div>
+
+      <div className="space-y-3">
+        {filtered.map(a => (
+          <ArtistCard
+            key={a.id}
+            artist={a}
+            allTracks={tracks}
+            isExpanded={expandedId === a.id}
+            isEditing={editId === a.id}
+            confirmingDelete={confirmDelete === a.id}
+            onToggleExpand={() => setExpandedId(expandedId === a.id ? null : a.id)}
+            onEdit={() => setEditId(editId === a.id ? null : a.id)}
+            onCancelEdit={() => setEditId(null)}
+            onSave={async (data) => {
+              await updateArtist(a.id, data);
+              await fetchArtists();
+              setEditId(null);
+            }}
+            onDeleteConfirm={() => setConfirmDelete(a.id)}
+            onDeleteCancel={() => setConfirmDelete(null)}
+            onDelete={async () => {
+              await deleteArtist(a.id);
+              setConfirmDelete(null);
+            }}
+          />
         ))}
       </div>
+      {filtered.length === 0 && <EmptyState icon={<Mic2 />} text="Артисты не найдены" />}
     </div>
   );
 }
 
-/* ─────────────────── SITE ADMIN ─────────────────── */
-function SiteAdmin() {
-  const { tracks, heroTrackId, setHeroTrack } = useStore();
-  const [search, setSearch] = useState('');
-  const [bannerText, setBannerText] = useState('САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ');
-  const [bannerEnabled, setBannerEnabled] = useState(true);
-  const [announcementText, setAnnouncementText] = useState('');
-  const [featuredSection, setFeaturedSection] = useState({ showHero: true, showPopular: true, showNew: true, showArtists: true });
+/* ─── Artist Card ─── */
 
-  const filtered = tracks.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()));
-  const heroTrack = tracks.find(t => t.id === heroTrackId);
+function ArtistCard({ artist, allTracks, isExpanded, isEditing, confirmingDelete, onToggleExpand, onEdit, onCancelEdit, onSave, onDeleteConfirm, onDeleteCancel, onDelete }: {
+  artist: Artist; allTracks: Track[];
+  isExpanded: boolean; isEditing: boolean; confirmingDelete: boolean;
+  onToggleExpand: () => void; onEdit: () => void; onCancelEdit: () => void;
+  onSave: (data: Partial<Artist>) => Promise<void>;
+  onDeleteConfirm: () => void; onDeleteCancel: () => void; onDelete: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    name: artist.name, slug: artist.slug, bio: artist.bio || '', genre: artist.genre || '',
+    socials: artist.socials || { vk: '', instagram: '', telegram: '' },
+  });
+  const [saving, setSaving] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [localPhoto, setLocalPhoto] = useState<string | null>(null); // preview after upload
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const [photoUrlSaving, setPhotoUrlSaving] = useState(false);
+  const [artistTracks, setArtistTracks] = useState<Track[]>([]);
+  const [tracksLoading, setTracksLoading] = useState(false);
+  const [linkTrackSearch, setLinkTrackSearch] = useState('');
+  const photoRef = useRef<HTMLInputElement>(null);
+  const editPhotoRef = useRef<HTMLInputElement>(null);
+
+  // Current photo: local preview takes priority, then artist.photo
+  const currentPhoto = localPhoto || artist.photo;
+
+  /* Auto-generate slug when name changes */
+  const updateName = (newName: string) => {
+    setForm(f => ({ ...f, name: newName, slug: toSlug(newName) }));
+  };
+
+  // Load artist tracks when expanded
+  useEffect(() => {
+    if (isExpanded) {
+      setTracksLoading(true);
+      adminFetch(`/admin/artists/${artist.id}/tracks`)
+        .then(data => setArtistTracks(Array.isArray(data) ? data : []))
+        .catch(() => {})
+        .finally(() => setTracksLoading(false));
+    }
+  }, [isExpanded, artist.id]);
+
+  // Reset form on edit toggle
+  useEffect(() => {
+    if (isEditing) {
+      setForm({
+        name: artist.name, slug: artist.slug, bio: artist.bio || '', genre: artist.genre || '',
+        socials: artist.socials || { vk: '', instagram: '', telegram: '' },
+      });
+    }
+  }, [isEditing]);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const res = await adminFetch(`/admin/artists/${artist.id}/photo`, { method: 'POST', body: fd });
+      // Set local preview with cache-bust
+      setLocalPhoto(res.photo ? `${res.photo}?t=${Date.now()}` : null);
+      useStore.getState().fetchArtists();
+    } catch (err) { console.error(err); }
+    setPhotoUploading(false);
+    if (editPhotoRef.current) editPhotoRef.current.value = '';
+    if (photoRef.current) photoRef.current.value = '';
+  };
+
+  const handlePhotoUrl = async () => {
+    const url = photoUrlInput.trim();
+    if (!url) return;
+    setPhotoUrlSaving(true);
+    try {
+      await adminFetch(`/admin/artists/${artist.id}/photo-url`, { method: 'PUT', body: JSON.stringify({ url }) });
+      setLocalPhoto(url);
+      setPhotoUrlInput('');
+      useStore.getState().fetchArtists();
+    } catch (err) { console.error(err); }
+    setPhotoUrlSaving(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  };
+
+  const handleLinkTrack = async (trackId: string) => {
+    await adminFetch(`/admin/artists/${artist.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId }) });
+    const data = await adminFetch(`/admin/artists/${artist.id}/tracks`);
+    setArtistTracks(Array.isArray(data) ? data : []);
+    useStore.getState().fetchArtists();
+  };
+
+  const handleUnlinkTrack = async (trackId: string) => {
+    await adminFetch(`/admin/artists/${artist.id}/tracks/${trackId}`, { method: 'DELETE' });
+    setArtistTracks(prev => prev.filter(t => t.id !== trackId));
+    useStore.getState().fetchArtists();
+  };
+
+  const availableTracks = useMemo(() => {
+    const linkedIds = new Set(artistTracks.map(t => t.id));
+    let list = allTracks.filter(t => !linkedIds.has(t.id));
+    if (linkTrackSearch) {
+      const q = linkTrackSearch.toLowerCase();
+      list = list.filter(t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q));
+    }
+    return list.slice(0, 10);
+  }, [allTracks, artistTracks, linkTrackSearch]);
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-2xl font-black">Управление сайтом</h1>
-
-      {/* RF Banner */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <AlertTriangle size={18} className="text-orange-400" /> Баннер-предупреждение
-        </h2>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <div className={`w-11 h-6 rounded-full transition-colors relative ${bannerEnabled ? 'bg-red-500' : 'bg-zinc-700'}`}
-            onClick={() => setBannerEnabled(!bannerEnabled)}>
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${bannerEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-          </div>
-          <span className="text-sm text-zinc-300">Показывать баннер</span>
-        </label>
-        <div>
-          <label className="text-xs text-zinc-500 block mb-1">Текст баннера</label>
-          <input value={bannerText} onChange={e => setBannerText(e.target.value)}
-            className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50" />
-        </div>
-        {bannerEnabled && (
-          <div className="bg-red-950/50 border border-red-500/40 rounded-lg px-4 py-2.5 flex items-center gap-2">
-            <AlertTriangle size={14} className="text-red-400 shrink-0" />
-            <span className="text-red-300 text-sm font-medium">{bannerText}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Announcement */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <Eye size={18} className="text-blue-400" /> Объявление на главной
-        </h2>
-        <textarea value={announcementText} onChange={e => setAnnouncementText(e.target.value)} rows={3}
-          placeholder="Оставьте пустым, чтобы скрыть. Пример: Платформа работает в тестовом режиме..."
-          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none resize-none" />
-        <button className="px-4 py-2 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded-lg text-sm transition-colors">Сохранить объявление</button>
-      </div>
-
-      {/* Sections visibility */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <EyeOff size={18} className="text-purple-400" /> Секции главной страницы
-        </h2>
-        <div className="space-y-3">
-          {[
-            { key: 'showHero', label: 'Hero-баннер (Трек дня)' },
-            { key: 'showPopular', label: 'Популярные треки' },
-            { key: 'showNew', label: 'Новинки' },
-            { key: 'showArtists', label: 'Блок артистов' },
-          ].map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-3 cursor-pointer">
-              <div
-                className={`w-11 h-6 rounded-full transition-colors relative ${(featuredSection as any)[key] ? 'bg-red-500' : 'bg-zinc-700'}`}
-                onClick={() => setFeaturedSection(s => ({ ...s, [key]: !(s as any)[key] }))}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${(featuredSection as any)[key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </div>
-              <span className="text-sm text-zinc-300">{label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Hero track */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <Star size={18} className="text-yellow-400" /> Трек дня (Hero-баннер)
-        </h2>
-        {heroTrack && (
-          <div className="flex items-center gap-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-            <img src={heroTrack.cover} alt={heroTrack.title} className="w-14 h-14 rounded-xl object-cover" />
-            <div>
-              <p className="text-white font-bold">{heroTrack.title}</p>
-              <p className="text-zinc-400 text-sm">{heroTrack.artist} · {heroTrack.genre}</p>
+    <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 overflow-hidden hover:border-zinc-700 transition">
+      {/* Header row */}
+      <div className="flex items-center gap-4 p-4 cursor-pointer" onClick={onToggleExpand}>
+        <div className="relative group shrink-0">
+          {currentPhoto ? (
+            <img src={currentPhoto} alt={artist.name} className="w-16 h-16 rounded-xl object-cover" />
+          ) : (
+            <div className="w-16 h-16 rounded-xl bg-zinc-800 flex items-center justify-center">
+              <Mic2 className="w-7 h-7 text-zinc-600" />
             </div>
-            <span className="ml-auto text-yellow-400 text-sm font-medium flex items-center gap-1"><Star size={14} /> Текущий</span>
-          </div>
-        )}
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input type="text" placeholder="Поиск трека..." value={search} onChange={e => setSearch(e.target.value)}
-            className="w-full bg-zinc-800 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none" />
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); photoRef.current?.click(); }}
+            className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-xl opacity-0 group-hover:opacity-100 transition"
+          >
+            {photoUploading ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Image className="w-5 h-5 text-white" />}
+          </button>
+          <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
         </div>
-        <div className="space-y-1.5 max-h-72 overflow-y-auto">
-          {filtered.slice(0, 15).map(t => (
-            <button key={t.id} onClick={() => setHeroTrack(t.id)}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${heroTrackId === t.id ? 'bg-yellow-500/20 border border-yellow-500/30' : 'hover:bg-white/5 border border-transparent'}`}>
-              <img src={t.cover} alt={t.title} className="w-10 h-10 rounded-lg object-cover shrink-0" />
-              <div className="flex-1 text-left min-w-0">
-                <p className="text-white text-sm font-medium truncate">{t.title}</p>
-                <p className="text-zinc-500 text-xs">{t.artist} · {t.year}</p>
-              </div>
-              {heroTrackId === t.id && <Star size={14} className="text-yellow-400 shrink-0" />}
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-white font-bold text-lg">{artist.name}</span>
+            <span className="text-xs text-zinc-600 font-mono">/{artist.slug}</span>
+          </div>
+          <div className="flex items-center gap-4 mt-1 text-xs text-zinc-400">
+            <span>{artist.genre || 'Без жанра'}</span>
+            <span>{artist.tracksCount} треков</span>
+            <span>{formatPlays(artist.totalPlays)} прослуш.</span>
+            {artist.socials?.vk && <span>VK</span>}
+            {artist.socials?.telegram && <span>TG</span>}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+          <a href={`/artist/${artist.slug}`} target="_blank" className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition" title="На сайте">
+            <ExternalLink className="w-4 h-4" />
+          </a>
+          <button onClick={onEdit} className="p-2 rounded-lg hover:bg-purple-900/50 text-zinc-400 hover:text-purple-400 transition" title="Редактировать">
+            <Edit3 className="w-4 h-4" />
+          </button>
+          {confirmingDelete ? (
+            <>
+              <button onClick={onDelete} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs transition">Удалить</button>
+              <button onClick={onDeleteCancel} className="px-3 py-1.5 rounded-lg bg-zinc-700 text-white text-xs transition">Отмена</button>
+            </>
+          ) : (
+            <button onClick={onDeleteConfirm} className="p-2 rounded-lg hover:bg-red-900/50 text-zinc-400 hover:text-red-400 transition" title="Удалить">
+              <Trash2 className="w-4 h-4" />
             </button>
-          ))}
+          )}
+          <ChevronRight className={`w-4 h-4 text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
         </div>
       </div>
 
-      {/* Genre stats */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <Tag size={18} className="text-blue-400" /> Жанры и количество треков
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {GENRES.map(g => {
-            const count = tracks.filter(t => t.genre === g).length;
-            const pct = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
-            return (
-              <div key={g} className="bg-white/5 rounded-xl p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-white text-sm font-medium">{g}</span>
-                  <span className="text-zinc-500 text-xs">{count}</span>
+      {/* Expanded: Edit form + Tracks management */}
+      {(isExpanded || isEditing) && (
+        <div className="border-t border-zinc-800">
+          {/* Edit form */}
+          {isEditing && (
+            <div className="p-4 bg-zinc-800/30 space-y-4">
+              <div className="text-xs font-semibold text-purple-400 uppercase tracking-wide mb-2">Редактирование карточки</div>
+
+              {/* ── Photo upload section ── */}
+              <div className="flex items-start gap-5">
+                <div className="shrink-0">
+                  <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide mb-2">Фото артиста</div>
+                  <div className="relative group w-28 h-28">
+                    {currentPhoto ? (
+                      <img src={currentPhoto} alt={artist.name} className="w-28 h-28 rounded-xl object-cover border border-zinc-700" />
+                    ) : (
+                      <div className="w-28 h-28 rounded-xl bg-zinc-800 border border-zinc-700 border-dashed flex flex-col items-center justify-center">
+                        <Image className="w-8 h-8 text-zinc-600 mb-1" />
+                        <span className="text-[10px] text-zinc-600">Нет фото</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => editPhotoRef.current?.click()}
+                      className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-xl opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                    >
+                      {photoUploading ? (
+                        <Loader2 className="w-6 h-6 text-white animate-spin" />
+                      ) : (
+                        <>
+                          <Upload className="w-5 h-5 text-white mb-1" />
+                          <span className="text-[10px] text-white/80">{currentPhoto ? 'Заменить' : 'Загрузить'}</span>
+                        </>
+                      )}
+                    </button>
+                    <input ref={editPhotoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                  </div>
                 </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
+                <div className="flex-1 space-y-3 pt-6">
+                  <div className="text-xs text-zinc-500">
+                    <p>Загрузите фото или вставьте ссылку. JPG, PNG, WebP.</p>
+                    <p className="mt-0.5">Рекомендуемый размер: не менее 400×400 px.</p>
+                    {currentPhoto && <p className="mt-1.5 text-emerald-500/80">✓ Фото установлено</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={photoUrlInput}
+                      onChange={e => setPhotoUrlInput(e.target.value)}
+                      placeholder="https://example.com/photo.jpg"
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    />
+                    <button
+                      onClick={handlePhotoUrl}
+                      disabled={!photoUrlInput.trim() || photoUrlSaving}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-xs font-medium transition disabled:opacity-40"
+                    >
+                      {photoUrlSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                      Применить
+                    </button>
+                  </div>
                 </div>
               </div>
-            );
-          })}
+
+              {/* ── Fields ── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField label="Имя артиста">
+                  <input value={form.name} onChange={e => updateName(e.target.value)} className="admin-input" />
+                </FormField>
+                <FormField label="URL (авто)">
+                  <div className="admin-input bg-zinc-800/60 text-zinc-400 cursor-default flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>/artist/{form.slug || '...'}</span>
+                  </div>
+                </FormField>
+                <FormField label="Жанр">
+                  <select value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} className="admin-input">
+                    <option value="">Выбрать</option>
+                    {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                    {form.genre && !GENRES.includes(form.genre) && <option value={form.genre}>{form.genre}</option>}
+                  </select>
+                </FormField>
+                <FormField label="VK">
+                  <input value={form.socials?.vk || ''} onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, vk: e.target.value } }))} placeholder="https://vk.com/..." className="admin-input" />
+                </FormField>
+                <FormField label="Telegram">
+                  <input value={form.socials?.telegram || ''} onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, telegram: e.target.value } }))} placeholder="https://t.me/..." className="admin-input" />
+                </FormField>
+                <FormField label="Instagram">
+                  <input value={form.socials?.instagram || ''} onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, instagram: e.target.value } }))} placeholder="https://instagram.com/..." className="admin-input" />
+                </FormField>
+              </div>
+              <FormField label="Биография">
+                <textarea value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} rows={4} className="admin-input resize-none" placeholder="О артисте..." />
+              </FormField>
+              <div className="flex gap-2">
+                <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {saving ? 'Сохранение...' : 'Сохранить'}
+                </button>
+                <button onClick={onCancelEdit} className="px-4 py-2.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm transition">Отмена</button>
+              </div>
+            </div>
+          )}
+
+          {/* Tracks linked to this artist */}
+          {isExpanded && (
+            <div className="p-4 space-y-3">
+              <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Релизы ({artistTracks.length})</div>
+              {tracksLoading ? (
+                <div className="text-center py-4"><Loader2 className="w-5 h-5 text-purple-500 animate-spin mx-auto" /></div>
+              ) : artistTracks.length === 0 ? (
+                <p className="text-sm text-zinc-500">Нет привязанных треков</p>
+              ) : (
+                <div className="space-y-1">
+                  {artistTracks.map(t => (
+                    <div key={t.id} className="flex items-center gap-3 py-1.5 px-3 rounded-lg hover:bg-zinc-800/40 transition group">
+                      {t.cover ? <img src={t.cover} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center"><Music className="w-3 h-3 text-zinc-600" /></div>}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-white truncate">{t.title}</div>
+                        <div className="text-[10px] text-zinc-500">{t.genre} · {t.year}</div>
+                      </div>
+                      <span className="text-xs font-mono text-zinc-500">{formatPlays(t.plays)}</span>
+                      <button onClick={() => handleUnlinkTrack(t.id)} className="p-1 rounded hover:bg-red-900/50 text-zinc-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition" title="Отвязать">
+                        <Unlink className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Link new track */}
+              <div className="mt-3 pt-3 border-t border-zinc-800">
+                <div className="text-xs text-zinc-500 mb-2 flex items-center gap-1"><Link2 className="w-3 h-3" /> Привязать трек</div>
+                <input value={linkTrackSearch} onChange={e => setLinkTrackSearch(e.target.value)} placeholder="Поиск трека для привязки..."
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500 mb-2" />
+                {linkTrackSearch && availableTracks.length > 0 && (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {availableTracks.map(t => (
+                      <button key={t.id} onClick={() => { handleLinkTrack(t.id); setLinkTrackSearch(''); }}
+                        className="w-full flex items-center gap-2 py-1.5 px-3 rounded-lg hover:bg-purple-900/30 text-left transition">
+                        <Plus className="w-3 h-3 text-purple-400 shrink-0" />
+                        <span className="text-sm text-white truncate">{t.title}</span>
+                        <span className="text-xs text-zinc-500 shrink-0">— {t.artist}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  USERS TAB                                      */
+/* ═══════════════════════════════════════════════ */
+
+function UsersTab() {
+  const { adminUsers, fetchAdminUsers, blockUser, promoteUser, adminStats, fetchAdminStats } = useStore();
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchAdminUsers(), fetchAdminStats()]).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!search) return adminUsers;
+    const q = search.toLowerCase();
+    return adminUsers.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+  }, [adminUsers, search]);
+
+  if (loading && adminUsers.length === 0) return <LoadingSpinner text="Загрузка пользователей..." />;
+
+  return (
+    <div className="space-y-4">
+      {adminStats && (
+        <div className="bg-gradient-to-r from-emerald-900/30 to-zinc-900/30 rounded-xl border border-emerald-800/30 p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <Activity className="w-6 h-6 text-emerald-400 animate-pulse" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-white">{adminStats.activeListeners}</div>
+            <div className="text-sm text-zinc-400">слушают прямо сейчас</div>
+          </div>
+          <div className="ml-auto text-right">
+            <div className="text-lg font-bold text-white">{adminStats.users}</div>
+            <div className="text-xs text-zinc-500">всего</div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск..."
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500" />
+        </div>
+        <span className="text-xs text-zinc-500">{filtered.length}</span>
+        <button onClick={() => fetchAdminUsers()} className="p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
+      </div>
+
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
+              <th className="p-3">Пользователь</th>
+              <th className="p-3">Email</th>
+              <th className="p-3">Роль</th>
+              <th className="p-3 text-right">Лайки</th>
+              <th className="p-3 text-right">Прослушиваний</th>
+              <th className="p-3">Активность</th>
+              <th className="p-3">Регистрация</th>
+              <th className="p-3 text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(u => (
+              <tr key={u.id} className={`border-b border-zinc-800/50 hover:bg-zinc-800/30 transition ${u.isBlocked ? 'opacity-50' : ''}`}>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <img src={u.avatar || ''} alt="" className="w-8 h-8 rounded-full object-cover bg-zinc-800" />
+                    <span className="text-white font-medium">{u.name}</span>
+                    {u.isBlocked && <Ban className="w-3.5 h-3.5 text-red-400" />}
+                  </div>
+                </td>
+                <td className="p-3 text-zinc-400 text-xs">{u.email}</td>
+                <td className="p-3">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === 'admin' ? 'bg-purple-900/50 text-purple-400' : 'bg-zinc-800 text-zinc-400'}`}>
+                    {u.role === 'admin' ? '👑 admin' : 'user'}
+                  </span>
+                </td>
+                <td className="p-3 text-right text-zinc-400 font-mono text-xs">{u.likesCount}</td>
+                <td className="p-3 text-right text-zinc-400 font-mono text-xs">{formatPlays(u.totalPlays)}</td>
+                <td className="p-3 text-zinc-500 text-xs">
+                  {u.lastActive ? new Date(u.lastActive).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                </td>
+                <td className="p-3 text-zinc-500 text-xs">{new Date(u.createdAt).toLocaleDateString('ru-RU')}</td>
+                <td className="p-3 text-right">
+                  <div className="flex items-center gap-1 justify-end">
+                    <button onClick={() => promoteUser(u.id)} title={u.role === 'admin' ? 'Снять админа' : 'Назначить админом'} className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition"><Crown className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => blockUser(u.id)} title={u.isBlocked ? 'Разблокировать' : 'Заблокировать'} className={`p-1.5 rounded-lg transition ${u.isBlocked ? 'hover:bg-emerald-900/50 text-emerald-400' : 'hover:bg-red-900/50 text-zinc-400 hover:text-red-400'}`}>
+                      {u.isBlocked ? <ShieldOff className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="p-8 text-center text-zinc-500 text-sm">Не найдено</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  MODERATION TAB                                 */
+/* ═══════════════════════════════════════════════ */
+
+function ModerationTab() {
+  const { adminSubmissions, fetchAdminSubmissions, moderateSubmission } = useStore();
+  const [loading, setLoading] = useState(false);
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>('pending');
+
+  useEffect(() => { setLoading(true); fetchAdminSubmissions().finally(() => setLoading(false)); }, []);
+
+  const filtered = useMemo(() => {
+    if (!filterStatus) return adminSubmissions;
+    return adminSubmissions.filter(s => s.status === filterStatus);
+  }, [adminSubmissions, filterStatus]);
+
+  if (loading && adminSubmissions.length === 0) return <LoadingSpinner text="Загрузка заявок..." />;
+
+  const statusColors: Record<string, string> = { pending: 'bg-yellow-900/50 text-yellow-400', approved: 'bg-emerald-900/50 text-emerald-400', rejected: 'bg-red-900/50 text-red-400', deferred: 'bg-zinc-700 text-zinc-400' };
+  const statusLabels: Record<string, string> = { pending: 'Ожидает', approved: 'Одобрено', rejected: 'Отклонено', deferred: 'Отложено' };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 items-center flex-wrap">
+        {['', 'pending', 'approved', 'rejected', 'deferred'].map(st => (
+          <button key={st || 'all'} onClick={() => setFilterStatus(st)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${filterStatus === st ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+            {st ? statusLabels[st] : 'Все'} ({adminSubmissions.filter(s => !st || s.status === st).length})
+          </button>
+        ))}
+        <button onClick={() => fetchAdminSubmissions()} className="ml-auto p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon={<FileCheck />} text="Заявок нет" />
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(sub => (
+            <div key={sub.id} className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-5">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center shrink-0"><Music className="w-5 h-5 text-zinc-500" /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-white font-semibold">{sub.title}</span>
+                    <span className="text-zinc-500">—</span>
+                    <span className="text-zinc-300">{sub.artist}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[sub.status]}`}>{statusLabels[sub.status]}</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
+                    <span>{sub.genre}</span><span>{sub.year}</span><span>{sub.originalFilename}</span>
+                    <span>{new Date(sub.createdAt).toLocaleDateString('ru-RU')}</span>
+                  </div>
+                  {sub.comment && <p className="mt-2 text-sm text-zinc-400 bg-zinc-800/50 rounded-lg px-3 py-2">💬 {sub.comment}</p>}
+                  {sub.rejectReason && <p className="mt-2 text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">❌ {sub.rejectReason}</p>}
+                  <div className="mt-3 flex items-center gap-2">
+                    <img src={sub.user.avatar || ''} alt="" className="w-5 h-5 rounded-full bg-zinc-800" />
+                    <span className="text-xs text-zinc-400">{sub.user.name}</span>
+                    <span className="text-xs text-zinc-600">{sub.user.email}</span>
+                  </div>
+                </div>
+                {(sub.status === 'pending' || sub.status === 'deferred') && (
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'approve'); setProcessing(null); }} disabled={processing === sub.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition disabled:opacity-50">
+                      {processing === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Одобрить
+                    </button>
+                    {rejectId === sub.id ? (
+                      <div className="space-y-1.5">
+                        <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Причина..." className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-white" />
+                        <div className="flex gap-1">
+                          <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'reject', rejectReason); setRejectId(null); setRejectReason(''); setProcessing(null); }} disabled={processing === sub.id}
+                            className="flex-1 px-2 py-1 rounded bg-red-600 text-white text-xs transition disabled:opacity-50">Отклонить</button>
+                          <button onClick={() => { setRejectId(null); setRejectReason(''); }} className="px-2 py-1 rounded bg-zinc-700 text-white text-xs">✕</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setRejectId(sub.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/50 hover:bg-red-800/50 text-red-400 text-xs font-medium transition">
+                        <X className="w-3 h-3" /> Отклонить
+                      </button>
+                    )}
+                    {sub.status === 'pending' && (
+                      <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'defer'); setProcessing(null); }} disabled={processing === sub.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-medium transition disabled:opacity-50">
+                        <Clock className="w-3 h-3" /> Отложить
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  SETTINGS TAB                                   */
+/* ═══════════════════════════════════════════════ */
+
+function SettingsTab() {
+  const { tracks, fetchTracks, updateTrack } = useStore();
+  const [heroId, setHeroId] = useState('');
+  const currentFeatured = tracks.find(t => t.featured);
+
+  const setFeatured = async () => {
+    if (!heroId) return;
+    if (currentFeatured) await updateTrack(currentFeatured.id, { featured: false });
+    await updateTrack(heroId, { featured: true });
+    await fetchTracks();
+    setHeroId('');
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Главный трек (Hero)</h3>
+        <p className="text-sm text-zinc-400 mb-4">
+          Трек для секции Hero на главной странице.
+          {currentFeatured && <span className="block mt-1 text-purple-400">Сейчас: «{currentFeatured.title}» — {currentFeatured.artist}</span>}
+        </p>
+        <div className="flex gap-2">
+          <select value={heroId} onChange={e => setHeroId(e.target.value)} className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white">
+            <option value="">Выберите трек</option>
+            {tracks.map(t => <option key={t.id} value={t.id}>{t.title} — {t.artist}</option>)}
+          </select>
+          <button onClick={setFeatured} disabled={!heroId} className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50">Установить</button>
+        </div>
+      </div>
+
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Быстрые ссылки</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Link to="/" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><Home className="w-4 h-4" /> Главная</Link>
+          <Link to="/tracks" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><Music className="w-4 h-4" /> Все треки</Link>
+          <Link to="/artists" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><Mic2 className="w-4 h-4" /> Все артисты</Link>
+          <Link to="/genres" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><BarChart3 className="w-4 h-4" /> Жанры</Link>
+          <Link to="/submit" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><Upload className="w-4 h-4" /> Загрузка трека</Link>
+          <Link to="/profile" className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"><UserIcon className="w-4 h-4" /> Профиль</Link>
+        </div>
+      </div>
+
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Система</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between text-zinc-400"><span>API</span><span className="text-zinc-300 font-mono text-xs">{API}</span></div>
+          <div className="flex justify-between text-zinc-400"><span>Фронтенд</span><span className="text-zinc-300 font-mono text-xs">React + Vite + Tailwind</span></div>
+          <div className="flex justify-between text-zinc-400"><span>Бэкенд</span><span className="text-zinc-300 font-mono text-xs">Express + PostgreSQL + S3</span></div>
         </div>
       </div>
     </div>
   );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  SHARED COMPONENTS                              */
+/* ═══════════════════════════════════════════════ */
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1.5 block">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function StatCard({ label, value, icon, color, subtitle }: { label: string; value: string | number; icon: React.ReactNode; color: string; subtitle?: string }) {
+  const cm: Record<string, string> = {
+    purple: 'from-purple-500/20 to-transparent border-purple-500/20 text-purple-400',
+    blue: 'from-blue-500/20 to-transparent border-blue-500/20 text-blue-400',
+    emerald: 'from-emerald-500/20 to-transparent border-emerald-500/20 text-emerald-400',
+    amber: 'from-amber-500/20 to-transparent border-amber-500/20 text-amber-400',
+    green: 'from-green-500/20 to-transparent border-green-500/20 text-green-400',
+    sky: 'from-sky-500/20 to-transparent border-sky-500/20 text-sky-400',
+    violet: 'from-violet-500/20 to-transparent border-violet-500/20 text-violet-400',
+    rose: 'from-rose-500/20 to-transparent border-rose-500/20 text-rose-400',
+  };
+  return (
+    <div className={`bg-gradient-to-br ${cm[color] || cm.purple} rounded-xl border p-4`}>
+      <div className="flex items-center gap-2 mb-2 opacity-70">{icon}<span className="text-xs">{label}</span></div>
+      <div className="text-2xl font-bold text-white">{value}</div>
+      {subtitle && <div className="text-[10px] text-zinc-500 mt-1">{subtitle}</div>}
+    </div>
+  );
+}
+
+function StatusRow({ label, value, color }: { label: string; value: number; color: string }) {
+  return <div className="flex items-center gap-3"><div className={`w-2 h-2 rounded-full ${color}`} /><span className="text-sm text-zinc-300 flex-1">{label}</span><span className="text-sm font-mono text-zinc-400">{value}</span></div>;
+}
+
+function LoadingSpinner({ text }: { text: string }) {
+  return <div className="flex items-center justify-center py-20"><div className="text-center"><Loader2 className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-3" /><p className="text-sm text-zinc-500">{text}</p></div></div>;
+}
+
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return <div className="flex items-center justify-center py-16"><div className="text-center text-zinc-500"><div className="w-12 h-12 mx-auto mb-3 opacity-30">{icon}</div><p className="text-sm">{text}</p></div></div>;
 }

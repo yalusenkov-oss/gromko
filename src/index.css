@@ -1,1 +1,20 @@
 @import "tailwindcss";
+
+/* Admin panel form inputs */
+.admin-input {
+  width: 100%;
+  background-color: rgb(24 24 27); /* zinc-900 */
+  border: 1px solid rgb(39 39 42); /* zinc-800 */
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: white;
+}
+.admin-input::placeholder {
+  color: rgb(82 82 91); /* zinc-600 */
+}
+.admin-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(147 51 234); /* purple-600 */
+  border-color: rgb(147 51 234);
+}

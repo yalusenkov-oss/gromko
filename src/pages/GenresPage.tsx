@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useStore, GENRES } from '../store';
+import { useState, useEffect } from 'react';
 
 const GENRE_COLORS: Record<string, string> = {
   'Хип-хоп': 'from-yellow-500 to-orange-600',
@@ -13,8 +14,22 @@ const GENRE_COLORS: Record<string, string> = {
   'Electronic': 'from-cyan-500 to-blue-700',
 };
 
+interface GenreInfo { genre: string; count: number; totalPlays: number }
+
 export default function GenresPage() {
   const { tracks } = useStore();
+  const [genreCounts, setGenreCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    fetch('/api/genres')
+      .then(r => r.json())
+      .then((data: GenreInfo[]) => {
+        const map: Record<string, number> = {};
+        data.forEach(g => { map[g.genre] = Number(g.count); });
+        setGenreCounts(map);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
@@ -24,7 +39,7 @@ export default function GenresPage() {
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {GENRES.map(genre => {
-            const count = tracks.filter(t => t.genre === genre).length;
+            const count = genreCounts[genre] || 0;
             const cover = tracks.find(t => t.genre === genre)?.cover;
             return (
               <Link key={genre} to={`/tracks`} onClick={() => {}} className="group relative aspect-square rounded-2xl overflow-hidden">

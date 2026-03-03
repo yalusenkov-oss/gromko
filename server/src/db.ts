@@ -158,9 +158,19 @@ export async function initSchema(): Promise<void> {
         quality TEXT NOT NULL DEFAULT 'medium'
       );
 
+      -- Junction table: many-to-many tracks ↔ artists
+      CREATE TABLE IF NOT EXISTS track_artists (
+        track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+        artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (track_id, artist_id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_tracks_status ON tracks(status);
       CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);
       CREATE INDEX IF NOT EXISTS idx_tracks_artist_slug ON tracks(artist_slug);
+      CREATE INDEX IF NOT EXISTS idx_track_artists_track ON track_artists(track_id);
+      CREATE INDEX IF NOT EXISTS idx_track_artists_artist ON track_artists(artist_id);
       CREATE INDEX IF NOT EXISTS idx_play_history_track ON play_history(track_id);
       CREATE INDEX IF NOT EXISTS idx_play_history_user ON play_history(user_id);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

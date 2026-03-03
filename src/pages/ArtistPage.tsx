@@ -1,15 +1,96 @@
 import { useParams } from 'react-router-dom';
-import { useStore } from '../store';
-import { Play, Pause, Music } from 'lucide-react';
+import { useStore, Track } from '../store';
+import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
+import { useState, useEffect, useMemo } from 'react';
+
+interface Album {
+  name: string;
+  cover: string;
+  year: number;
+  tracks: Track[];
+  totalPlays: number;
+}
 
 export default function ArtistPage() {
   const { slug } = useParams();
-  const { artists, tracks, player, playTrack, togglePlay } = useStore();
+  const { artists, player, playTrack, togglePlay } = useStore();
+  const [artistTracks, setArtistTracks] = useState<Track[]>([]);
+  const [showAllTracks, setShowAllTracks] = useState(false);
+  const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
 
   const artist = artists.find(a => a.slug === slug);
-  const artistTracks = tracks.filter(t => t.artistSlug === slug);
+
+  // Fetch tracks directly from API for this artist (includes meta.album)
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/artists/${slug}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.tracks) setArtistTracks(data.tracks);
+      })
+      .catch(() => {});
+  }, [slug]);
+
+  // Top 5 popular tracks (sorted by plays)
+  const popularTracks = useMemo(() =>
+    [...artistTracks].sort((a, b) => b.plays - a.plays).slice(0, 5),
+    [artistTracks]
+  );
+
+  // Group tracks into albums (by meta.album, falling back to cover-based grouping)
+  const { albums, singles } = useMemo(() => {
+    const albumMap = new Map<string, Album>();
+    const singlesList: Track[] = [];
+
+    for (const track of artistTracks) {
+      const albumName = track.meta?.album;
+
+      if (albumName) {
+        if (!albumMap.has(albumName)) {
+          albumMap.set(albumName, {
+            name: albumName,
+            cover: track.cover,
+            year: track.year,
+            tracks: [],
+            totalPlays: 0,
+          });
+        }
+        const album = albumMap.get(albumName)!;
+        album.tracks.push(track);
+        album.totalPlays += track.plays;
+      } else {
+        // No album — group by cover (same cover = same release)
+        const coverKey = track.cover || '';
+        const existingAlbum = [...albumMap.values()].find(a => a.cover === coverKey && a.tracks.length > 0 && !a.tracks[0].meta?.album);
+
+        if (existingAlbum && coverKey) {
+          existingAlbum.tracks.push(track);
+          existingAlbum.totalPlays += track.plays;
+        } else {
+          singlesList.push(track);
+        }
+      }
+    }
+
+    // Filter albums with more than 1 track, move single-track "albums" to singles
+    const realAlbums: Album[] = [];
+    for (const album of albumMap.values()) {
+      if (album.tracks.length > 1) {
+        // Sort tracks within album by plays desc
+        album.tracks.sort((a, b) => b.plays - a.plays);
+        realAlbums.push(album);
+      } else {
+        singlesList.push(...album.tracks);
+      }
+    }
+
+    // Sort albums by total plays
+    realAlbums.sort((a, b) => b.totalPlays - a.totalPlays);
+
+    return { albums: realAlbums, singles: singlesList.sort((a, b) => b.plays - a.plays) };
+  }, [artistTracks]);
 
   if (!artist) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
@@ -23,6 +104,13 @@ export default function ArtistPage() {
     if (isAnyPlaying) togglePlay();
     else if (artistTracks[0]) playTrack(artistTracks[0], artistTracks);
   };
+
+  const handlePlayAlbum = (album: Album) => {
+    const firstTrack = album.tracks[0];
+    if (firstTrack) playTrack(firstTrack, album.tracks);
+  };
+
+  const displayedTracks = showAllTracks ? [...artistTracks].sort((a, b) => b.plays - a.plays) : popularTracks;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
@@ -41,7 +129,7 @@ export default function ArtistPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-8 space-y-8">
+      <div className="max-w-5xl mx-auto px-4 md:px-6 py-8 space-y-10">
         {/* Bio */}
         {artist.bio && (
           <p className="text-zinc-400 max-w-2xl">{artist.bio}</p>
@@ -56,20 +144,100 @@ export default function ArtistPage() {
           </button>
         </div>
 
-        {/* Tracks */}
+        {/* Popular Tracks */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Music size={18} className="text-red-400" />
-            <h2 className="text-lg font-bold">Треки ({artistTracks.length})</h2>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Music size={18} className="text-red-400" />
+              <h2 className="text-lg font-bold">{showAllTracks ? `Все треки (${artistTracks.length})` : 'Популярные треки'}</h2>
+            </div>
           </div>
           {artistTracks.length === 0 ? (
             <p className="text-zinc-600">У артиста пока нет треков</p>
           ) : (
-            <div className="space-y-1">
-              {artistTracks.map((t, i) => <TrackCard key={t.id} track={t} queue={artistTracks} showRank={i + 1} />)}
-            </div>
+            <>
+              <div className="space-y-1">
+                {displayedTracks.map((t, i) => <TrackCard key={t.id} track={t} queue={showAllTracks ? artistTracks : popularTracks} showRank={i + 1} />)}
+              </div>
+              {artistTracks.length > 5 && (
+                <button
+                  onClick={() => setShowAllTracks(!showAllTracks)}
+                  className="mt-3 flex items-center gap-1.5 text-zinc-400 hover:text-white text-sm font-medium transition-colors mx-auto"
+                >
+                  {showAllTracks ? (
+                    <><ChevronUp size={16} /> Показать меньше</>
+                  ) : (
+                    <><ChevronDown size={16} /> Показать все ({artistTracks.length})</>
+                  )}
+                </button>
+              )}
+            </>
           )}
         </section>
+
+        {/* Albums */}
+        {albums.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Disc3 size={18} className="text-red-400" />
+              <h2 className="text-lg font-bold">Альбомы ({albums.length})</h2>
+            </div>
+            <div className="space-y-4">
+              {albums.map(album => {
+                const isExpanded = expandedAlbum === album.name;
+                const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
+
+                return (
+                  <div key={album.name} className="bg-white/3 rounded-2xl overflow-hidden border border-white/5">
+                    {/* Album header */}
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="relative w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden shrink-0 group cursor-pointer"
+                        onClick={() => handlePlayAlbum(album)}>
+                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          {isAlbumPlaying ? <Pause size={24} fill="white" className="text-white" /> : <Play size={24} fill="white" className="text-white ml-1" />}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-white font-bold text-base md:text-lg truncate">{album.name}</h3>
+                        <p className="text-zinc-500 text-sm">{album.year} · {album.tracks.length} {album.tracks.length === 1 ? 'трек' : album.tracks.length >= 2 && album.tracks.length <= 4 ? 'трека' : 'треков'}</p>
+                        <p className="text-zinc-600 text-xs mt-0.5">{formatPlays(album.totalPlays)} прослушиваний</p>
+                      </div>
+                      <button
+                        onClick={() => setExpandedAlbum(isExpanded ? null : album.name)}
+                        className="text-zinc-400 hover:text-white transition-colors p-2"
+                      >
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </button>
+                    </div>
+
+                    {/* Album tracks (expanded) */}
+                    {isExpanded && (
+                      <div className="border-t border-white/5 px-2 pb-2">
+                        {album.tracks.map((t, i) => (
+                          <TrackCard key={t.id} track={t} queue={album.tracks} showRank={i + 1} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Singles */}
+        {singles.length > 0 && albums.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <Clock size={18} className="text-red-400" />
+              <h2 className="text-lg font-bold">Синглы ({singles.length})</h2>
+            </div>
+            <div className="space-y-1">
+              {singles.map((t, i) => <TrackCard key={t.id} track={t} queue={singles} showRank={i + 1} />)}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

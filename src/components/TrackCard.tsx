@@ -48,9 +48,17 @@ export default function TrackCard({ track, queue, showRank }: Props) {
           {track.explicit && <span className="text-[10px] bg-zinc-700 text-zinc-400 px-1 rounded shrink-0">E</span>}
           {track.isNew && <span className="text-[10px] bg-red-500/20 text-red-400 px-1 rounded shrink-0">NEW</span>}
         </div>
-        <Link to={`/artist/${track.artistSlug}`} className="text-zinc-400 text-xs hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
-          {track.artist}
-        </Link>
+        <span className="text-zinc-400 text-xs" onClick={e => e.stopPropagation()}>
+          {track.artists && track.artists.length > 0
+            ? track.artists.map((a, i) => (
+                <span key={a.slug}>
+                  {i > 0 && <span className="text-zinc-500">, </span>}
+                  <Link to={`/artist/${a.slug}`} className="hover:text-white transition-colors">{a.name}</Link>
+                </span>
+              ))
+            : <Link to={`/artist/${track.artistSlug}`} className="hover:text-white transition-colors">{track.artist}</Link>
+          }
+        </span>
       </div>
 
       <div className="hidden md:flex items-center gap-4 shrink-0">

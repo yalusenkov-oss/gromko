@@ -24,19 +24,18 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16">
-      {/* RF Warning Banner */}
-      <div className="bg-red-950/80 border-b border-red-800/50 px-4 py-2.5 flex items-center justify-center gap-2 text-center">
-        <span className="text-red-400 text-xs md:text-sm font-bold uppercase tracking-widest">
-          ⚠️ САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ
-        </span>
-      </div>
-
       {/* Hero */}
       {heroTrack && (
         <div
           className="relative h-[480px] md:h-[560px] flex items-end overflow-hidden"
           style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
         >
+          {/* RF Warning Banner — overlay inside hero */}
+          <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-4 py-1.5 flex items-center justify-center gap-2 text-center">
+            <span className="text-red-400 text-[10px] md:text-xs font-bold uppercase tracking-widest">
+              ⚠️ САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ
+            </span>
+          </div>
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-zinc-950/20" />
           <div className="absolute inset-0 bg-gradient-to-r from-zinc-950/80 to-transparent" />
 
@@ -47,9 +46,17 @@ export default function Home() {
                 <span className="text-red-400 text-sm font-medium uppercase tracking-widest">Трек дня</span>
               </div>
               <h1 className="text-4xl md:text-6xl font-black tracking-tight mb-2">{heroTrack.title}</h1>
-              <Link to={`/artist/${heroTrack.artistSlug}`} className="text-zinc-300 text-xl hover:text-white transition-colors mb-1 block">
-                {heroTrack.artist}
-              </Link>
+              <div className="text-zinc-300 text-xl hover:text-white transition-colors mb-1 block">
+                {heroTrack.artists && heroTrack.artists.length > 0
+                  ? heroTrack.artists.map((a, i) => (
+                      <span key={a.slug}>
+                        {i > 0 && <span className="text-zinc-500">, </span>}
+                        <Link to={`/artist/${a.slug}`} className="hover:text-white transition-colors">{a.name}</Link>
+                      </span>
+                    ))
+                  : <Link to={`/artist/${heroTrack.artistSlug}`} className="hover:text-white transition-colors">{heroTrack.artist}</Link>
+                }
+              </div>
               <p className="text-zinc-500 text-sm mb-6">{heroTrack.genre} · {heroTrack.year} · {formatPlays(heroTrack.plays)} прослушиваний</p>
 
               <div className="flex items-center gap-3">

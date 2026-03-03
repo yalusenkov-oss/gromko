@@ -7,6 +7,7 @@ export interface Track {
   title: string;
   artist: string;
   artistSlug: string;
+  artists?: { name: string; slug: string }[] | null;
   genre: string;
   year: number;
   cover: string;
@@ -19,6 +20,7 @@ export interface Track {
   streams?: { low?: string; medium?: string; high?: string; lossless?: string };
   hlsMaster?: string;
   waveform?: number[];
+  meta?: { album?: string; bpm?: number; loudness?: number };
 }
 
 export interface Artist {
@@ -111,6 +113,53 @@ function mapUser(u: any): User {
   };
 }
 
+export interface AdminStats {
+  tracks: number;
+  artists: number;
+  users: number;
+  totalPlays: number;
+  pending: number;
+  processing: number;
+  errors: number;
+  ready: number;
+  pendingSubmissions: number;
+  recentUsers: number;
+  activeListeners: number;
+  playsToday: number;
+  playsWeek: number;
+  playsMonth: number;
+  topGenres: { genre: string; count: number }[];
+  topTracks: Track[];
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  avatar: string;
+  isBlocked: boolean;
+  createdAt: string;
+  likesCount: number;
+  totalPlays: number;
+  lastActive: string | null;
+}
+
+export interface AdminSubmission {
+  id: string;
+  userId: string;
+  title: string;
+  artist: string;
+  genre: string;
+  year: number;
+  comment: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'deferred';
+  rejectReason: string | null;
+  originalFilename: string;
+  createdAt: string;
+  user: { name: string; email: string; avatar: string };
+}
+
 interface AppStore {
   currentUser: User | null;
   authLoading: boolean;
@@ -125,9 +174,16 @@ interface AppStore {
   submissions: Submission[];
   playlists: Playlist[];
 
+  // Admin data (backed by real API)
+  adminStats: AdminStats | null;
+  adminUsers: AdminUser[];
+  adminSubmissions: AdminSubmission[];
+
   fetchTracks: (params?: Record<string, string>) => Promise<void>;
   fetchArtists: () => Promise<void>;
   fetchAdminUsers: () => Promise<void>;
+  fetchAdminStats: () => Promise<void>;
+  fetchAdminSubmissions: () => Promise<void>;
 
   player: PlayerState;
   playTrack: (track: Track, queue?: Track[]) => void;
@@ -144,13 +200,13 @@ interface AppStore {
   addPlaylist: (title: string, trackIds: string[]) => void;
   submitTrack: (sub: Omit<Submission, 'id' | 'status' | 'createdAt'>) => void;
 
-  updateTrack: (id: string, data: Partial<Track>) => void;
-  deleteTrack: (id: string) => void;
+  updateTrack: (id: string, data: Partial<Track>) => Promise<void>;
+  deleteTrack: (id: string) => Promise<void>;
   addTrack: (track: Omit<Track, 'id'>) => void;
-  updateArtist: (id: string, data: Partial<Artist>) => void;
-  deleteArtist: (id: string) => void;
+  updateArtist: (id: string, data: Partial<Artist>) => Promise<void>;
+  deleteArtist: (id: string) => Promise<void>;
   addArtist: (artist: Omit<Artist, 'id'>) => void;
-  moderateSubmission: (id: string, action: 'approve' | 'reject' | 'defer', reason?: string) => void;
+  moderateSubmission: (id: string, action: 'approve' | 'reject' | 'defer', reason?: string) => Promise<void>;
   updateSubmission: (id: string, data: Partial<Submission>) => void;
   blockUser: (id: string) => void;
   promoteUser: (id: string) => void;
@@ -159,6 +215,10 @@ interface AppStore {
   setHeroTrack: (id: string) => void;
   activeGenre: string;
   setActiveGenre: (g: string) => void;
+
+  authModal: 'login' | 'register' | null;
+  openAuthModal: (mode: 'login' | 'register') => void;
+  closeAuthModal: () => void;
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -168,6 +228,9 @@ export const useStore = create<AppStore>((set, get) => ({
   artists: [],
   users: [],
   submissions: [],
+  adminStats: null,
+  adminUsers: [],
+  adminSubmissions: [],
   playlists: [],
   heroTrackId: '',
   activeGenre: 'Все',
@@ -225,8 +288,22 @@ export const useStore = create<AppStore>((set, get) => ({
   fetchAdminUsers: async () => {
     try {
       const data = await apiFetch('/admin/users');
-      set({ users: Array.isArray(data) ? data.map(mapUser) : [] });
+      set({ adminUsers: Array.isArray(data) ? data : [] });
     } catch (e) { console.error('fetchAdminUsers:', e); }
+  },
+
+  fetchAdminStats: async () => {
+    try {
+      const data = await apiFetch('/admin/stats');
+      set({ adminStats: data });
+    } catch (e) { console.error('fetchAdminStats:', e); }
+  },
+
+  fetchAdminSubmissions: async () => {
+    try {
+      const data = await apiFetch('/admin/submissions');
+      set({ adminSubmissions: Array.isArray(data) ? data : [] });
+    } catch (e) { console.error('fetchAdminSubmissions:', e); }
   },
 
   player: {
@@ -235,9 +312,16 @@ export const useStore = create<AppStore>((set, get) => ({
     repeat: 'none', isFullscreen: false,
   },
 
-  playTrack: (track, queue) => set(s => ({
-    player: { ...s.player, currentTrack: track, queue: queue || s.player.queue, isPlaying: true, progress: 0 },
-  })),
+  playTrack: (track, queue) => {
+    const { currentUser } = get();
+    if (!currentUser) {
+      set({ authModal: 'login' });
+      return;
+    }
+    set(s => ({
+      player: { ...s.player, currentTrack: track, queue: queue || s.player.queue, isPlaying: true, progress: 0 },
+    }));
+  },
   togglePlay: () => set(s => ({ player: { ...s.player, isPlaying: !s.player.isPlaying } })),
   nextTrack: () => {
     const { player } = get();
@@ -290,39 +374,76 @@ export const useStore = create<AppStore>((set, get) => ({
     set(st => ({ submissions: [...st.submissions, s] }));
   },
 
-  updateTrack: (id, data) => set(s => ({ tracks: s.tracks.map(t => t.id === id ? { ...t, ...data } : t) })),
-  deleteTrack: (id) => set(s => ({ tracks: s.tracks.filter(t => t.id !== id) })),
+  updateTrack: async (id, data) => {
+    try {
+      const updated = await apiFetch(`/admin/tracks/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      set(s => ({ tracks: s.tracks.map(t => t.id === id ? { ...t, ...updated } : t) }));
+    } catch (e) {
+      console.error('updateTrack:', e);
+      // Fallback to local update
+      set(s => ({ tracks: s.tracks.map(t => t.id === id ? { ...t, ...data } : t) }));
+    }
+  },
+  deleteTrack: async (id) => {
+    try {
+      await apiFetch(`/admin/tracks/${id}`, { method: 'DELETE' });
+      set(s => ({ tracks: s.tracks.filter(t => t.id !== id) }));
+    } catch (e) { console.error('deleteTrack:', e); }
+  },
   addTrack: (track) => set(s => ({ tracks: [...s.tracks, { ...track, id: `t${Date.now()}` }] })),
-  updateArtist: (id, data) => set(s => ({ artists: s.artists.map(a => a.id === id ? { ...a, ...data } : a) })),
-  deleteArtist: (id) => set(s => ({ artists: s.artists.filter(a => a.id !== id) })),
+  updateArtist: async (id, data) => {
+    try {
+      const updated = await apiFetch(`/admin/artists/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      set(s => ({ artists: s.artists.map(a => a.id === id ? { ...a, ...updated } : a) }));
+    } catch (e) {
+      console.error('updateArtist:', e);
+      set(s => ({ artists: s.artists.map(a => a.id === id ? { ...a, ...data } : a) }));
+    }
+  },
+  deleteArtist: async (id) => {
+    try {
+      await apiFetch(`/admin/artists/${id}`, { method: 'DELETE' });
+      set(s => ({ artists: s.artists.filter(a => a.id !== id) }));
+    } catch (e) { console.error('deleteArtist:', e); }
+  },
   addArtist: (artist) => set(s => ({ artists: [...s.artists, { ...artist, id: `a${Date.now()}` }] })),
 
-  moderateSubmission: (id, action, reason) => set(s => ({
-    submissions: s.submissions.map(sub => sub.id === id ? {
-      ...sub,
-      status: action === 'approve' ? 'approved' as const : action === 'reject' ? 'rejected' as const : 'deferred' as const,
-      rejectReason: reason,
-    } : sub),
-  })),
+  moderateSubmission: async (id, action, reason) => {
+    try {
+      if (action === 'approve') {
+        await apiFetch(`/admin/submissions/${id}/approve`, { method: 'PUT' });
+      } else if (action === 'reject') {
+        await apiFetch(`/admin/submissions/${id}/reject`, { method: 'PUT', body: JSON.stringify({ reason }) });
+      } else {
+        await apiFetch(`/admin/submissions/${id}/defer`, { method: 'PUT' });
+      }
+      // Refresh submissions list
+      get().fetchAdminSubmissions();
+    } catch (e) { console.error('moderateSubmission:', e); }
+  },
   updateSubmission: (id, data) => set(s => ({ submissions: s.submissions.map(sub => sub.id === id ? { ...sub, ...data } : sub) })),
 
   blockUser: async (id) => {
     try {
       await apiFetch(`/admin/users/${id}/block`, { method: 'PUT' });
-      set(s => ({ users: s.users.map(u => u.id === id ? { ...u, isBlocked: !u.isBlocked } : u) }));
+      set(s => ({ adminUsers: s.adminUsers.map(u => u.id === id ? { ...u, isBlocked: !u.isBlocked } : u) }));
     } catch (e) { console.error('blockUser:', e); }
   },
 
   promoteUser: async (id) => {
-    const user = get().users.find(u => u.id === id);
+    const user = get().adminUsers.find(u => u.id === id);
     if (!user) return;
     const newRole = user.role === 'user' ? 'admin' : 'user';
     try {
       await apiFetch(`/admin/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role: newRole }) });
-      set(s => ({ users: s.users.map(u => u.id === id ? { ...u, role: newRole as Role } : u) }));
+      set(s => ({ adminUsers: s.adminUsers.map(u => u.id === id ? { ...u, role: newRole } : u) }));
     } catch (e) { console.error('promoteUser:', e); }
   },
 
   setHeroTrack: (id) => set({ heroTrackId: id }),
   setActiveGenre: (g) => set({ activeGenre: g }),
+
+  authModal: null,
+  openAuthModal: (mode) => set({ authModal: mode }),
+  closeAuthModal: () => set({ authModal: null }),
 }));

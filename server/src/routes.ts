@@ -147,7 +147,8 @@ router.get('/tracks', async (req: Request, res: Response) => {
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `, params);
 
-    res.json({ tracks: tracks.map(formatTrackRow), total, limit: lim, offset: off });
+    const withArtists = await attachArtists(tracks);
+    res.json({ tracks: withArtists.map(formatTrackRow), total, limit: lim, offset: off });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -157,7 +158,8 @@ router.get('/tracks', async (req: Request, res: Response) => {
 router.get('/tracks/:id', async (req: Request, res: Response) => {
   const track = await queryOne('SELECT * FROM tracks WHERE id = $1', [req.params.id]);
   if (!track) return res.status(404).json({ error: 'Трек не найден' });
-  res.json(formatTrackRow(track));
+  const [withArtists] = await attachArtists([track]);
+  res.json(formatTrackRow(withArtists));
 });
 
 /** GET /api/tracks/:id/waveform */
@@ -275,7 +277,11 @@ router.post('/tracks/upload', (req: Request, res: Response) => {
         year = meta.year || new Date().getFullYear(),
         explicit = 'false',
       } = req.body;
-      const slug = artist.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+
+      // Multi-artist: split by ", " and ensure each artist exists
+      const artistNames = (artist as string).split(/,\s+/).map((n: string) => n.trim()).filter(Boolean);
+      const primaryName = artistNames[0] || artist;
+      const slug = primaryName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
 
       await execute(`
         INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
@@ -287,6 +293,27 @@ router.post('/tracks/upload', (req: Request, res: Response) => {
         audioFile.originalname, meta.format, audioFile.size, meta.bitrate,
         meta.sampleRate, meta.channels, explicit === 'true',
       ]);
+
+      // Create artists and link via junction table
+      for (let i = 0; i < artistNames.length; i++) {
+        const aName = artistNames[i];
+        const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+        const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
+        let artistId: string;
+        if (existing) {
+          artistId = existing.id;
+        } else {
+          artistId = uuid();
+          await execute(
+            `INSERT INTO artists (id, name, slug, genre, tracks_count, total_plays) VALUES ($1, $2, $3, $4, 0, 0)`,
+            [artistId, aName, aSlug, genre]
+          );
+        }
+        await execute(
+          `INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [trackId, artistId, i]
+        );
+      }
 
       enqueueTrack(trackId, audioFile.path, coverFile?.path);
 
@@ -354,11 +381,18 @@ router.get('/artists', async (_req: Request, res: Response) => {
 router.get('/artists/:slug', async (req: Request, res: Response) => {
   const artist = await queryOne('SELECT * FROM artists WHERE slug = $1', [req.params.slug]);
   if (!artist) return res.status(404).json({ error: 'Артист не найден' });
+
+  // Find tracks via junction table (multi-artist) OR via legacy artist_slug field
   const tracks = await query(
-    `SELECT * FROM tracks WHERE artist_slug = $1 AND status = 'ready' ORDER BY plays DESC`,
+    `SELECT DISTINCT t.* FROM tracks t
+     LEFT JOIN track_artists ta ON ta.track_id = t.id
+     LEFT JOIN artists a ON a.id = ta.artist_id
+     WHERE (a.slug = $1 OR t.artist_slug = $1) AND t.status = 'ready'
+     ORDER BY t.plays DESC`,
     [req.params.slug]
   );
-  res.json({ ...formatArtistRow(artist), tracks: tracks.map(formatTrackRow) });
+  const withArtists = await attachArtists(tracks);
+  res.json({ ...formatArtistRow(artist), tracks: withArtists.map(formatTrackRow) });
 });
 
 // ═══════════════════════════════════════════════
@@ -398,9 +432,85 @@ router.get('/stats', async (_req: Request, res: Response) => {
 // ADMIN
 // ═══════════════════════════════════════════════
 
+/** GET /api/admin/stats — extended dashboard stats */
+router.get('/admin/stats', adminRequired, async (_req: Request, res: Response) => {
+  const [
+    totalTracks, totalArtists, totalUsers, totalPlays,
+    pendingTracks, processingTracks, errorTracks, readyTracks,
+    pendingSubmissions,
+    recentUsers, recentPlays,
+    topGenres,
+  ] = await Promise.all([
+    queryOne(`SELECT COUNT(*) as c FROM tracks WHERE status = 'ready'`),
+    queryOne('SELECT COUNT(*) as c FROM artists'),
+    queryOne('SELECT COUNT(*) as c FROM users'),
+    queryOne('SELECT COALESCE(SUM(plays), 0) as s FROM tracks'),
+    queryOne(`SELECT COUNT(*) as c FROM tracks WHERE status = 'pending'`),
+    queryOne(`SELECT COUNT(*) as c FROM tracks WHERE status = 'processing'`),
+    queryOne(`SELECT COUNT(*) as c FROM tracks WHERE status = 'error'`),
+    queryOne(`SELECT COUNT(*) as c FROM tracks WHERE status = 'ready'`),
+    queryOne(`SELECT COUNT(*) as c FROM submissions WHERE status = 'pending'`),
+    queryOne(`SELECT COUNT(*) as c FROM users WHERE created_at > NOW() - INTERVAL '7 days'`),
+    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '24 hours'`),
+    query(`SELECT genre, COUNT(*) as count FROM tracks WHERE status = 'ready' GROUP BY genre ORDER BY count DESC LIMIT 10`),
+  ]);
+
+  // Active listeners (played something in last 15 minutes)
+  const activeListeners = await queryOne(
+    `SELECT COUNT(DISTINCT user_id) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NOT NULL`
+  );
+
+  // Plays today / this week / this month
+  const [playsToday, playsWeek, playsMonth] = await Promise.all([
+    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '24 hours'`),
+    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '7 days'`),
+    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '30 days'`),
+  ]);
+
+  // Top 10 tracks
+  const topTracks = await query(`
+    SELECT id, title, artist, artist_slug, cover_path, plays, genre, year
+    FROM tracks WHERE status = 'ready' ORDER BY plays DESC LIMIT 10
+  `);
+
+  res.json({
+    tracks: Number(totalTracks?.c || 0),
+    artists: Number(totalArtists?.c || 0),
+    users: Number(totalUsers?.c || 0),
+    totalPlays: Number(totalPlays?.s || 0),
+    pending: Number(pendingTracks?.c || 0),
+    processing: Number(processingTracks?.c || 0),
+    errors: Number(errorTracks?.c || 0),
+    ready: Number(readyTracks?.c || 0),
+    pendingSubmissions: Number(pendingSubmissions?.c || 0),
+    recentUsers: Number(recentUsers?.c || 0),
+    activeListeners: Number(activeListeners?.c || 0),
+    playsToday: Number(playsToday?.c || 0),
+    playsWeek: Number(playsWeek?.c || 0),
+    playsMonth: Number(playsMonth?.c || 0),
+    topGenres: (topGenres || []).map((g: any) => ({ genre: g.genre, count: Number(g.count) })),
+    topTracks: topTracks.map(formatTrackRow),
+    queue: getQueueStatus(),
+  });
+});
+
+/** GET /api/admin/users */
 router.get('/admin/users', adminRequired, async (_req: Request, res: Response) => {
-  const users = await query('SELECT id, name, email, role, avatar, is_blocked, created_at FROM users ORDER BY created_at DESC');
-  res.json(users);
+  const users = await query(`
+    SELECT u.id, u.name, u.email, u.role, u.avatar, u.is_blocked, u.created_at,
+           array_length(u.liked_tracks, 1) as likes_count,
+           (SELECT COUNT(*) FROM play_history ph WHERE ph.user_id = u.id) as total_plays,
+           (SELECT MAX(ph.played_at) FROM play_history ph WHERE ph.user_id = u.id) as last_active
+    FROM users u ORDER BY u.created_at DESC
+  `);
+  res.json(users.map((u: any) => ({
+    id: u.id, name: u.name, email: u.email, role: u.role,
+    avatar: u.avatar, isBlocked: !!u.is_blocked,
+    createdAt: u.created_at,
+    likesCount: Number(u.likes_count || 0),
+    totalPlays: Number(u.total_plays || 0),
+    lastActive: u.last_active || null,
+  })));
 });
 
 router.put('/admin/users/:id/block', adminRequired, async (req: Request, res: Response) => {
@@ -415,6 +525,313 @@ router.put('/admin/users/:id/role', adminRequired, async (req: Request, res: Res
   res.json({ ok: true });
 });
 
+/** PUT /api/admin/tracks/:id — edit track metadata */
+router.put('/admin/tracks/:id', adminRequired, async (req: Request, res: Response) => {
+  const { title, artist, genre, year, explicit, isNew, featured } = req.body;
+  const updates: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+
+  if (title !== undefined) { updates.push(`title = $${idx++}`); params.push(title); }
+  if (artist !== undefined) { updates.push(`artist = $${idx++}`); params.push(artist); }
+  if (genre !== undefined) { updates.push(`genre = $${idx++}`); params.push(genre); }
+  if (year !== undefined) { updates.push(`year = $${idx++}`); params.push(year); }
+  if (explicit !== undefined) { updates.push(`explicit = $${idx++}`); params.push(explicit); }
+  if (isNew !== undefined) { updates.push(`is_new = $${idx++}`); params.push(isNew); }
+  if (featured !== undefined) { updates.push(`featured = $${idx++}`); params.push(featured); }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Нечего обновлять' });
+
+  updates.push(`updated_at = NOW()`);
+  params.push(req.params.id);
+  await execute(`UPDATE tracks SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+
+  const updated = await queryOne('SELECT * FROM tracks WHERE id = $1', [req.params.id]);
+  if (!updated) return res.status(404).json({ error: 'Трек не найден' });
+  const [withArtists] = await attachArtists([updated]);
+  res.json(formatTrackRow(withArtists));
+});
+
+/** DELETE /api/admin/tracks/:id */
+router.delete('/admin/tracks/:id', adminRequired, async (req: Request, res: Response) => {
+  // Delete from junction table first, then track
+  await execute('DELETE FROM track_artists WHERE track_id = $1', [req.params.id]);
+  await execute('DELETE FROM play_history WHERE track_id = $1', [req.params.id]);
+  const rows = await execute('DELETE FROM tracks WHERE id = $1', [req.params.id]);
+  if (rows === 0) return res.status(404).json({ error: 'Трек не найден' });
+  res.json({ ok: true });
+});
+
+/** PUT /api/admin/artists/:id — edit artist */
+router.put('/admin/artists/:id', adminRequired, async (req: Request, res: Response) => {
+  const { name, slug, photo, bio, genre, socials } = req.body;
+  const updates: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+
+  if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
+  if (slug !== undefined) { updates.push(`slug = $${idx++}`); params.push(slug); }
+  if (photo !== undefined) { updates.push(`photo = $${idx++}`); params.push(photo); }
+  if (bio !== undefined) { updates.push(`bio = $${idx++}`); params.push(bio); }
+  if (genre !== undefined) { updates.push(`genre = $${idx++}`); params.push(genre); }
+  if (socials?.vk !== undefined) { updates.push(`socials_vk = $${idx++}`); params.push(socials.vk); }
+  if (socials?.instagram !== undefined) { updates.push(`socials_instagram = $${idx++}`); params.push(socials.instagram); }
+  if (socials?.telegram !== undefined) { updates.push(`socials_telegram = $${idx++}`); params.push(socials.telegram); }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Нечего обновлять' });
+
+  params.push(req.params.id);
+  await execute(`UPDATE artists SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+  const updated = await queryOne('SELECT * FROM artists WHERE id = $1', [req.params.id]);
+  if (!updated) return res.status(404).json({ error: 'Артист не найден' });
+  res.json(formatArtistRow(updated));
+});
+
+/** DELETE /api/admin/artists/:id */
+router.delete('/admin/artists/:id', adminRequired, async (req: Request, res: Response) => {
+  await execute('DELETE FROM track_artists WHERE artist_id = $1', [req.params.id]);
+  const rows = await execute('DELETE FROM artists WHERE id = $1', [req.params.id]);
+  if (rows === 0) return res.status(404).json({ error: 'Артист не найден' });
+  res.json({ ok: true });
+});
+
+/** GET /api/admin/artists/:id/tracks — get tracks linked to an artist */
+router.get('/admin/artists/:id/tracks', adminRequired, async (req: Request, res: Response) => {
+  const tracks = await query(`
+    SELECT t.id, t.title, t.artist, t.artist_slug, t.cover_path, t.plays, t.genre, t.year, t.duration, ta.position
+    FROM track_artists ta
+    JOIN tracks t ON t.id = ta.track_id
+    WHERE ta.artist_id = $1
+    ORDER BY ta.position ASC
+  `, [req.params.id]);
+  res.json(tracks.map((t: any) => ({ ...formatTrackRow(t), position: t.position })));
+});
+
+/** POST /api/admin/artists/:id/tracks — link a track to an artist */
+router.post('/admin/artists/:id/tracks', adminRequired, async (req: Request, res: Response) => {
+  const { trackId } = req.body;
+  if (!trackId) return res.status(400).json({ error: 'trackId обязателен' });
+  const maxPos = await queryOne(
+    'SELECT COALESCE(MAX(position), -1) as m FROM track_artists WHERE artist_id = $1',
+    [req.params.id]
+  );
+  await execute(
+    'INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    [trackId, req.params.id, Number(maxPos?.m ?? -1) + 1]
+  );
+  // Update artist stats
+  const cnt = await queryOne(
+    "SELECT COUNT(DISTINCT ta.track_id) as c FROM track_artists ta JOIN tracks t ON t.id = ta.track_id WHERE ta.artist_id = $1 AND t.status = 'ready'",
+    [req.params.id]
+  );
+  await execute('UPDATE artists SET tracks_count = $1 WHERE id = $2', [Number(cnt?.c || 0), req.params.id]);
+  res.json({ ok: true });
+});
+
+/** DELETE /api/admin/artists/:id/tracks/:trackId — unlink a track from an artist */
+router.delete('/admin/artists/:id/tracks/:trackId', adminRequired, async (req: Request, res: Response) => {
+  await execute(
+    'DELETE FROM track_artists WHERE artist_id = $1 AND track_id = $2',
+    [req.params.id, req.params.trackId]
+  );
+  const cnt = await queryOne(
+    "SELECT COUNT(DISTINCT ta.track_id) as c FROM track_artists ta JOIN tracks t ON t.id = ta.track_id WHERE ta.artist_id = $1 AND t.status = 'ready'",
+    [req.params.id]
+  );
+  await execute('UPDATE artists SET tracks_count = $1 WHERE id = $2', [Number(cnt?.c || 0), req.params.id]);
+  res.json({ ok: true });
+});
+
+/** POST /api/admin/artists/:id/photo — upload artist photo */
+router.post('/admin/artists/:id/photo', adminRequired, (req: Request, res: Response) => {
+  // Store artist photos in a dedicated subfolder inside covers
+  const artistPhotoStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(PATHS.covers, 'artists');
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `${req.params.id}${ext}`);
+    },
+  });
+
+  const upload = multer({
+    storage: artistPhotoStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) cb(null, true);
+      else cb(new Error('Только изображения'));
+    },
+  }).single('photo');
+
+  upload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+
+    const photoUrl = `/covers/artists/${req.file.filename}`;
+    await execute('UPDATE artists SET photo = $1 WHERE id = $2', [photoUrl, req.params.id]);
+    res.json({ photo: photoUrl });
+  });
+});
+
+/** PUT /api/admin/artists/:id/photo-url — set artist photo from external URL */
+router.put('/admin/artists/:id/photo-url', adminRequired, async (req: Request, res: Response) => {
+  const { url } = req.body;
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL обязателен' });
+  await execute('UPDATE artists SET photo = $1 WHERE id = $2', [url, req.params.id]);
+  res.json({ photo: url });
+});
+
+// ─── Submissions (user-submitted tracks pending review) ───
+
+/** GET /api/admin/submissions */
+router.get('/admin/submissions', adminRequired, async (_req: Request, res: Response) => {
+  const subs = await query(`
+    SELECT s.*, u.name as user_name, u.email as user_email, u.avatar as user_avatar
+    FROM submissions s
+    LEFT JOIN users u ON u.id = s.user_id
+    ORDER BY s.created_at DESC
+  `);
+  res.json(subs.map((s: any) => ({
+    id: s.id, userId: s.user_id, title: s.title, artist: s.artist,
+    genre: s.genre, year: s.year, comment: s.comment,
+    status: s.status, rejectReason: s.reject_reason,
+    originalFilename: s.original_filename, filePath: s.file_path,
+    createdAt: s.created_at,
+    user: { name: s.user_name, email: s.user_email, avatar: s.user_avatar },
+  })));
+});
+
+/** POST /api/submissions — user submits a track for review */
+router.post('/submissions', authRequired, (req: Request, res: Response) => {
+  uploadFields(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+
+    const files = req.files as { [f: string]: Express.Multer.File[] } | undefined;
+    const audioFile = files?.audio?.[0];
+    if (!audioFile) return res.status(400).json({ error: 'Аудиофайл обязателен' });
+
+    try {
+      const { title, artist, genre, year, comment } = req.body;
+      if (!title || !artist) return res.status(400).json({ error: 'Название и артист обязательны' });
+
+      const subId = uuid();
+      await execute(`
+        INSERT INTO submissions (id, user_id, title, artist, genre, year, comment, status, original_filename, file_path)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
+      `, [
+        subId, req.user!.id, title, artist,
+        genre || 'Другое', Number(year) || new Date().getFullYear(),
+        comment || null, audioFile.originalname, audioFile.path,
+      ]);
+
+      res.status(201).json({ id: subId, status: 'pending', message: 'Трек отправлен на модерацию' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+});
+
+/** GET /api/submissions/my — current user's submissions */
+router.get('/submissions/my', authRequired, async (req: Request, res: Response) => {
+  const subs = await query(
+    'SELECT * FROM submissions WHERE user_id = $1 ORDER BY created_at DESC',
+    [req.user!.id]
+  );
+  res.json(subs.map((s: any) => ({
+    id: s.id, title: s.title, artist: s.artist, genre: s.genre, year: s.year,
+    comment: s.comment, status: s.status, rejectReason: s.reject_reason,
+    createdAt: s.created_at,
+  })));
+});
+
+/** PUT /api/admin/submissions/:id/approve — approve & process */
+router.put('/admin/submissions/:id/approve', adminRequired, async (req: Request, res: Response) => {
+  const sub = await queryOne('SELECT * FROM submissions WHERE id = $1', [req.params.id]);
+  if (!sub) return res.status(404).json({ error: 'Заявка не найдена' });
+  if (sub.status !== 'pending' && sub.status !== 'deferred') {
+    return res.status(400).json({ error: 'Заявка уже обработана' });
+  }
+
+  // Check if file still exists
+  if (!sub.file_path || !fs.existsSync(sub.file_path)) {
+    return res.status(400).json({ error: 'Аудиофайл не найден на сервере' });
+  }
+
+  try {
+    const meta = await extractMetadata(sub.file_path);
+    const trackId = uuid();
+    const artist = sub.artist;
+    const artistNames = artist.split(/,\s+/).map((n: string) => n.trim()).filter(Boolean);
+    const primarySlug = artistNames[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+
+    await execute(`
+      INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
+                         original_filename, original_format, original_size, original_bitrate,
+                         original_sample_rate, original_channels, explicit, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
+    `, [
+      trackId, sub.title, artist, primarySlug, sub.genre, sub.year, meta.duration,
+      sub.original_filename, meta.format, 0, meta.bitrate,
+      meta.sampleRate, meta.channels, false,
+    ]);
+
+    // Create artists & link
+    for (let i = 0; i < artistNames.length; i++) {
+      const aName = artistNames[i];
+      const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
+      let artistId: string;
+      if (existing) {
+        artistId = existing.id;
+      } else {
+        artistId = uuid();
+        await execute(
+          `INSERT INTO artists (id, name, slug, genre, tracks_count, total_plays) VALUES ($1, $2, $3, $4, 0, 0)`,
+          [artistId, aName, aSlug, sub.genre]
+        );
+      }
+      await execute(
+        `INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [trackId, artistId, i]
+      );
+    }
+
+    // Enqueue for audio processing
+    enqueueTrack(trackId, sub.file_path);
+
+    // Update submission status
+    await execute("UPDATE submissions SET status = 'approved' WHERE id = $1", [sub.id]);
+
+    res.json({ ok: true, trackId, message: 'Трек одобрен и поставлен в очередь на обработку' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/** PUT /api/admin/submissions/:id/reject */
+router.put('/admin/submissions/:id/reject', adminRequired, async (req: Request, res: Response) => {
+  const { reason } = req.body;
+  const rows = await execute(
+    "UPDATE submissions SET status = 'rejected', reject_reason = $1 WHERE id = $2 AND status IN ('pending', 'deferred')",
+    [reason || null, req.params.id]
+  );
+  if (rows === 0) return res.status(404).json({ error: 'Заявка не найдена или уже обработана' });
+  res.json({ ok: true });
+});
+
+/** PUT /api/admin/submissions/:id/defer */
+router.put('/admin/submissions/:id/defer', adminRequired, async (req: Request, res: Response) => {
+  const rows = await execute(
+    "UPDATE submissions SET status = 'deferred' WHERE id = $1 AND status = 'pending'",
+    [req.params.id]
+  );
+  if (rows === 0) return res.status(404).json({ error: 'Заявка не найдена' });
+  res.json({ ok: true });
+});
+
 // ═══════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════
@@ -425,6 +842,7 @@ function formatTrackRow(row: any) {
     title: row.title,
     artist: row.artist,
     artistSlug: row.artist_slug,
+    artists: row._artists || null, // multi-artist array if joined
     genre: row.genre,
     year: row.year,
     duration: row.duration,
@@ -446,6 +864,30 @@ function formatTrackRow(row: any) {
     meta: { album: row.meta_album, bpm: row.meta_bpm, loudness: row.meta_loudness_lufs },
     createdAt: row.created_at,
   };
+}
+
+/** Attach multi-artist info to track rows */
+async function attachArtists(tracks: any[]): Promise<any[]> {
+  if (tracks.length === 0) return tracks;
+  const trackIds = tracks.map(t => t.id);
+  const links = await query(`
+    SELECT ta.track_id, a.name, a.slug, ta.position
+    FROM track_artists ta
+    JOIN artists a ON a.id = ta.artist_id
+    WHERE ta.track_id = ANY($1)
+    ORDER BY ta.position ASC
+  `, [trackIds]);
+
+  const artistMap = new Map<string, { name: string; slug: string }[]>();
+  for (const link of links) {
+    if (!artistMap.has(link.track_id)) artistMap.set(link.track_id, []);
+    artistMap.get(link.track_id)!.push({ name: link.name, slug: link.slug });
+  }
+
+  return tracks.map(t => ({
+    ...t,
+    _artists: artistMap.get(t.id) || null,
+  }));
 }
 
 function formatArtistRow(row: any) {

@@ -32,13 +32,20 @@ export default function SubmitPage() {
     );
   }
 
+  const isAdmin = currentUser.role === 'admin';
+
   if (status === 'done') {
     return (
       <div className="min-h-screen bg-zinc-950 text-white pt-16 flex items-center justify-center">
         <div className="text-center max-w-md p-8 bg-white/5 rounded-2xl">
           <CheckCircle size={48} className="text-green-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-black mb-2">Трек загружен!</h2>
-          <p className="text-zinc-400 mb-6">Аудио обрабатывается на сервере — создаётся несколько качеств, HLS-поток и вейвформа. Это может занять пару минут.</p>
+          <h2 className="text-2xl font-black mb-2">{isAdmin ? 'Трек загружен!' : 'Трек отправлен!'}</h2>
+          <p className="text-zinc-400 mb-6">
+            {isAdmin
+              ? 'Аудио обрабатывается на сервере — создаётся несколько качеств, HLS-поток и вейвформа. Это может занять пару минут.'
+              : 'Ваш трек отправлен на модерацию. После проверки администратором он появится на платформе. Вы получите уведомление о решении.'
+            }
+          </p>
           <div className="flex gap-3 justify-center">
             <button onClick={() => { setStatus('idle'); setAudioFile(null); setCoverFile(null); setCoverPreview(null); setForm({ title: '', artist: '', genre: GENRES[0], year: new Date().getFullYear(), comment: '' }); }} className="px-5 py-2.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm transition-colors">Загрузить ещё</button>
             <Link to="/tracks" className="px-5 py-2.5 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-medium transition-colors">К трекам</Link>
@@ -87,9 +94,13 @@ export default function SubmitPage() {
       formData.append('artist', form.artist);
       formData.append('genre', form.genre);
       formData.append('year', form.year.toString());
+      if (form.comment) formData.append('comment', form.comment);
 
-      // Upload with progress tracking
+      // Admin → direct upload + processing; User → submission for moderation
+      const endpoint = isAdmin ? '/api/tracks/upload' : '/api/submissions';
+
       const xhr = new XMLHttpRequest();
+      const token = localStorage.getItem('gromko_token');
 
       await new Promise<void>((resolve, reject) => {
         xhr.upload.addEventListener('progress', (e) => {
@@ -100,14 +111,19 @@ export default function SubmitPage() {
 
         xhr.addEventListener('load', () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            setStatus('processing');
-            // Check processing status periodically
             try {
               const resp = JSON.parse(xhr.responseText);
-              if (resp.trackId) {
+              if (isAdmin && resp.trackId) {
+                // Admin: track is being processed, poll status
+                setStatus('processing');
                 pollProcessingStatus(resp.trackId);
+              } else {
+                // User: submission created, done
+                setStatus('done');
               }
-            } catch { /* ignore */ }
+            } catch {
+              setStatus('done');
+            }
             resolve();
           } else {
             let msg = 'Ошибка загрузки';
@@ -119,7 +135,8 @@ export default function SubmitPage() {
         xhr.addEventListener('error', () => reject(new Error('Ошибка сети')));
         xhr.addEventListener('abort', () => reject(new Error('Загрузка отменена')));
 
-        xhr.open('POST', '/api/tracks/upload');
+        xhr.open('POST', endpoint);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         xhr.send(formData);
       });
 
@@ -162,8 +179,13 @@ export default function SubmitPage() {
             <Upload size={20} className="text-red-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-black">Загрузить трек</h1>
-            <p className="text-zinc-500 text-sm">Аудио будет транскодировано в несколько качеств + HLS</p>
+            <h1 className="text-2xl font-black">{isAdmin ? 'Загрузить трек' : 'Предложить трек'}</h1>
+            <p className="text-zinc-500 text-sm">
+              {isAdmin
+                ? 'Аудио будет транскодировано в несколько качеств + HLS'
+                : 'Трек будет отправлен на модерацию администратору'
+              }
+            </p>
           </div>
         </div>
 
@@ -325,7 +347,7 @@ export default function SubmitPage() {
             <p className="text-zinc-600 text-xs mb-4">Отправляя трек, вы подтверждаете права на его распространение.</p>
             <button type="submit" disabled={isUploading}
               className="w-full py-3.5 bg-red-500 hover:bg-red-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-red-500/20 disabled:shadow-none">
-              {isUploading ? 'Загрузка...' : 'Загрузить трек'}
+              {isUploading ? 'Загрузка...' : isAdmin ? 'Загрузить трек' : 'Отправить на модерацию'}
             </button>
           </div>
         </form>

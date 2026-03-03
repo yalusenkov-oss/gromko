@@ -74,9 +74,17 @@ export default function TrackPage() {
                 {track.explicit && <span className="text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded">EXPLICIT</span>}
               </div>
               <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2">{track.title}</h1>
-              <Link to={`/artist/${track.artistSlug}`} className="text-zinc-300 text-xl hover:text-white transition-colors">
-                {track.artist}
-              </Link>
+              <div className="text-zinc-300 text-xl">
+                {track.artists && track.artists.length > 0
+                  ? track.artists.map((a, i) => (
+                      <span key={a.slug}>
+                        {i > 0 && <span className="text-zinc-500">, </span>}
+                        <Link to={`/artist/${a.slug}`} className="hover:text-white transition-colors">{a.name}</Link>
+                      </span>
+                    ))
+                  : <Link to={`/artist/${track.artistSlug}`} className="hover:text-white transition-colors">{track.artist}</Link>
+                }
+              </div>
               <div className="flex items-center gap-4 mt-3 text-zinc-500 text-sm">
                 <span>{track.year}</span>
                 <span>{formatPlays(track.plays)} прослушиваний</span>

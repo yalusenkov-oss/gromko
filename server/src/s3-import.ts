@@ -406,16 +406,49 @@ async function ensureArtist(artistName: string, genre: string): Promise<string> 
 
   const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [slug]);
   if (existing) {
-    await execute('UPDATE artists SET tracks_count = tracks_count + 1 WHERE slug = $1', [slug]);
     return slug;
   }
 
   await execute(`
     INSERT INTO artists (id, name, slug, genre, tracks_count, total_plays)
-    VALUES ($1, $2, $3, $4, 1, 0)
+    VALUES ($1, $2, $3, $4, 0, 0)
   `, [uuid(), artistName, slug, genre]);
 
   return slug;
+}
+
+/**
+ * Split artist string by ", " and ensure each artist exists.
+ * Returns array of { slug, name } for all artists + primary slug for artist_slug column.
+ */
+async function ensureArtists(artistString: string, genre: string): Promise<{ primarySlug: string; artists: { slug: string; name: string }[] }> {
+  // Split by ", " but be careful with names that legitimately contain commas
+  const names = artistString.split(/,\s+/).map(n => n.trim()).filter(Boolean);
+  if (names.length === 0) return { primarySlug: 'unknown', artists: [] };
+
+  const result: { slug: string; name: string }[] = [];
+  for (const name of names) {
+    const slug = await ensureArtist(name, genre);
+    result.push({ slug, name });
+  }
+
+  return { primarySlug: result[0].slug, artists: result };
+}
+
+/**
+ * Link track to all its artists in the junction table.
+ */
+async function linkTrackArtists(trackId: string, artists: { slug: string; name: string }[]): Promise<void> {
+  for (let i = 0; i < artists.length; i++) {
+    const artist = await queryOne('SELECT id FROM artists WHERE slug = $1', [artists[i].slug]);
+    if (artist) {
+      await execute(`
+        INSERT INTO track_artists (track_id, artist_id, position)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (track_id, artist_id) DO NOTHING
+      `, [trackId, artist.id, i]);
+    }
+  }
 }
 
 // ─── Import a single track from S3 ───
@@ -471,7 +504,7 @@ async function importSingleTrack(
     const explicit = isExplicit(track.album, track.filename);
 
     const trackId = uuid();
-    const slug = await ensureArtist(artist, genre);
+    const { primarySlug, artists } = await ensureArtists(artist, genre);
 
     // ── Insert track into DB ──
     await execute(`
@@ -481,13 +514,16 @@ async function importSingleTrack(
                          meta_album)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15)
     `, [
-      trackId, title, artist, slug, genre, year, meta.duration,
+      trackId, title, artist, primarySlug, genre, year, meta.duration,
       importKey, // store full S3 key as original_filename for dedup
       meta.format, track.size, meta.bitrate,
       meta.sampleRate, meta.channels,
       explicit,
       album || null,
     ]);
+
+    // ── Link track to all artists ──
+    await linkTrackArtists(trackId, artists);
 
     existingFiles.add(importKey);
     existingFiles.add(track.filename);
@@ -660,10 +696,13 @@ async function main() {
   console.log('  ╚══════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Update artist track counts
+  // Update artist track counts (via junction table + legacy artist_slug)
   await execute(`
     UPDATE artists SET tracks_count = (
-      SELECT COUNT(*) FROM tracks WHERE tracks.artist_slug = artists.slug AND tracks.status = 'ready'
+      SELECT COUNT(DISTINCT t.id) FROM tracks t
+      LEFT JOIN track_artists ta ON ta.track_id = t.id
+      WHERE (ta.artist_id = artists.id OR t.artist_slug = artists.slug)
+        AND t.status = 'ready'
     )
   `);
 

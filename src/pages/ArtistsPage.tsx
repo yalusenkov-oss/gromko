@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, GENRES } from '../store';
-import { formatPlays } from '../utils/format';
 import { Search } from 'lucide-react';
 
 export default function ArtistsPage() {
@@ -39,7 +38,7 @@ export default function ArtistsPage() {
               </div>
               <p className="text-white text-sm font-semibold truncate">{artist.name}</p>
               <p className="text-zinc-500 text-xs">{artist.genre}</p>
-              <p className="text-zinc-600 text-xs">{formatPlays(artist.totalPlays)}</p>
+              <p className="text-zinc-600 text-xs">{artist.tracksCount} {artist.tracksCount === 1 ? 'трек' : artist.tracksCount >= 2 && artist.tracksCount <= 4 ? 'трека' : 'треков'}</p>
             </Link>
           ))}
         </div>

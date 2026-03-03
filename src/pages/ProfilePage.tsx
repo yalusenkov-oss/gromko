@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import TrackCard from '../components/TrackCard';
 import { Heart, List, Send, Clock, CheckCircle, XCircle } from 'lucide-react';
 
@@ -8,8 +8,17 @@ type Tab = 'likes' | 'playlists' | 'submissions';
 
 export default function ProfilePage() {
   const { currentUser, tracks, playlists, submissions } = useStore();
-  const [tab, setTab] = useState<Tab>('likes');
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as Tab) || 'likes';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const t = searchParams.get('tab') as Tab;
+    if (t && ['likes', 'playlists', 'submissions'].includes(t)) {
+      setTab(t);
+    }
+  }, [searchParams]);
 
   if (!currentUser) {
     navigate('/login');

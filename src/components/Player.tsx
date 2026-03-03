@@ -76,7 +76,11 @@ export default function Player() {
             </div>
             <div className="text-center">
               <h2 className="text-3xl font-bold text-white mb-1">{t.title}</h2>
-              <p className="text-white/60 text-lg">{t.artist}</p>
+              <p className="text-white/60 text-lg">
+                {t.artists && t.artists.length > 0
+                  ? t.artists.map(a => a.name).join(', ')
+                  : t.artist}
+              </p>
             </div>
             <div className="w-full max-w-lg">
               <div className="relative h-16 rounded-lg overflow-hidden cursor-pointer bg-white/10" onMouseDown={handleProgressMouseDown}>

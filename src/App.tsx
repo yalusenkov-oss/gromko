@@ -1,8 +1,9 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useStore } from './store';
 import Navbar from './components/Navbar';
 import Player from './components/Player';
+import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
 import TracksPage from './pages/TracksPage';
 import TrackPage from './pages/TrackPage';
@@ -12,8 +13,6 @@ import GenresPage from './pages/GenresPage';
 import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
 import SubmitPage from './pages/SubmitPage';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import AdminPanel from './pages/AdminPanel';
 
 function NotFound() {
@@ -36,8 +35,21 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
       <Navbar />
       {children}
       <Player />
+      <AuthModal />
     </>
   );
+}
+
+// Redirect /login and /register to open modal on home page
+function LoginRedirect() {
+  const { openAuthModal } = useStore();
+  useEffect(() => { openAuthModal('login'); }, []);
+  return <Navigate to="/" replace />;
+}
+function RegisterRedirect() {
+  const { openAuthModal } = useStore();
+  useEffect(() => { openAuthModal('register'); }, []);
+  return <Navigate to="/" replace />;
 }
 
 export function App() {
@@ -52,12 +64,12 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Auth pages - no navbar */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        {/* Auth redirects — open modal over current page */}
+        <Route path="/login" element={<LoginRedirect />} />
+        <Route path="/register" element={<RegisterRedirect />} />
 
-        {/* Admin */}
-        <Route path="/admin/*" element={<PublicLayout><AdminPanel /></PublicLayout>} />
+        {/* Admin — без навбара и плеера */}
+        <Route path="/admin/*" element={<AdminPanel />} />
 
         {/* Public routes */}
         <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
