@@ -14,14 +14,44 @@ const { Pool } = pg;
 
 let pool: pg.Pool;
 
+function isLocalHost(host?: string): boolean {
+  return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function buildPoolOptions(): pg.PoolConfig {
+  const connectionString = process.env.DATABASE_URL;
+  const hasDiscretePgVars = Boolean(process.env.PGHOST || process.env.PGUSER || process.env.PGDATABASE);
+  const host = process.env.PGHOST;
+
+  // Render/managed Postgres usually needs TLS for external connections.
+  // If DATABASE_SSL=false, disable it explicitly.
+  const shouldUseSsl = process.env.DATABASE_SSL === 'false'
+    ? false
+    : (process.env.NODE_ENV === 'production' && !isLocalHost(host));
+
+  if (!connectionString && !hasDiscretePgVars && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Database is not configured. Set DATABASE_URL (recommended) or PGHOST/PGUSER/PGPASSWORD/PGDATABASE on Render.'
+    );
+  }
+
+  return {
+    connectionString: connectionString || undefined,
+    host: process.env.PGHOST || undefined,
+    port: process.env.PGPORT ? Number(process.env.PGPORT) : undefined,
+    user: process.env.PGUSER || undefined,
+    password: process.env.PGPASSWORD || undefined,
+    database: process.env.PGDATABASE || undefined,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+    ssl: shouldUseSsl ? { rejectUnauthorized: false } : undefined,
+  };
+}
+
 export function getPool(): pg.Pool {
   if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL || 'postgresql://gromko:gromko@localhost:5432/gromko',
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
+    pool = new Pool(buildPoolOptions());
     pool.on('error', (err) => {
       console.error('Unexpected DB pool error:', err);
     });
