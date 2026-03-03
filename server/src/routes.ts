@@ -183,6 +183,16 @@ router.get('/tracks/:id/stream', async (req: Request, res: Response) => {
 
   if (!streamPath) return res.status(404).json({ error: `Качество "${quality}" недоступно` });
 
+  // Record play (fire & forget)
+  execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => {});
+  execute('INSERT INTO play_history (track_id, quality) VALUES ($1, $2)', [req.params.id, quality]).catch(() => {});
+
+  // If URL is absolute (S3), redirect to it — browser/player fetches directly from CDN
+  if (streamPath.startsWith('http://') || streamPath.startsWith('https://')) {
+    return res.redirect(302, streamPath);
+  }
+
+  // Otherwise serve from local filesystem
   const filePath = path.join(PATHS.data, '..', 'data', streamPath.replace(/^\//, ''));
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден на диске' });
 
@@ -212,18 +222,23 @@ router.get('/tracks/:id/stream', async (req: Request, res: Response) => {
     });
     fs.createReadStream(filePath).pipe(res);
   }
-
-  // Record play (fire & forget)
-  execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => {});
-  execute('INSERT INTO play_history (track_id, quality) VALUES ($1, $2)', [req.params.id, quality]).catch(() => {});
 });
 
 /** GET /api/tracks/:id/hls/:file */
-router.get('/tracks/:id/hls/:file', (req: Request, res: Response) => {
+router.get('/tracks/:id/hls/:file', async (req: Request, res: Response) => {
   const trackId = req.params.id as string;
   const file = req.params.file as string;
-  const hlsPath = path.join(trackHlsDir(trackId), file);
 
+  // Check if track has S3 URL for HLS master
+  const track = await queryOne('SELECT hls_master FROM tracks WHERE id = $1', [trackId]);
+  if (track?.hls_master?.startsWith('http')) {
+    // Redirect to S3 — replace master.m3u8 with requested file
+    const baseUrl = track.hls_master.replace(/\/[^/]+$/, '');
+    return res.redirect(302, `${baseUrl}/${file}`);
+  }
+
+  // Local fallback
+  const hlsPath = path.join(trackHlsDir(trackId), file);
   if (!fs.existsSync(hlsPath)) return res.status(404).json({ error: 'HLS file not found' });
 
   const ext = path.extname(file);

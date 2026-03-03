@@ -313,11 +313,16 @@ class AudioEngine {
     if (track.streams) {
       const streamUrl = track.streams[quality] || track.streams.medium || track.streams.high;
       if (streamUrl) {
+        // Absolute URL (S3/CDN) → use directly, browser streams via Range requests
+        if (streamUrl.startsWith('http://') || streamUrl.startsWith('https://')) {
+          return streamUrl;
+        }
+        // Relative URL → prepend API base
         return `${API_BASE}${streamUrl}`;
       }
     }
 
-    // Fallback to streaming API endpoint
+    // Fallback to streaming API endpoint (server proxies the file)
     return `${API_BASE}/api/tracks/${track.id}/stream?quality=${quality}`;
   }
 

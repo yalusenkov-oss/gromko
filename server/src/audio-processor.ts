@@ -24,6 +24,7 @@ import { parseFile as parseAudioFile } from 'music-metadata';
 import sharp from 'sharp';
 import { execute, query } from './db.js';
 import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
+import { S3_ENABLED, uploadToS3, uploadDirToS3, uploadBufferToS3, getS3Url } from './s3-storage.js';
 
 // ─────────────────────────────────────────────
 // Types
@@ -163,6 +164,7 @@ function analyzeLoudness(inputPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     let loudnessData = '';
     ffmpeg(inputPath)
+      .noVideo()
       .audioFilters('ebur128=peak=true')
       .format('null')
       .output('/dev/null')
@@ -199,7 +201,8 @@ function transcodeToQuality(
     const gainDb = targetLufs - loudnessLufs;
     const clampedGain = Math.max(-10, Math.min(10, gainDb));
 
-    const cmd = ffmpeg(inputPath);
+    const cmd = ffmpeg(inputPath)
+      .noVideo(); // CRITICAL: skip embedded cover art video stream
 
     if (quality.codec === 'flac') {
       cmd
@@ -245,7 +248,8 @@ function generateHlsStream(
 
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const cmd = ffmpeg(inputPath);
+    const cmd = ffmpeg(inputPath)
+      .noVideo(); // CRITICAL: skip embedded cover art video stream
 
     if (quality.codec === 'flac') {
       // For lossless, use FLAC in fMP4 segments (HLS supports this)
@@ -304,6 +308,7 @@ function generateWaveformPeaks(inputPath: string, numPeaks: number): Promise<num
 
     // Convert to raw PCM, mono, low sample rate for fast processing
     ffmpeg(inputPath)
+      .noVideo()
       .audioCodec('pcm_s16le')
       .audioChannels(1)
       .audioFrequency(8000)
@@ -434,53 +439,154 @@ export async function processTrack(
     console.log(`[${trackId}] Generating waveform peaks...`);
     const waveformPeaks = await generateWaveformPeaks(inputPath, CONFIG.waveformPeaks);
 
-    // Save waveform JSON
+    // Save waveform JSON locally (will be uploaded to S3 below)
     const waveformPath = path.join(PATHS.waveforms, `${trackId}.json`);
     fs.writeFileSync(waveformPath, JSON.stringify(waveformPeaks));
 
-    // ── Step 7: Update database ──
-    console.log(`[${trackId}] Updating database...`);
-    await execute(`
-      UPDATE tracks SET
-        status = 'ready',
-        duration = $1,
-        original_format = $2,
-        original_bitrate = $3,
-        original_sample_rate = $4,
-        original_channels = $5,
-        cover_path = $6,
-        hls_master = $7,
-        stream_low = $8,
-        stream_medium = $9,
-        stream_high = $10,
-        stream_lossless = $11,
-        waveform_peaks = $12,
-        meta_album = $13,
-        meta_track_number = $14,
-        meta_bpm = $15,
-        meta_loudness_lufs = $16,
-        processing_finished_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $17
-    `, [
-      meta.duration,
-      meta.format,
-      meta.bitrate,
-      meta.sampleRate,
-      meta.channels,
-      coverPaths.medium || coverPaths.original,
-      `/audio/${trackId}/hls/${masterPlaylist}`,
-      streams.low,
-      streams.medium,
-      streams.high,
-      streams.lossless || null,
-      JSON.stringify(waveformPeaks),
-      meta.album || null,
-      meta.trackNumber || null,
-      meta.bpm || null,
-      loudness,
-      trackId
-    ]);
+    // ── Step 6.5: Upload to S3 if enabled ──
+    if (S3_ENABLED) {
+      console.log(`[${trackId}] Uploading to S3...`);
+
+      // Upload audio streams
+      if (fs.existsSync(lowPath)) {
+        streams.low = await uploadToS3(lowPath, `audio/${trackId}/low.m4a`);
+      }
+      if (fs.existsSync(mediumPath)) {
+        streams.medium = await uploadToS3(mediumPath, `audio/${trackId}/medium.m4a`);
+      }
+      if (streams.high !== streams.medium) {
+        const hp = path.join(audioDir, 'high.m4a');
+        if (fs.existsSync(hp)) {
+          streams.high = await uploadToS3(hp, `audio/${trackId}/high.m4a`);
+        }
+      } else {
+        streams.high = streams.medium; // same S3 URL
+      }
+      if (streams.lossless) {
+        const lp = path.join(audioDir, 'lossless.flac');
+        if (fs.existsSync(lp)) {
+          streams.lossless = await uploadToS3(lp, `audio/${trackId}/lossless.flac`);
+        }
+      }
+
+      // Upload HLS directory
+      await uploadDirToS3(hlsDir, `audio/${trackId}/hls`);
+
+      // Upload cover images
+      const coverDir = path.join(PATHS.covers, trackId);
+      if (fs.existsSync(coverDir)) {
+        const coverFiles = fs.readdirSync(coverDir);
+        for (const cf of coverFiles) {
+          const cfPath = path.join(coverDir, cf);
+          const s3Url = await uploadToS3(cfPath, `covers/${trackId}/${cf}`);
+          // Update coverPaths with S3 URLs
+          const name = path.parse(cf).name; // "thumb", "small", "medium", "large", "original"
+          coverPaths[name] = s3Url;
+        }
+      }
+
+      // Upload waveform JSON
+      await uploadToS3(waveformPath, `waveforms/${trackId}.json`);
+
+      // Build HLS master URL (S3)
+      const hlsMasterUrl = getS3Url(`audio/${trackId}/hls/${masterPlaylist}`);
+
+      // ── Cleanup local files after S3 upload ──
+      console.log(`[${trackId}] Cleaning up local files...`);
+      try {
+        fs.rmSync(audioDir, { recursive: true, force: true });
+        fs.rmSync(path.join(PATHS.covers, trackId), { recursive: true, force: true });
+        fs.unlinkSync(waveformPath);
+      } catch { /* ignore cleanup errors */ }
+
+      // ── Step 7: Update database with S3 URLs ──
+      console.log(`[${trackId}] Updating database (S3 URLs)...`);
+      await execute(`
+        UPDATE tracks SET
+          status = 'ready',
+          duration = $1,
+          original_format = $2,
+          original_bitrate = $3,
+          original_sample_rate = $4,
+          original_channels = $5,
+          cover_path = $6,
+          hls_master = $7,
+          stream_low = $8,
+          stream_medium = $9,
+          stream_high = $10,
+          stream_lossless = $11,
+          waveform_peaks = $12,
+          meta_album = $13,
+          meta_track_number = $14,
+          meta_bpm = $15,
+          meta_loudness_lufs = $16,
+          processing_finished_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $17
+      `, [
+        meta.duration,
+        meta.format,
+        meta.bitrate,
+        meta.sampleRate,
+        meta.channels,
+        coverPaths.medium || coverPaths.original,
+        hlsMasterUrl,
+        streams.low,
+        streams.medium,
+        streams.high,
+        streams.lossless || null,
+        JSON.stringify(waveformPeaks),
+        meta.album || null,
+        meta.trackNumber || null,
+        meta.bpm || null,
+        loudness,
+        trackId
+      ]);
+    } else {
+      // ── Step 7: Update database with local paths (no S3) ──
+      console.log(`[${trackId}] Updating database (local paths)...`);
+      await execute(`
+        UPDATE tracks SET
+          status = 'ready',
+          duration = $1,
+          original_format = $2,
+          original_bitrate = $3,
+          original_sample_rate = $4,
+          original_channels = $5,
+          cover_path = $6,
+          hls_master = $7,
+          stream_low = $8,
+          stream_medium = $9,
+          stream_high = $10,
+          stream_lossless = $11,
+          waveform_peaks = $12,
+          meta_album = $13,
+          meta_track_number = $14,
+          meta_bpm = $15,
+          meta_loudness_lufs = $16,
+          processing_finished_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $17
+      `, [
+        meta.duration,
+        meta.format,
+        meta.bitrate,
+        meta.sampleRate,
+        meta.channels,
+        coverPaths.medium || coverPaths.original,
+        `/audio/${trackId}/hls/${masterPlaylist}`,
+        streams.low,
+        streams.medium,
+        streams.high,
+        streams.lossless || null,
+        JSON.stringify(waveformPeaks),
+        meta.album || null,
+        meta.trackNumber || null,
+        meta.bpm || null,
+        loudness,
+        trackId
+      ]);
+    }
 
     // Cleanup original upload after successful processing (unless keepOriginal)
     if (!keepOriginal && fs.existsSync(inputPath)) {
