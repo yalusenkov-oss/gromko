@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiUrl } from '../lib/api';
 
 export type Role = 'guest' | 'user' | 'admin';
 
@@ -81,8 +82,6 @@ export interface PlayerState {
 
 export const GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic'];
 
-const API = (import.meta.env.VITE_API_URL as string) || '/api';
-
 function getToken(): string | null {
   return localStorage.getItem('gromko_token');
 }
@@ -96,7 +95,7 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<any> {
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string> || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const res = await fetch(apiUrl(path), { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;

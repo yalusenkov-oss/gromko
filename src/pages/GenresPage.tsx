@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useStore, GENRES } from '../store';
 import { useState, useEffect } from 'react';
+import { apiUrl } from '../lib/api';
 
 const GENRE_COLORS: Record<string, string> = {
   'Хип-хоп': 'from-yellow-500 to-orange-600',
@@ -21,7 +22,7 @@ export default function GenresPage() {
   const [genreCounts, setGenreCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    fetch('/api/genres')
+    fetch(apiUrl('/genres'))
       .then(r => r.json())
       .then((data: GenreInfo[]) => {
         const map: Record<string, number> = {};

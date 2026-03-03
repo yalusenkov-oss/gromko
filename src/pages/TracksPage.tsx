@@ -3,6 +3,7 @@ import { useStore, GENRES, Track } from '../store';
 import TrackCard from '../components/TrackCard';
 import { Search, Disc3, Play, Pause } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { apiUrl } from '../lib/api';
 
 interface Album {
   name: string;
@@ -28,7 +29,7 @@ export default function TracksPage() {
 
   // Fetch all tracks with meta.album from API
   useEffect(() => {
-    fetch('/api/tracks?limit=500')
+    fetch(apiUrl('/tracks?limit=500'))
       .then(r => r.json())
       .then(data => { if (data.tracks) setAllTracks(data.tracks); })
       .catch(() => {});

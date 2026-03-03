@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, GENRES, type Track, type Artist } from '../store';
 import { formatDuration, formatPlays } from '../utils/format';
+import { API_BASE, apiUrl } from '../lib/api';
 import {
   LayoutDashboard, Music, Users, Mic2, FileCheck, Settings,
   Search, Trash2, Edit3, Check, X, ChevronRight, ExternalLink,
@@ -28,14 +29,13 @@ function toSlug(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-const API = (import.meta.env.VITE_API_URL as string) || '/api';
 function getToken() { return localStorage.getItem('gromko_token'); }
 async function adminFetch(path: string, opts: RequestInit = {}) {
   const token = getToken();
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string> || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const res = await fetch(apiUrl(path), { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -1115,7 +1115,7 @@ function SettingsTab() {
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Система</h3>
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between text-zinc-400"><span>API</span><span className="text-zinc-300 font-mono text-xs">{API}</span></div>
+          <div className="flex justify-between text-zinc-400"><span>API</span><span className="text-zinc-300 font-mono text-xs">{API_BASE}</span></div>
           <div className="flex justify-between text-zinc-400"><span>Фронтенд</span><span className="text-zinc-300 font-mono text-xs">React + Vite + Tailwind</span></div>
           <div className="flex justify-between text-zinc-400"><span>Бэкенд</span><span className="text-zinc-300 font-mono text-xs">Express + PostgreSQL + S3</span></div>
         </div>

@@ -4,6 +4,7 @@ import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock } from 'lucide
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo } from 'react';
+import { apiUrl } from '../lib/api';
 
 interface Album {
   name: string;
@@ -25,7 +26,7 @@ export default function ArtistPage() {
   // Fetch tracks directly from API for this artist (includes meta.album)
   useEffect(() => {
     if (!slug) return;
-    fetch(`/api/artists/${slug}`)
+    fetch(apiUrl(`/artists/${slug}`))
       .then(r => r.json())
       .then(data => {
         if (data.tracks) setArtistTracks(data.tracks);

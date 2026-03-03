@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useStore, GENRES } from '../store';
 import { Link } from 'react-router-dom';
 import { Upload, CheckCircle, X, Music, Image, AlertCircle, Loader2 } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 type UploadStatus = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 
@@ -97,7 +98,7 @@ export default function SubmitPage() {
       if (form.comment) formData.append('comment', form.comment);
 
       // Admin → direct upload + processing; User → submission for moderation
-      const endpoint = isAdmin ? '/api/tracks/upload' : '/api/submissions';
+      const endpoint = isAdmin ? apiUrl('/tracks/upload') : apiUrl('/submissions');
 
       const xhr = new XMLHttpRequest();
       const token = localStorage.getItem('gromko_token');
@@ -149,7 +150,7 @@ export default function SubmitPage() {
   const pollProcessingStatus = (trackId: string) => {
     const interval = setInterval(async () => {
       try {
-        const resp = await fetch(`/api/tracks/${trackId}/status`);
+        const resp = await fetch(apiUrl(`/tracks/${trackId}/status`));
         const data = await resp.json();
         if (data.status === 'ready') {
           clearInterval(interval);
