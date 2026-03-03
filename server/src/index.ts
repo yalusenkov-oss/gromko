@@ -31,7 +31,13 @@ const app = express();
 
 // ─── Middleware ───
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    // Allow localhost, vercel.app, and tunnel domains
+    const allowed = /^https?:\/\/(localhost(:\d+)?|.*\.vercel\.app|.*\.loca\.lt|.*\.trycloudflare\.com)$/;
+    callback(null, allowed.test(origin));
+  },
   credentials: true,
 }));
 app.use(express.json());
