@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "postinstall": "npm --prefix server install",
-    "start:server": "npm --prefix server run dev"
+    "postinstall": "npm --prefix server install --include=dev",
+    "start:server": "npm --prefix server run start:tsx"
   },
   "dependencies": {
     "clsx": "2.1.1",
