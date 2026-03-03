@@ -172,14 +172,24 @@ function analyzeLoudness(inputPath: string): Promise<number> {
         loudnessData += line + '\n';
       })
       .on('end', () => {
-        // Parse integrated loudness from FFmpeg output
-        const match = loudnessData.match(/I:\s+(-?\d+\.?\d*)\s+LUFS/);
-        const lufs = match ? parseFloat(match[1]) : -14;
-        resolve(lufs);
+        // Parse the SUMMARY block from ebur128 output
+        // The summary appears at the end: "Summary:" section with "I:  -X.X LUFS"
+        const summaryMatch = loudnessData.match(/Summary:[\s\S]*?I:\s+(-?\d+\.?\d*)\s+LUFS/);
+        if (summaryMatch) {
+          const lufs = parseFloat(summaryMatch[1]);
+          // Sanity check: real music is between -5 and -30 LUFS
+          if (lufs > -50 && lufs < 0) {
+            resolve(lufs);
+            return;
+          }
+        }
+        // If we can't get a reasonable reading, skip normalization (0 dB gain)
+        console.warn('Loudness analysis returned unusual value, skipping normalization');
+        resolve(-14); // target = -14, so gain = 0 dB
       })
       .on('error', (err: Error) => {
         console.warn('Loudness analysis failed, using default:', err.message);
-        resolve(-14); // fallback
+        resolve(-14); // fallback: 0 dB gain
       })
       .run();
   });
@@ -199,7 +209,8 @@ function transcodeToQuality(
     // Calculate gain adjustment to target -14 LUFS (Spotify standard)
     const targetLufs = -14;
     const gainDb = targetLufs - loudnessLufs;
-    const clampedGain = Math.max(-10, Math.min(10, gainDb));
+    // Clamp to ±6 dB to avoid distortion
+    const clampedGain = Math.max(-6, Math.min(6, gainDb));
 
     const cmd = ffmpeg(inputPath)
       .noVideo(); // CRITICAL: skip embedded cover art video stream

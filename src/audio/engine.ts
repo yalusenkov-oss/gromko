@@ -348,7 +348,7 @@ class AudioEngine {
       }
       return 'high';
     }
-    return 'medium'; // default
+    return 'high'; // default — most users have good connectivity
   }
 
   private getActualBitrate(): string {
