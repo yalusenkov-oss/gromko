@@ -15,6 +15,7 @@ import {
   registerUser, loginUser, getUserById,
   authRequired, authOptional, adminRequired,
 } from './auth.js';
+import { parseArtistNames } from './parse-artists.js';
 
 const router = Router();
 
@@ -310,8 +311,8 @@ router.post('/tracks/upload', adminRequired, (req: Request, res: Response) => {
         explicit = 'false',
       } = req.body;
 
-      // Multi-artist: split by ", " and ensure each artist exists
-      const artistNames = (artist as string).split(/,\s+/).map((n: string) => n.trim()).filter(Boolean);
+      // Multi-artist: split by ", " / "feat." / "ft." / "&" and ensure each artist exists
+      const artistNames = parseArtistNames(artist as string);
       const primaryName = artistNames[0] || artist;
       const slug = primaryName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
 
@@ -856,7 +857,7 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req: Request,
     const meta = await extractMetadata(sub.file_path);
     const trackId = uuid();
     const artist = sub.artist;
-    const artistNames = artist.split(/,\s+/).map((n: string) => n.trim()).filter(Boolean);
+    const artistNames = parseArtistNames(artist);
     const primarySlug = artistNames[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
 
     await execute(`

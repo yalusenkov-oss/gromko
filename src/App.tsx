@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useStore } from './store';
 import Navbar from './components/Navbar';
 import Player from './components/Player';
+import BottomNav from './components/BottomNav';
 import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
 import TracksPage from './pages/TracksPage';
@@ -13,6 +14,7 @@ import GenresPage from './pages/GenresPage';
 import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
 import SubmitPage from './pages/SubmitPage';
+import LikedPage from './pages/LikedPage';
 import AdminPanel from './pages/AdminPanel';
 
 /** Scroll to top on every route change */
@@ -42,6 +44,7 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
       <Navbar />
       {children}
       <Player />
+      <BottomNav />
       <AuthModal />
     </>
   );
@@ -88,6 +91,7 @@ export function App() {
         <Route path="/genres" element={<PublicLayout><GenresPage /></PublicLayout>} />
         <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
         <Route path="/profile" element={<PublicLayout><ProfilePage /></PublicLayout>} />
+        <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/submit" element={<PublicLayout><SubmitPage /></PublicLayout>} />
 
         {/* 404 */}

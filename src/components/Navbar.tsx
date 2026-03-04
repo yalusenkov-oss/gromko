@@ -153,7 +153,7 @@ export default function Navbar() {
                   <span>Панель</span>
                 </Link>
               )}
-              <Link to="/profile?tab=likes" className="hidden md:flex items-center gap-1 px-2 py-1.5 hover:bg-white/5 rounded-lg transition-colors group" title="Мои лайки">
+              <Link to="/liked" className="hidden md:flex items-center gap-1 px-2 py-1.5 hover:bg-white/5 rounded-lg transition-colors group" title="Любимое">
                 <Heart size={18} className="text-red-400 group-hover:text-red-300 transition-colors" fill="currentColor" />
               </Link>
               <Link to="/profile" className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded-lg transition-colors">
@@ -187,9 +187,9 @@ export default function Navbar() {
           ))}
           {currentUser && (
             <>
-              <Link to="/profile?tab=likes" onClick={() => setMenuOpen(false)}
+              <Link to="/liked" onClick={() => setMenuOpen(false)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition-colors">
-                <Heart size={14} fill="currentColor" /> Мои лайки ({currentUser.likedTracks.length})
+                <Heart size={14} fill="currentColor" /> Любимое ({currentUser.likedTracks.length})
               </Link>
               {isAdmin && (
                 <Link to="/admin" onClick={() => setMenuOpen(false)}

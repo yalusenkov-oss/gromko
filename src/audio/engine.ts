@@ -108,6 +108,7 @@ class AudioEngine {
     this.currentTrack = track;
     this._state = 'loading';
     this.notify();
+    this.updateMediaSession();
 
     const url = this.getStreamUrl(track);
     this.audio.src = url;
@@ -136,12 +137,14 @@ class AudioEngine {
   /** Pause */
   pause(): void {
     this.audio.pause();
+    this.updateMediaSession();
   }
 
   /** Resume */
   resume(): void {
     if (this.currentTrack) {
       this.audio.play().catch(() => {});
+      this.updateMediaSession();
     }
   }
 
@@ -446,14 +449,37 @@ class AudioEngine {
     navigator.mediaSession.setActionHandler('pause', () => this.pause());
     navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
     navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
-    // Disable seek buttons so iOS shows prev/next track instead of ±10s
-    navigator.mediaSession.setActionHandler('seekbackward', null);
-    navigator.mediaSession.setActionHandler('seekforward', null);
+    // On iOS/Safari, explicitly setting seekbackward/seekforward to handlers
+    // prevents the default ±15s buttons from replacing prev/next track buttons.
+    // We handle them as small seeks but the main goal is to keep skip track buttons visible.
+    try {
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const offset = details.seekOffset || 10;
+        this.seekTo(Math.max(0, this.audio.currentTime - offset));
+      });
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const offset = details.seekOffset || 10;
+        this.seekTo(Math.min(this.audio.duration || 0, this.audio.currentTime + offset));
+      });
+    } catch {
+      // Some browsers don't support these — that's fine
+    }
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime !== undefined) {
         this.seekTo(details.seekTime);
       }
     });
+    // Stop handler for iOS
+    try {
+      navigator.mediaSession.setActionHandler('stop', () => {
+        this.pause();
+        this.audio.currentTime = 0;
+        this._state = 'idle';
+        this.notify();
+      });
+    } catch {
+      // Not supported everywhere
+    }
   }
 
   private updateMediaSession(): void {
@@ -464,15 +490,22 @@ class AudioEngine {
       ? track.cover
       : `${API_BASE}${track.cover}`;
 
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: track.title,
-      artist: track.artist,
-      artwork: [
-        { src: coverUrl, sizes: '96x96', type: 'image/webp' },
-        { src: coverUrl, sizes: '256x256', type: 'image/webp' },
-        { src: coverUrl, sizes: '512x512', type: 'image/webp' },
-      ],
-    });
+    // Only update metadata if track changed
+    const currentMeta = navigator.mediaSession.metadata;
+    if (!currentMeta || currentMeta.title !== track.title || currentMeta.artist !== track.artist) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title,
+        artist: track.artist,
+        artwork: [
+          { src: coverUrl, sizes: '96x96', type: 'image/webp' },
+          { src: coverUrl, sizes: '256x256', type: 'image/webp' },
+          { src: coverUrl, sizes: '512x512', type: 'image/webp' },
+        ],
+      });
+    }
+
+    // Set playback state explicitly for iOS
+    navigator.mediaSession.playbackState = this._state === 'playing' ? 'playing' : 'paused';
 
     // Update position state for OS scrubber
     if (this.audio.duration && !isNaN(this.audio.duration)) {

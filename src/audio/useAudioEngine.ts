@@ -78,11 +78,26 @@ export function useAudioEngine() {
 
   // ─── Sync engine -> store ───
   // Update store progress from real audio playback
+  // AND sync track changes when engine auto-advances (e.g. track ended → next)
   useEffect(() => {
     const unsubscribe = audioEngine.subscribe((state: EngineState) => {
       // Update progress in store
       if (state.duration > 0 && state.state === 'playing') {
         setProgress(state.progress);
+      }
+
+      // When engine auto-advances to a new track, sync store's currentTrack
+      if (state.track && state.track.id !== lastTrackIdRef.current) {
+        lastTrackIdRef.current = state.track.id;
+        const storeState = useStore.getState();
+        const matchedTrack = storeState.player.queue.find(
+          (t: Track) => t.id === state.track!.id
+        );
+        if (matchedTrack && matchedTrack.id !== storeState.player.currentTrack?.id) {
+          useStore.setState((s: { player: typeof player }) => ({
+            player: { ...s.player, currentTrack: matchedTrack, progress: 0 }
+          }));
+        }
       }
 
       // Track play/pause state

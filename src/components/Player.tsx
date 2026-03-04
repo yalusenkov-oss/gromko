@@ -65,6 +65,30 @@ export default function Player() {
     window.addEventListener('mouseup', handleUp);
   }, [seek]);
 
+  const handleProgressTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    setIsDragging(true);
+    setDragProgress(Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width)));
+
+    const handleTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+      const t = ev.touches[0];
+      setDragProgress(Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width)));
+    };
+    const handleTouchEnd = (ev: TouchEvent) => {
+      const t = ev.changedTouches[0];
+      const p = Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width));
+      seek(p);
+      setIsDragging(false);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+  }, [seek]);
+
   // All hooks above — early return is safe here
   if (!player.currentTrack) return null;
 
@@ -102,7 +126,7 @@ export default function Player() {
           </div>
 
           {/* Cover + Info — fills available space */}
-          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 gap-6 min-h-0">
+          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 gap-4 min-h-0">
             {/* Cover */}
             <div className={`w-full max-w-[75vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
@@ -119,17 +143,11 @@ export default function Player() {
             </div>
           </div>
 
-          {/* Controls block — pinned to bottom */}
-          <div className="px-6 md:px-12 pb-8 md:pb-10 space-y-5 max-w-lg mx-auto w-full">
+          {/* Controls block — closer to content */}
+          <div className="px-6 md:px-12 pb-6 md:pb-8 space-y-4 max-w-lg mx-auto w-full">
             {/* Progress waveform */}
             <div>
-              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8" onMouseDown={handleProgressMouseDown} onTouchStart={(e) => {
-                const bar = e.currentTarget;
-                const rect = bar.getBoundingClientRect();
-                const touch = e.touches[0];
-                const p = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-                seek(p);
-              }}>
+              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8 touch-none" onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
                 <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
                   {Array.from({ length: 60 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
@@ -198,9 +216,10 @@ export default function Player() {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40">
-      {/* Mobile player — Yandex Music style */}
-      <div className="flex md:hidden flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
+    <>
+    {/* Mobile mini-player — sits above bottom nav */}
+    <div className="fixed left-0 right-0 z-40 bottom-[52px] md:hidden">
+      <div className="flex flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
         {/* Thin red progress bar at top */}
         <div className="h-[2px] bg-zinc-800 w-full">
           <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
@@ -226,70 +245,71 @@ export default function Player() {
           </button>
         </div>
       </div>
+    </div>
 
-      {/* Desktop player */}
-      <div className="hidden md:block bg-zinc-950/95 backdrop-blur-xl border-t border-white/5">
-        <div className="absolute top-0 left-0 right-0 h-[3px] cursor-pointer group" onMouseDown={handleProgressMouseDown}>
-          <div className="h-full bg-white/10 relative">
-            <div className="absolute h-full bg-white/5 transition-all duration-300" style={{ width: `${buffered * 100}%` }} />
-            <div className="absolute h-full bg-red-500 transition-all duration-100" style={{ width: `${progress * 100}%` }} />
-            <div className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" style={{ left: `${progress * 100}%`, transform: 'translate(-50%, -50%)' }} />
+    {/* Desktop player */}
+    <div className="fixed bottom-0 left-0 right-0 z-40 hidden md:block bg-zinc-950/95 backdrop-blur-xl border-t border-white/5">
+      <div className="absolute top-0 left-0 right-0 h-[3px] cursor-pointer group" onMouseDown={handleProgressMouseDown}>
+        <div className="h-full bg-white/10 relative">
+          <div className="absolute h-full bg-white/5 transition-all duration-300" style={{ width: `${buffered * 100}%` }} />
+          <div className="absolute h-full bg-red-500 transition-all duration-100" style={{ width: `${progress * 100}%` }} />
+          <div className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" style={{ left: `${progress * 100}%`, transform: 'translate(-50%, -50%)' }} />
+        </div>
+      </div>
+      <div className="flex items-center gap-4 px-4 py-3">
+        <div className="flex items-center gap-3 w-64 shrink-0">
+          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
+            <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Maximize2 size={16} className="text-white" /></div>
+            {player.isPlaying && (
+              <div className="absolute bottom-1 right-1 flex gap-0.5 items-end h-3">
+                {[1, 2, 3].map((i) => (<div key={i} className="w-0.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="text-white text-sm font-medium truncate">{t.title}</p>
+            <p className="text-zinc-400 text-xs truncate">{t.artist}</p>
+          </div>
+          <button onClick={() => toggleLike(t.id)} className={`shrink-0 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500 hover:text-white'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
+        </div>
+        <div className="flex-1 flex flex-col items-center gap-1">
+          <div className="flex items-center gap-5">
+            <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
+            <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
+            <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
+              {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black ml-0.5" fill="black" />}
+            </button>
+            <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
+            <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
+          </div>
+          <div className="flex items-center gap-2 w-full max-w-md">
+            <span className="text-zinc-500 text-xs w-10 text-right">{formatDuration(Math.floor(currentTime))}</span>
+            <div className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group" onMouseDown={(e) => { const rect = e.currentTarget.getBoundingClientRect(); seek((e.clientX - rect.left) / rect.width); }}>
+              <div className="absolute h-full bg-white/5 rounded-full" style={{ width: `${buffered * 100}%` }} />
+              <div className="h-full bg-white rounded-full relative" style={{ width: `${progress * 100}%` }}>
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow" />
+              </div>
+            </div>
+            <span className="text-zinc-500 text-xs w-10">{formatDuration(Math.floor(duration))}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4 px-4 py-3">
-          <div className="flex items-center gap-3 w-64 shrink-0">
-            <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
-              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Maximize2 size={16} className="text-white" /></div>
-              {player.isPlaying && (
-                <div className="absolute bottom-1 right-1 flex gap-0.5 items-end h-3">
-                  {[1, 2, 3].map((i) => (<div key={i} className="w-0.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
-                </div>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-white text-sm font-medium truncate">{t.title}</p>
-              <p className="text-zinc-400 text-xs truncate">{t.artist}</p>
-            </div>
-            <button onClick={() => toggleLike(t.id)} className={`shrink-0 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500 hover:text-white'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
-          </div>
-          <div className="flex-1 flex flex-col items-center gap-1">
-            <div className="flex items-center gap-5">
-              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
-              <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
-              <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
-                {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black ml-0.5" fill="black" />}
-              </button>
-              <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
-              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
-            </div>
-            <div className="flex items-center gap-2 w-full max-w-md">
-              <span className="text-zinc-500 text-xs w-10 text-right">{formatDuration(Math.floor(currentTime))}</span>
-              <div className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group" onMouseDown={(e) => { const rect = e.currentTarget.getBoundingClientRect(); seek((e.clientX - rect.left) / rect.width); }}>
-                <div className="absolute h-full bg-white/5 rounded-full" style={{ width: `${buffered * 100}%` }} />
-                <div className="h-full bg-white rounded-full relative" style={{ width: `${progress * 100}%` }}>
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow" />
-                </div>
+        <div className="flex items-center gap-3 w-56 justify-end">
+          {qualityLabel && <span className="text-zinc-600 text-[10px] bg-white/5 px-1.5 py-0.5 rounded">{qualityLabel}</span>}
+          {isBuffering && <WifiOff size={14} className="text-yellow-400 animate-pulse" />}
+          <div className="relative">
+            <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
+            {showVolume && (
+              <div className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10 rounded-lg p-3 shadow-xl">
+                <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-24 accent-red-500" style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '8px', height: '80px' }} />
               </div>
-              <span className="text-zinc-500 text-xs w-10">{formatDuration(Math.floor(duration))}</span>
-            </div>
+            )}
           </div>
-          <div className="flex items-center gap-3 w-56 justify-end">
-            {qualityLabel && <span className="text-zinc-600 text-[10px] bg-white/5 px-1.5 py-0.5 rounded">{qualityLabel}</span>}
-            {isBuffering && <WifiOff size={14} className="text-yellow-400 animate-pulse" />}
-            <div className="relative">
-              <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
-              {showVolume && (
-                <div className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10 rounded-lg p-3 shadow-xl">
-                  <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-24 accent-red-500" style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '8px', height: '80px' }} />
-                </div>
-              )}
-            </div>
-            <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-20 accent-red-500 h-1" />
-            <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>
-          </div>
+          <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-20 accent-red-500 h-1" />
+          <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>
         </div>
       </div>
     </div>
+    </>
   );
 }

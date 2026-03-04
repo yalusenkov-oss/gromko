@@ -51,6 +51,7 @@ import {
 import { query, queryOne, execute, initSchema, closeDb } from './db.js';
 import { ensureDirs, PATHS } from './config.js';
 import { processTrack, extractMetadata } from './audio-processor.js';
+import { parseArtistNames } from './parse-artists.js';
 
 // ─── S3 Config ───
 
@@ -423,8 +424,8 @@ async function ensureArtist(artistName: string, genre: string): Promise<string> 
  * Returns array of { slug, name } for all artists + primary slug for artist_slug column.
  */
 async function ensureArtists(artistString: string, genre: string): Promise<{ primarySlug: string; artists: { slug: string; name: string }[] }> {
-  // Split by ", " but be careful with names that legitimately contain commas
-  const names = artistString.split(/,\s+/).map(n => n.trim()).filter(Boolean);
+  // Split by ", " / "feat." / "ft." / "&" etc.
+  const names = parseArtistNames(artistString);
   if (names.length === 0) return { primarySlug: 'unknown', artists: [] };
 
   const result: { slug: string; name: string }[] = [];
