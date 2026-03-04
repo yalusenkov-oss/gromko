@@ -15,7 +15,7 @@ export declare function query<T = any>(text: string, params?: any[]): Promise<T[
 export declare function queryOne<T = any>(text: string, params?: any[]): Promise<T | null>;
 /** Run a query returning no data (INSERT/UPDATE/DELETE) */
 export declare function execute(text: string, params?: any[]): Promise<number>;
-/** Initialize database schema */
+/** Initialize database schema (retries for Neon cold starts) */
 export declare function initSchema(): Promise<void>;
 export declare function closeDb(): Promise<void>;
 //# sourceMappingURL=db.d.ts.map

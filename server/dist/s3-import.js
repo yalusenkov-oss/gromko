@@ -331,6 +331,7 @@ async function ensureArtist(artistName, genre) {
     await execute(`
     INSERT INTO artists (id, name, slug, genre, tracks_count, total_plays)
     VALUES ($1, $2, $3, $4, 0, 0)
+    ON CONFLICT (slug) DO NOTHING
   `, [uuid(), artistName, slug, genre]);
     return slug;
 }
@@ -488,6 +489,7 @@ async function main() {
     if (!DRY_RUN) {
         ensureDirs();
         await initSchema();
+        await closeDb(); // release connection — S3 scan takes 20s+ and Neon kills idle connections
     }
     // ── Step 1: List all objects in bucket ──
     const allObjects = await listAllObjects(S3_PREFIX);

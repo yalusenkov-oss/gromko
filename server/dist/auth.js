@@ -6,6 +6,9 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuid } from 'uuid';
 import { queryOne, execute } from './db.js';
 import 'dotenv/config';
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be set in production');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'gromko-dev-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 const SALT_ROUNDS = 10;

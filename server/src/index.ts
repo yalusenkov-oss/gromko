@@ -119,20 +119,25 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ─── Start ───
-app.listen(CONFIG.port, CONFIG.host, () => {
+const server = app.listen(CONFIG.port, CONFIG.host, () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
   console.log('  ║     🔊  GROMKO Audio Server  🔊     ║');
   console.log('  ╠══════════════════════════════════════╣');
   console.log(`  ║  http://localhost:${CONFIG.port}              ║`);
-  console.log('  ║                                      ║');
-  console.log('  ║  Endpoints:                          ║');
-  console.log('  ║  POST /api/tracks/upload              ║');
-  console.log('  ║  GET  /api/tracks/:id/stream          ║');
-  console.log('  ║  GET  /api/tracks/:id/hls/master.m3u8 ║');
-  console.log('  ║  GET  /api/tracks/:id/waveform        ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
 });
+
+// ─── Graceful shutdown ───
+async function shutdown(signal: string) {
+  console.log(`\n  ${signal} received, shutting down...`);
+  server.close();
+  const { closeDb } = await import('./db.js');
+  await closeDb();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export default app;

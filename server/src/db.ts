@@ -12,22 +12,25 @@ import 'dotenv/config';
 
 const { Pool } = pg;
 
-let pool: pg.Pool;
+let pool: pg.Pool | undefined;
 
 function isLocalHost(host?: string): boolean {
   return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
 
+function hostFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try { return new URL(url).hostname; } catch { return undefined; }
+}
+
 function buildPoolOptions(): pg.PoolConfig {
   const connectionString = process.env.DATABASE_URL;
   const hasDiscretePgVars = Boolean(process.env.PGHOST || process.env.PGUSER || process.env.PGDATABASE);
-  const host = process.env.PGHOST;
+  const host = process.env.PGHOST || hostFromUrl(connectionString);
 
-  // Render/managed Postgres usually needs TLS for external connections.
-  // If DATABASE_SSL=false, disable it explicitly.
   const shouldUseSsl = process.env.DATABASE_SSL === 'false'
     ? false
-    : (process.env.NODE_ENV === 'production' && !isLocalHost(host));
+    : !isLocalHost(host);
 
   if (!connectionString && !hasDiscretePgVars && process.env.NODE_ENV === 'production') {
     throw new Error(
@@ -42,9 +45,12 @@ function buildPoolOptions(): pg.PoolConfig {
     user: process.env.PGUSER || undefined,
     password: process.env.PGPASSWORD || undefined,
     database: process.env.PGDATABASE || undefined,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 30000,
+    allowExitOnIdle: true,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 5000,
     ssl: shouldUseSsl ? { rejectUnauthorized: false } : undefined,
   };
 }
@@ -53,7 +59,8 @@ export function getPool(): pg.Pool {
   if (!pool) {
     pool = new Pool(buildPoolOptions());
     pool.on('error', (err) => {
-      console.error('Unexpected DB pool error:', err);
+      console.error('DB pool error, resetting pool:', err.message);
+      pool = undefined;
     });
   }
   return pool;
@@ -77,9 +84,20 @@ export async function execute(text: string, params?: any[]): Promise<number> {
   return res.rowCount || 0;
 }
 
-/** Initialize database schema */
+/** Initialize database schema (retries for Neon cold starts) */
 export async function initSchema(): Promise<void> {
-  const client = await getPool().connect();
+  let client: pg.PoolClient | undefined;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      client = await getPool().connect();
+      break;
+    } catch (err: any) {
+      console.warn(`  ⏳ DB connect attempt ${attempt}/5 failed: ${err.code || err.message}`);
+      if (attempt === 5) throw err;
+      await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+  }
+  if (!client) throw new Error('Failed to connect to database');
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS tracks (
@@ -181,7 +199,7 @@ export async function initSchema(): Promise<void> {
 
       CREATE TABLE IF NOT EXISTS play_history (
         id SERIAL PRIMARY KEY,
-        track_id TEXT NOT NULL REFERENCES tracks(id),
+        track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
         user_id TEXT,
         played_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         duration_listened DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -212,5 +230,9 @@ export async function initSchema(): Promise<void> {
 }
 
 export async function closeDb(): Promise<void> {
-  if (pool) await pool.end();
+  if (pool) {
+    const p = pool;
+    pool = undefined;
+    await p.end();
+  }
 }
