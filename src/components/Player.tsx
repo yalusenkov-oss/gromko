@@ -128,7 +128,7 @@ export default function Player() {
 
           {/* Main content */}
           <div className="flex-1 flex flex-col items-center justify-center px-7 md:px-12 min-h-0 overflow-hidden"
-               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)' }}>
+               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)', paddingTop: '3vh' }}>
 
             {/* Cover */}
             <div className={`w-full max-w-[72vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
