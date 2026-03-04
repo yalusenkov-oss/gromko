@@ -1,7 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output — committed for Timeweb deployment
+# Build output (generated in Docker or locally via `npm run build`)
+server/dist/
 
 # Data (audio files, covers, waveforms, uploads)
 data/
