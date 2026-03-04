@@ -16,7 +16,11 @@ RUN npx tsc
 
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    postgresql \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -25,8 +29,11 @@ RUN cd server && npm ci --omit=dev
 
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=frontend-build /app/dist ./dist
+COPY start.sh ./start.sh
+RUN chmod +x start.sh
 
 RUN mkdir -p /tmp/gromko-data/uploads /tmp/gromko-data/audio /tmp/gromko-data/covers /tmp/gromko-data/waveforms /tmp/gromko-data/temp && chmod -R 777 /tmp/gromko-data
+RUN mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/tmp/gromko-data
@@ -34,4 +41,4 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-CMD ["node", "server/dist/index.js"]
+CMD ["./start.sh"]
