@@ -1,5 +1,5 @@
 import { useStore, GENRES, Track } from '../store';
-import { Play, Pause, TrendingUp, Clock, Users, ChevronRight, Flame, Disc3 } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3 } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
@@ -15,7 +15,6 @@ export default function Home() {
 
   const filteredTracks = activeGenre === 'Все' ? tracks : tracks.filter(t => t.genre === activeGenre);
   const popularTracks = [...filteredTracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
-  const newTracks = (activeGenre === 'Все' ? tracks : filteredTracks).filter(t => t.isNew).slice(0, 5);
 
   // Build popular albums from tracks
   const popularAlbums = useMemo(() => {
@@ -178,23 +177,6 @@ export default function Home() {
             </div>
           )}
         </section>
-
-        {/* New tracks */}
-        {newTracks.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <Clock size={20} className="text-red-400" />
-                <h2 className="text-xl font-bold">Новинки</h2>
-              </div>
-            </div>
-            <div className="space-y-1">
-              {newTracks.slice(0, 5).map(track => (
-                <TrackCard key={track.id} track={track} queue={newTracks} />
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Artists */}
         <section>

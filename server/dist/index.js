@@ -187,7 +187,61 @@ const server = app.listen(CONFIG.port, CONFIG.host, () => {
 });
 async function recalcArtistStats() {
     try {
-        const { execute } = await import('./db.js');
+        const { execute, query, queryOne } = await import('./db.js');
+        const { parseArtistNames } = await import('./parse-artists.js');
+        const { v4: uuid } = await import('uuid');
+        // Step 0: Normalize genres
+        const genreMap = {
+            'Rap': 'Рэп', 'Rap/Hip Hop': 'Рэп', 'Hip-Hop/Rap': 'Хип-хоп',
+            'Hip Hop': 'Хип-хоп', 'hip-hop': 'Хип-хоп', 'rap': 'Рэп',
+            'Pop': 'Pop', 'Rock': 'Rock', 'Electronic': 'Electronic',
+            'R&B': 'R&B', 'Trap': 'Trap', 'Drill': 'Drill', 'Phonk': 'Phonk',
+            'Toxic DUB': 'Другое',
+        };
+        for (const [from, to] of Object.entries(genreMap)) {
+            if (from !== to) {
+                await execute('UPDATE tracks SET genre = $1 WHERE genre = $2', [to, from]);
+                await execute('UPDATE artists SET genre = $1 WHERE genre = $2', [to, from]);
+            }
+        }
+        console.log('  ✅ Genres normalized');
+        // Step 1: Clean up combined-name artists (feat/ft/&/comma)
+        const combinedArtists = await query(`SELECT id, name, slug, genre FROM artists WHERE name ~* '\\s+(feat\\.?|ft\\.?)\\s+' OR name LIKE '%,%' OR name ~ '\\s+&\\s+'`);
+        let cleaned = 0;
+        for (const ca of combinedArtists) {
+            const names = parseArtistNames(ca.name);
+            if (names.length <= 1)
+                continue;
+            // Get all tracks linked to this combined artist
+            const links = await query('SELECT track_id, position FROM track_artists WHERE artist_id = $1', [ca.id]);
+            // Ensure each individual artist exists and re-link tracks
+            for (const link of links) {
+                for (let i = 0; i < names.length; i++) {
+                    const aName = names[i];
+                    const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                    let existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
+                    let artistId;
+                    if (existing) {
+                        artistId = existing.id;
+                    }
+                    else {
+                        artistId = uuid();
+                        await execute('INSERT INTO artists (id, name, slug, genre, tracks_count, total_plays) VALUES ($1, $2, $3, $4, 0, 0)', [artistId, aName, aSlug, ca.genre]);
+                    }
+                    await execute('INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [link.track_id, artistId, link.position + i]);
+                }
+            }
+            // Update tracks that reference the combined artist_slug
+            const primarySlug = names[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            await execute('UPDATE tracks SET artist_slug = $1 WHERE artist_slug = $2', [primarySlug, ca.slug]);
+            // Delete old links and the combined artist
+            await execute('DELETE FROM track_artists WHERE artist_id = $1', [ca.id]);
+            await execute('DELETE FROM artists WHERE id = $1', [ca.id]);
+            cleaned++;
+        }
+        if (cleaned > 0)
+            console.log(`  🧹 Cleaned ${cleaned} combined artists`);
+        // Step 2: Recalculate track counts and play totals
         await execute(`
       UPDATE artists a SET
         tracks_count = COALESCE(sub.cnt, 0),

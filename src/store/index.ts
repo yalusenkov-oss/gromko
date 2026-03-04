@@ -81,7 +81,7 @@ export interface PlayerState {
   isFullscreen: boolean;
 }
 
-export const GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic'];
+export const GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic', 'Другое'];
 
 function getToken(): string | null {
   return localStorage.getItem('gromko_token');
@@ -278,6 +278,8 @@ export const useStore = create<AppStore>((set, get) => ({
 
   fetchTracks: async (params = {}) => {
     try {
+      // Default to loading all tracks so the UI has the full count
+      if (!params.limit) params.limit = '9999';
       const qs = new URLSearchParams(params).toString();
       const data = await apiFetch(`/tracks${qs ? '?' + qs : ''}`);
       const tracks: Track[] = data.tracks || [];

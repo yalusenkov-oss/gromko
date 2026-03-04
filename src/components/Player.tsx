@@ -127,12 +127,12 @@ export default function Player() {
           </div>
 
           {/* Cover + Title + Artist — grouped together */}
-          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 min-h-0">
-            <div className={`w-full max-w-[68vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
+          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 min-h-0 pb-2">
+            <div className={`w-full max-w-[60vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             </div>
             {/* Title + Artist — directly below cover */}
-            <div className="text-center w-full mt-5 px-2">
+            <div className="text-center w-full mt-4 px-2">
               <h2 className="text-xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
               <p className="text-white/50 text-sm md:text-lg mt-0.5 truncate">
                 {t.artists && t.artists.length > 0
@@ -144,10 +144,10 @@ export default function Player() {
 
           {/* Bottom section — progress, controls, like */}
           <div className="shrink-0 px-6 md:px-12 max-w-lg mx-auto w-full"
-               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)' }}>
+               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 4px)' }}>
             {/* Progress waveform */}
-            <div className="mb-3">
-              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
+            <div className="mb-2">
+              <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
                 <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
                   {Array.from({ length: 60 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
@@ -167,7 +167,7 @@ export default function Player() {
             </div>
 
             {/* Playback controls */}
-            <div className="flex items-center justify-center gap-8 mb-3">
+            <div className="flex items-center justify-center gap-8 mb-2">
               <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
               <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
               <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>

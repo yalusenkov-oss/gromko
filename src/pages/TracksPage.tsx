@@ -3,7 +3,6 @@ import { useStore, GENRES, Track } from '../store';
 import TrackCard from '../components/TrackCard';
 import { Search, Disc3, Play, Pause, X, Heart, MoreHorizontal, Music, Shuffle } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { apiUrl } from '../lib/api';
 import { formatPlays } from '../utils/format';
 
 interface Album {
@@ -28,7 +27,6 @@ export default function TracksPage() {
   const [page, setPage] = useState(1);
   const [view, setView] = useState<View>('tracks');
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
-  const [allTracks, setAllTracks] = useState<Track[]>([]);
   const PER_PAGE = 50;
 
   // Sync genre from URL params (e.g. /tracks?genre=Trap)
@@ -37,17 +35,7 @@ export default function TracksPage() {
     if (g && GENRES.includes(g)) setGenre(g);
   }, [searchParams]);
 
-  // Fetch all tracks with meta.album from API
-  useEffect(() => {
-    fetch(apiUrl('/tracks?limit=9999'))
-      .then(r => r.json())
-      .then(data => { if (data.tracks) setAllTracks(data.tracks); })
-      .catch(() => {});
-  }, []);
-
-  const tracksWithMeta = allTracks.length > 0 ? allTracks : tracks;
-
-  const filtered = tracksWithMeta
+  const filtered = tracks
     .filter(t => genre === 'Все' || t.genre === genre)
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
@@ -61,7 +49,7 @@ export default function TracksPage() {
   // Build albums from all tracks (with meta.album)
   const albums = useMemo(() => {
     const albumMap = new Map<string, Album>();
-    const src = genre === 'Все' ? tracksWithMeta : tracksWithMeta.filter(t => t.genre === genre);
+    const src = genre === 'Все' ? tracks : tracks.filter(t => t.genre === genre);
 
     for (const track of src) {
       const albumName = track.meta?.album;
@@ -96,7 +84,7 @@ export default function TracksPage() {
       if (sort === 'new') return b.year - a.year;
       return a.name.localeCompare(b.name);
     });
-  }, [tracksWithMeta, genre, search, sort]);
+  }, [tracks, genre, search, sort]);
 
   const handlePlayAlbum = (album: Album) => {
     const firstTrack = album.tracks[0];
@@ -104,7 +92,7 @@ export default function TracksPage() {
   };
 
   const handleShuffleAll = () => {
-    const source = view === 'tracks' ? filtered : tracksWithMeta.filter(t => genre === 'Все' || t.genre === genre);
+    const source = view === 'tracks' ? filtered : tracks.filter(t => genre === 'Все' || t.genre === genre);
     if (source.length === 0) return;
     const shuffled = [...source].sort(() => Math.random() - 0.5);
     playTrack(shuffled[0], shuffled);
