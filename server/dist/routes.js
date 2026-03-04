@@ -877,10 +877,10 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
     if (s3ImportRunning) {
         return res.status(409).json({ error: 'Импорт уже запущен', log: s3ImportLog.slice(-50) });
     }
-    const { limit = 30, genre, artist, dryRun } = req.body;
+    const { limit = 30, genre, artist, dryRun, skipExisting = true } = req.body;
     s3ImportRunning = true;
-    s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit})...`];
-    res.json({ ok: true, message: `S3 импорт запущен (limit=${limit})` });
+    s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit}${artist ? `, artist=${artist}` : ''})...`];
+    res.json({ ok: true, message: `S3 импорт запущен (limit=${limit}${artist ? `, artist=${artist}` : ''})` });
     // Find the s3-import script path
     const __dir = path.dirname(new URL(import.meta.url).pathname);
     const scriptPath = path.join(__dir, 's3-import.js');
@@ -891,8 +891,8 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
     const args = fs.existsSync(scriptPath) ? [scriptPath] : ['tsx', tsScriptPath];
     const env = {
         ...process.env,
-        LIMIT: String(limit || 30),
-        SKIP_EXISTING: '1',
+        LIMIT: String(limit || 0),
+        SKIP_EXISTING: skipExisting ? '1' : '0',
     };
     if (genre)
         env.GENRE = genre;

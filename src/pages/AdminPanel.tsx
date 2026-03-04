@@ -1075,6 +1075,64 @@ function SettingsTab() {
   const [heroId, setHeroId] = useState('');
   const currentFeatured = tracks.find(t => t.featured);
 
+  /* ── S3 Import state ── */
+  const [importArtist, setImportArtist] = useState('');
+  const [importLimit, setImportLimit] = useState(30);
+  const [importSkipExisting, setImportSkipExisting] = useState(true);
+  const [importRunning, setImportRunning] = useState(false);
+  const [importLog, setImportLog] = useState<string[]>([]);
+  const [importPolling, setImportPolling] = useState(false);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // Poll import status
+  useEffect(() => {
+    if (!importPolling) return;
+    const iv = setInterval(async () => {
+      try {
+        const data = await adminFetch('/admin/s3-import/status');
+        setImportLog(data.log || []);
+        setImportRunning(data.running);
+        if (!data.running) setImportPolling(false);
+      } catch {}
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [importPolling]);
+
+  // Auto-scroll log
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [importLog]);
+
+  // Check if import already running on mount
+  useEffect(() => {
+    adminFetch('/admin/s3-import/status').then(data => {
+      if (data.running) {
+        setImportRunning(true);
+        setImportPolling(true);
+        setImportLog(data.log || []);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const startImport = async () => {
+    try {
+      setImportLog(['Запуск импорта...']);
+      setImportRunning(true);
+      await adminFetch('/admin/s3-import', {
+        method: 'POST',
+        body: JSON.stringify({
+          limit: importLimit || 0,
+          artist: importArtist.trim() || undefined,
+          skipExisting: importSkipExisting,
+        }),
+      });
+      setImportPolling(true);
+    } catch (err: any) {
+      setImportLog(prev => [...prev, `❌ ${err.message}`]);
+      setImportRunning(false);
+    }
+  };
+
   const setFeatured = async () => {
     if (!heroId) return;
     if (currentFeatured) await updateTrack(currentFeatured.id, { featured: false });
@@ -1085,6 +1143,93 @@ function SettingsTab() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* S3 Import */}
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
+        <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+          <Upload className="w-5 h-5 text-purple-400" />
+          Импорт из S3
+        </h3>
+        <p className="text-xs text-zinc-500 mb-4">Перенос треков из Yandex Object Storage в базу</p>
+
+        <div className="space-y-3">
+          {/* Artist filter */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Артист (имя папки в S3)</label>
+            <input
+              type="text"
+              value={importArtist}
+              onChange={e => setImportArtist(e.target.value)}
+              placeholder="Оставьте пустым для всех артистов"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          {/* Limit */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Лимит треков (0 = без лимита)</label>
+            <input
+              type="number"
+              value={importLimit}
+              onChange={e => setImportLimit(Number(e.target.value))}
+              min={0}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          {/* Skip existing */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={importSkipExisting}
+              onChange={e => setImportSkipExisting(e.target.checked)}
+              className="accent-purple-500"
+            />
+            <span className="text-sm text-zinc-300">Пропускать уже загруженные</span>
+          </label>
+
+          {/* Start button */}
+          <button
+            onClick={startImport}
+            disabled={importRunning}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importRunning ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Импорт выполняется...</>
+            ) : (
+              <><Play className="w-4 h-4" /> Запустить импорт</>
+            )}
+          </button>
+        </div>
+
+        {/* Import log */}
+        {importLog.length > 0 && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-zinc-500">Лог импорта</span>
+              {importRunning && <span className="flex items-center gap-1 text-xs text-purple-400"><Loader2 className="w-3 h-3 animate-spin" /> В процессе</span>}
+            </div>
+            <div
+              ref={logRef}
+              className="bg-black/50 rounded-lg border border-zinc-800 p-3 h-64 overflow-y-auto font-mono text-xs leading-relaxed"
+            >
+              {importLog.map((line, i) => (
+                <div
+                  key={i}
+                  className={`${
+                    line.includes('✅') ? 'text-green-400' :
+                    line.includes('❌') ? 'text-red-400' :
+                    line.includes('⚠') ? 'text-yellow-400' :
+                    line.includes('⏭') ? 'text-zinc-600' :
+                    'text-zinc-400'
+                  }`}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Главный трек (Hero)</h3>
         <p className="text-sm text-zinc-400 mb-4">
