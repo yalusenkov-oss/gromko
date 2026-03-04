@@ -43,12 +43,15 @@ console.log('  🔑 PORT:', process.env.PORT || CONFIG.port);
 ensureDirs();
 
 // Connect to PostgreSQL and initialize schema
+let dbReady = false;
 try {
   await initSchema();
+  dbReady = true;
+  console.log('  ✅ Database connected');
 } catch (err) {
   console.error('  ❌ Failed to initialize database schema:', err);
   console.error('  💡 Make sure DATABASE_URL is set correctly');
-  process.exit(1);
+  console.error('  ⚠️ Server will start WITHOUT database — frontend will be served but API will not work');
 }
 
 const app = express();
@@ -67,6 +70,17 @@ app.use(express.urlencoded({ extended: true }));
 
 // ─── Parse JWT on all requests (optional — sets req.user if token present) ───
 app.use(authOptional);
+
+// ─── Guard API routes if DB is not connected ───
+app.use('/api', (req, res, next) => {
+  if (!dbReady) {
+    return res.status(503).json({
+      error: 'Database not connected',
+      hint: 'DATABASE_URL is not configured correctly on this server',
+    });
+  }
+  next();
+});
 
 // ─── Static file serving for processed media ───
 // Covers: /covers/{trackId}/medium.webp
@@ -112,6 +126,13 @@ app.use('/api', routes);
 
 // ─── Health check ───
 app.get('/health', async (_req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({
+      status: 'degraded',
+      error: 'Database not connected',
+      uptime: process.uptime(),
+    });
+  }
   const { queryOne } = await import('./db.js');
   const result = await queryOne('SELECT COUNT(*) as c FROM tracks');
   res.json({
@@ -167,8 +188,10 @@ const server = app.listen(CONFIG.port, CONFIG.host, () => {
   console.log('');
 
   // Recalculate artist stats on startup and every hour
-  recalcArtistStats();
-  setInterval(recalcArtistStats, 60 * 60 * 1000);
+  if (dbReady) {
+    recalcArtistStats();
+    setInterval(recalcArtistStats, 60 * 60 * 1000);
+  }
 });
 
 async function recalcArtistStats() {
