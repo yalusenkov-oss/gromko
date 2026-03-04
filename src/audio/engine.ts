@@ -83,7 +83,7 @@ class AudioEngine {
   constructor() {
     this.audio = new Audio();
     this.audio.preload = 'auto';
-    this.audio.crossOrigin = 'anonymous'; // S3 bucket has CORS configured
+    // crossOrigin set dynamically per-track in play() — see setCrossOrigin()
 
     this.setupAudioEvents();
     this.setupMediaSession();
@@ -111,6 +111,7 @@ class AudioEngine {
     this.updateMediaSession();
 
     const url = this.getStreamUrl(track);
+    this.setCrossOrigin(this.audio, url);
     this.audio.src = url;
     this.audio.load();
     this.audio.play().catch(() => {
@@ -336,6 +337,28 @@ class AudioEngine {
     return `${API_BASE}/api/tracks/${track.id}/stream?quality=${quality}`;
   }
 
+  /**
+   * Set crossOrigin only for cross-origin (S3/CDN) URLs.
+   * For same-origin audio files, crossOrigin must be null to avoid
+   * unnecessary CORS preflight which can break some proxy/CDN setups.
+   */
+  private setCrossOrigin(audio: HTMLAudioElement, url: string): void {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      // Absolute URL — might be cross-origin (S3), set anonymous
+      try {
+        const audioOrigin = new URL(url).origin;
+        if (audioOrigin !== window.location.origin) {
+          audio.crossOrigin = 'anonymous';
+          return;
+        }
+      } catch {
+        // invalid URL — treat as same-origin
+      }
+    }
+    // Same-origin — remove crossOrigin to avoid CORS issues
+    audio.crossOrigin = '';
+  }
+
   private autoSelectQuality(): 'low' | 'medium' | 'high' {
     // Check network conditions
     const conn = (navigator as any).connection;
@@ -416,7 +439,7 @@ class AudioEngine {
       const err = this.audio.error;
       // Only log real errors (not aborted loads)
       if (err && err.code !== MediaError.MEDIA_ERR_ABORTED) {
-        console.error('Audio error:', err.code, err.message);
+        console.error('Audio error:', err.code, err.message, 'src:', this.audio.src);
       }
       this._state = 'error';
       this.notify();
@@ -546,7 +569,7 @@ class AudioEngine {
     }
     this.nextAudio = new Audio();
     this.nextAudio.preload = 'auto';
-    this.nextAudio.crossOrigin = 'anonymous';
+    this.setCrossOrigin(this.nextAudio, url);
     this.nextAudio.src = url;
     this.nextAudio.load(); // start buffering
   }

@@ -123,8 +123,23 @@ app.get('/health', async (_req, res) => {
 
 // ─── Frontend (production: serve built SPA from /dist) ───
 if (IS_PROD && fs.existsSync(FRONTEND_DIR)) {
-  app.use(express.static(FRONTEND_DIR, { maxAge: '7d' }));
+  // Serve assets with long cache, but NEVER cache index.html
+  // (vite-plugin-singlefile inlines everything into index.html,
+  //  so browsers must always fetch the latest version)
+  app.use(express.static(FRONTEND_DIR, {
+    maxAge: '7d',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html') || filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  }));
   app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
   });
 } else {
