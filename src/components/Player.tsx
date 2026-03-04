@@ -131,7 +131,7 @@ export default function Player() {
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)' }}>
 
             {/* Cover — upper area */}
-            <div className="flex items-end justify-center min-h-0" style={{ flex: '1.1' }}>
+            <div className="flex items-end justify-center min-h-0" style={{ flex: '1' }}>
               <div className={`w-full max-w-[78vw] md:max-w-md aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
                 <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
               </div>
@@ -191,7 +191,7 @@ export default function Player() {
             </div>{/* end controls */}
 
             {/* Empty space below everything */}
-            <div style={{ flex: '0.45' }} />
+            <div style={{ flex: '0.25' }} />
           </div>{/* end main content */}
         </div>{/* end relative z-10 */}
       </div>{/* end overlay */}
