@@ -130,17 +130,17 @@ export default function Player() {
           <div className="flex-1 flex flex-col px-7 md:px-12 min-h-0 overflow-hidden"
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)' }}>
 
-            {/* Cover — centered, takes most of the space */}
-            <div className="flex-1 flex items-center justify-center min-h-0 py-2">
+            {/* Cover — upper area */}
+            <div className="flex items-end justify-center min-h-0" style={{ flex: '1.1' }}>
               <div className={`w-full max-w-[78vw] md:max-w-md aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
                 <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
               </div>
             </div>
 
-            {/* Bottom section: title, progress, controls, like */}
+            {/* Title + progress + controls */}
             <div className="shrink-0 max-w-lg mx-auto w-full">
-              {/* Title + Artist */}
-              <div className="w-full mb-4">
+              {/* Title + Artist — centered */}
+              <div className="text-center w-full mt-4 mb-3">
                 <h2 className="text-[22px] md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
                 <p className="text-white/50 text-[15px] md:text-lg mt-0.5 truncate">
                   {t.artists && t.artists.length > 0
@@ -150,7 +150,7 @@ export default function Player() {
               </div>
 
               {/* Progress waveform */}
-              <div className="mb-4">
+              <div className="mb-3">
                 <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
                   <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
                     {Array.from({ length: 60 }).map((_, i) => {
@@ -171,7 +171,7 @@ export default function Player() {
               </div>
 
               {/* Playback controls */}
-              <div className="flex items-center justify-center gap-8 mb-4">
+              <div className="flex items-center justify-center gap-8 mb-3">
                 <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
                 <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
                 <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
@@ -182,13 +182,16 @@ export default function Player() {
               </div>
 
               {/* Like button */}
-              <div className="flex items-center justify-center pb-1">
+              <div className="flex items-center justify-center">
                 <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
                   <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
                   <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
                 </button>
               </div>
-            </div>{/* end bottom section */}
+            </div>{/* end controls */}
+
+            {/* Empty space below everything */}
+            <div style={{ flex: '0.45' }} />
           </div>{/* end main content */}
         </div>{/* end relative z-10 */}
       </div>{/* end overlay */}
