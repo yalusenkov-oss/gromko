@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
+# Build output (frontend only — server/dist is committed for deployment)
+/dist/
 
 # Data (audio files, covers, waveforms, uploads)
 data/

@@ -5,10 +5,17 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..', '..');
-const DEFAULT_DATA_DIR = process.env.NODE_ENV === 'production'
-  ? '/tmp/gromko-data'
-  : path.join(ROOT, 'data');
-const DATA_DIR = process.env.DATA_DIR || DEFAULT_DATA_DIR;
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  const localDir = path.join(ROOT, 'data');
+  try {
+    fs.mkdirSync(localDir, { recursive: true });
+    return localDir;
+  } catch {
+    return '/tmp/gromko-data';
+  }
+}
+const DATA_DIR = resolveDataDir();
 
 export const PATHS = {
   /** Root data directory */
