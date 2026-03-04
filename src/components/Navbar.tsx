@@ -189,10 +189,18 @@ export default function Navbar() {
             </Link>
           ))}
           {currentUser && (
-            <Link to="/profile?tab=likes" onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition-colors">
-              <Heart size={14} fill="currentColor" /> Мои лайки ({currentUser.likedTracks.length})
-            </Link>
+            <>
+              <Link to="/profile?tab=likes" onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition-colors">
+                <Heart size={14} fill="currentColor" /> Мои лайки ({currentUser.likedTracks.length})
+              </Link>
+              {isAdmin && (
+                <Link to="/admin" onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-purple-400 hover:text-purple-300 hover:bg-white/5 transition-colors">
+                  <Settings size={14} /> Панель управления
+                </Link>
+              )}
+            </>
           )}
           <form onSubmit={handleSearch} className="mt-3">
             <div className="relative">
