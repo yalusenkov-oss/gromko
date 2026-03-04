@@ -378,6 +378,7 @@ class AudioEngine {
       this._state = 'playing';
       this.startProgressLoop();
       this.notify();
+      this.updateMediaSession();
     });
 
     this.audio.addEventListener('pause', () => {
@@ -386,6 +387,7 @@ class AudioEngine {
       }
       this.stopProgressLoop();
       this.notify();
+      this.updateMediaSession();
     });
 
     this.audio.addEventListener('waiting', () => {
@@ -449,21 +451,12 @@ class AudioEngine {
     navigator.mediaSession.setActionHandler('pause', () => this.pause());
     navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
     navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
-    // On iOS/Safari, explicitly setting seekbackward/seekforward to handlers
-    // prevents the default ±15s buttons from replacing prev/next track buttons.
-    // We handle them as small seeks but the main goal is to keep skip track buttons visible.
-    try {
-      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-        const offset = details.seekOffset || 10;
-        this.seekTo(Math.max(0, this.audio.currentTime - offset));
-      });
-      navigator.mediaSession.setActionHandler('seekforward', (details) => {
-        const offset = details.seekOffset || 10;
-        this.seekTo(Math.min(this.audio.duration || 0, this.audio.currentTime + offset));
-      });
-    } catch {
-      // Some browsers don't support these — that's fine
-    }
+
+    // IMPORTANT: Do NOT set seekbackward/seekforward handlers.
+    // On iOS/Safari, when these handlers are set, the lock screen replaces
+    // the skip track buttons (⏮ ⏭) with seek buttons (↻10 ↺10).
+    // By leaving them unset, iOS shows the default prev/next track buttons.
+
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime !== undefined) {
         this.seekTo(details.seekTime);
@@ -490,30 +483,31 @@ class AudioEngine {
       ? track.cover
       : `${API_BASE}${track.cover}`;
 
-    // Only update metadata if track changed
-    const currentMeta = navigator.mediaSession.metadata;
-    if (!currentMeta || currentMeta.title !== track.title || currentMeta.artist !== track.artist) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: track.title,
-        artist: track.artist,
-        artwork: [
-          { src: coverUrl, sizes: '96x96', type: 'image/webp' },
-          { src: coverUrl, sizes: '256x256', type: 'image/webp' },
-          { src: coverUrl, sizes: '512x512', type: 'image/webp' },
-        ],
-      });
-    }
+    // Always update metadata — ensures iOS lock screen stays in sync after track change
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title,
+      artist: track.artist,
+      artwork: [
+        { src: coverUrl, sizes: '96x96', type: 'image/webp' },
+        { src: coverUrl, sizes: '256x256', type: 'image/webp' },
+        { src: coverUrl, sizes: '512x512', type: 'image/webp' },
+      ],
+    });
 
     // Set playback state explicitly for iOS
     navigator.mediaSession.playbackState = this._state === 'playing' ? 'playing' : 'paused';
 
     // Update position state for OS scrubber
-    if (this.audio.duration && !isNaN(this.audio.duration)) {
-      navigator.mediaSession.setPositionState({
-        duration: this.audio.duration,
-        playbackRate: this.audio.playbackRate,
-        position: this.audio.currentTime,
-      });
+    if (this.audio.duration && !isNaN(this.audio.duration) && this.audio.duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: this.audio.duration,
+          playbackRate: this.audio.playbackRate,
+          position: Math.min(this.audio.currentTime, this.audio.duration),
+        });
+      } catch {
+        // position > duration can throw on some browsers
+      }
     }
   }
 

@@ -26,6 +26,9 @@ function toAudioTrack(track: Track): AudioTrack {
     artist: track.artist,
     cover: cover || '',
     duration: track.duration,
+    streams: track.streams as AudioTrack['streams'],
+    hlsMaster: track.hlsMaster,
+    waveform: track.waveform,
   };
 }
 
@@ -74,6 +77,16 @@ export function useAudioEngine() {
     audioEngine.setVolume(player.volume);
   }, [player.volume]);
 
+  // Sync shuffle → engine
+  useEffect(() => {
+    audioEngine.setShuffle(player.shuffle);
+  }, [player.shuffle]);
+
+  // Sync repeat → engine
+  useEffect(() => {
+    audioEngine.setRepeat(player.repeat);
+  }, [player.repeat]);
+
   // ─── Sync engine -> store ───
   // Update store progress from real audio playback
   // AND sync track changes when engine auto-advances (e.g. track ended → next)
@@ -88,12 +101,33 @@ export function useAudioEngine() {
       if (state.track && state.track.id !== lastTrackIdRef.current) {
         lastTrackIdRef.current = state.track.id;
         const storeState = useStore.getState();
+        // Skip if store already has this track
+        if (storeState.player.currentTrack?.id === state.track.id) return;
+
         const matchedTrack = storeState.player.queue.find(
           (t: Track) => t.id === state.track!.id
         );
-        if (matchedTrack && matchedTrack.id !== storeState.player.currentTrack?.id) {
-          useStore.setState((s: { player: typeof player }) => ({
-            player: { ...s.player, currentTrack: matchedTrack, progress: 0 }
+        if (matchedTrack) {
+          useStore.setState((s) => ({
+            player: { ...s.player, currentTrack: matchedTrack, progress: 0, isPlaying: true }
+          }));
+        } else {
+          // Track not in store queue — build a minimal Track from engine's AudioTrack
+          const et = state.track!;
+          const fallbackTrack: Track = {
+            id: et.id,
+            title: et.title,
+            artist: et.artist,
+            artistSlug: '',
+            genre: '',
+            year: 0,
+            cover: et.cover,
+            duration: et.duration,
+            plays: 0,
+            likes: 0,
+          };
+          useStore.setState((s) => ({
+            player: { ...s.player, currentTrack: fallbackTrack, progress: 0, isPlaying: true }
           }));
         }
       }
@@ -105,7 +139,7 @@ export function useAudioEngine() {
         // Only update store if it differs
         const storeIsPlaying = useStore.getState().player.isPlaying;
         if (isPlaying !== storeIsPlaying) {
-          useStore.setState((s: { player: typeof player }) => ({
+          useStore.setState((s) => ({
             player: { ...s.player, isPlaying }
           }));
         }

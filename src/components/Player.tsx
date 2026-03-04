@@ -126,16 +126,16 @@ export default function Player() {
           </div>
 
           {/* Cover + Info — fills available space */}
-          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 gap-4 min-h-0">
+          <div className="flex-1 flex flex-col items-center justify-end px-8 md:px-12 gap-3 min-h-0 pb-2">
             {/* Cover */}
-            <div className={`w-full max-w-[75vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
+            <div className={`w-full max-w-[70vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             </div>
 
             {/* Title + Artist */}
             <div className="text-center w-full max-w-sm">
-              <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
-              <p className="text-white/50 text-base md:text-lg mt-1 truncate">
+              <h2 className="text-xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
+              <p className="text-white/50 text-sm md:text-lg mt-0.5 truncate">
                 {t.artists && t.artists.length > 0
                   ? t.artists.map(a => a.name).join(', ')
                   : t.artist}
@@ -143,11 +143,11 @@ export default function Player() {
             </div>
           </div>
 
-          {/* Controls block — closer to content */}
-          <div className="px-6 md:px-12 pb-6 md:pb-8 space-y-4 max-w-lg mx-auto w-full">
+          {/* Controls block — tight against content, safe-area for home indicator */}
+          <div className="px-6 md:px-12 pb-[max(env(safe-area-inset-bottom,8px),8px)] md:pb-8 space-y-3 max-w-lg mx-auto w-full pt-2">
             {/* Progress waveform */}
             <div>
-              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8 touch-none" onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
+              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
                 <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
                   {Array.from({ length: 60 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
@@ -187,38 +187,14 @@ export default function Player() {
           </div>
         </div>
       </div>
-
-      {/* Keep bottom bar behind fullscreen so it doesn't vanish */}
-      <div className="fixed bottom-0 left-0 right-0 z-40">
-        <div className="flex md:hidden flex-col bg-zinc-950 border-t border-white/5">
-          <div className="h-[2px] bg-zinc-800 w-full">
-            <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
-          </div>
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
-              <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
-            </div>
-            <button className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`} onClick={() => toggleLike(t.id)}>
-              <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
-            </button>
-            <button className="p-2 text-white" onClick={togglePlay}>
-              {player.isPlaying ? <Pause size={24} fill="white" /> : <Play size={24} fill="white" className="ml-0.5" />}
-            </button>
-          </div>
-        </div>
-      </div>
       </>
     );
   }
 
   return (
     <>
-    {/* Mobile mini-player — sits above bottom nav */}
-    <div className="fixed left-0 right-0 z-40 bottom-[52px] md:hidden">
+    {/* Mobile mini-player — sits above bottom nav (52px + safe area) */}
+    <div className="fixed left-0 right-0 z-40 md:hidden" style={{ bottom: 'calc(52px + env(safe-area-inset-bottom, 0px))' }}>
       <div className="flex flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
         {/* Thin red progress bar at top */}
         <div className="h-[2px] bg-zinc-800 w-full">

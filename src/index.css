@@ -5,6 +5,11 @@ html, body {
   color: white;
 }
 
+/* Safe area for fullscreen player on iPhone (home indicator) */
+.safe-area-inset {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* Admin panel form inputs */
 .admin-input {
   width: 100%;
