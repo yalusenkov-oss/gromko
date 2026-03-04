@@ -34,7 +34,7 @@ function buildPoolOptions(): pg.PoolConfig {
 
   if (!connectionString && !hasDiscretePgVars && process.env.NODE_ENV === 'production') {
     throw new Error(
-      'Database is not configured. Set DATABASE_URL (recommended) or PGHOST/PGUSER/PGPASSWORD/PGDATABASE on Render.'
+      'Database is not configured. Set DATABASE_URL environment variable (e.g. postgresql://user:pass@host:5432/gromko).'
     );
   }
 

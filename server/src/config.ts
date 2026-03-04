@@ -50,7 +50,14 @@ export function trackHlsDir(trackId: string): string {
 /** Ensure all required directories exist */
 export function ensureDirs(): void {
   for (const dir of Object.values(PATHS)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (e: any) {
+      // If directory already exists — fine; otherwise warn but don't crash
+      if (e.code !== 'EEXIST') {
+        console.warn(`  ⚠️ Could not create ${dir}: ${e.message}`);
+      }
+    }
   }
 }
 
