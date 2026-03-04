@@ -23,30 +23,30 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16">
+    <div className="min-h-screen bg-zinc-950 text-white pt-14">
       {/* Hero */}
       {heroTrack && (
         <div
-          className="relative h-[480px] md:h-[560px] flex items-end overflow-hidden"
+          className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden"
           style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
         >
           {/* RF Warning Banner — overlay inside hero */}
-          <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-4 py-1.5 flex items-center justify-center gap-2 text-center">
-            <span className="text-red-400 text-[10px] md:text-xs font-bold uppercase tracking-widest">
+          <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-3 py-1 flex items-center justify-center gap-2 text-center">
+            <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest">
               ⚠️ САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ
             </span>
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-zinc-950/20" />
           <div className="absolute inset-0 bg-gradient-to-r from-zinc-950/80 to-transparent" />
 
-          <div className="relative z-10 max-w-7xl mx-auto px-6 pb-12 w-full">
+          <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 pb-6 md:pb-12 w-full">
             <div className="max-w-2xl">
-              <div className="flex items-center gap-2 mb-3">
-                <Flame size={14} className="text-red-400" />
-                <span className="text-red-400 text-sm font-medium uppercase tracking-widest">Трек дня</span>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Flame size={12} className="text-red-400" />
+                <span className="text-red-400 text-xs font-medium uppercase tracking-widest">Трек дня</span>
               </div>
-              <h1 className="text-4xl md:text-6xl font-black tracking-tight mb-2">{heroTrack.title}</h1>
-              <div className="text-zinc-300 text-xl hover:text-white transition-colors mb-1 block">
+              <h1 className="text-2xl md:text-6xl font-black tracking-tight mb-1">{heroTrack.title}</h1>
+              <div className="text-zinc-300 text-base md:text-xl hover:text-white transition-colors mb-0.5 block">
                 {heroTrack.artists && heroTrack.artists.length > 0
                   ? heroTrack.artists.map((a, i) => (
                       <span key={a.slug}>
@@ -57,17 +57,17 @@ export default function Home() {
                   : <Link to={`/artist/${heroTrack.artistSlug}`} className="hover:text-white transition-colors">{heroTrack.artist}</Link>
                 }
               </div>
-              <p className="text-zinc-500 text-sm mb-6">{heroTrack.genre} · {heroTrack.year} · {formatPlays(heroTrack.plays)} прослушиваний</p>
+              <p className="text-zinc-500 text-xs md:text-sm mb-4 md:mb-6">{heroTrack.genre} · {heroTrack.year} · {formatPlays(heroTrack.plays)} прослушиваний</p>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <button
                   onClick={handleHeroPlay}
-                  className="flex items-center gap-2.5 px-6 py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30 active:scale-95"
+                  className="flex items-center gap-2 px-5 py-2.5 md:px-6 md:py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30 active:scale-95"
                 >
-                  {isHeroPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}
+                  {isHeroPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" className="ml-0.5" />}
                   {isHeroPlaying ? 'Пауза' : 'Слушать'}
                 </button>
-                <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
+                <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
                   Подробнее
                 </Link>
               </div>

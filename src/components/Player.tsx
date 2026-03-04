@@ -59,31 +59,31 @@ export default function Player() {
 
   if (player.isFullscreen) {
     return (
-      <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-2xl" />
-        <div className="relative z-10 flex flex-col h-full p-8">
-          <div className="flex justify-between items-center mb-8">
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><ChevronDown size={28} /></button>
+      <div className="fixed inset-0 z-50 bg-zinc-950 flex flex-col" style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-3xl" />
+        <div className="relative z-10 flex flex-col h-full p-5 md:p-8">
+          <div className="flex justify-between items-center mb-4 md:mb-8">
+            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><ChevronDown size={24} /></button>
             <div className="text-center">
-              <span className="text-white/50 text-sm uppercase tracking-widest">Сейчас играет</span>
-              {qualityLabel && <span className="text-white/30 text-xs block mt-0.5">{qualityLabel}</span>}
+              <span className="text-white/50 text-xs uppercase tracking-widest">Сейчас играет</span>
+              {qualityLabel && <span className="text-white/30 text-[10px] block mt-0.5">{qualityLabel}</span>}
             </div>
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><X size={24} /></button>
+            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><X size={20} /></button>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center gap-8">
-            <div className={`w-72 h-72 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl transition-transform duration-500 ${player.isPlaying ? 'scale-100' : 'scale-95 opacity-80'}`}>
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 md:gap-8">
+            <div className={`w-56 h-56 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl transition-transform duration-500 ${player.isPlaying ? 'scale-100' : 'scale-95 opacity-80'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             </div>
             <div className="text-center">
-              <h2 className="text-3xl font-bold text-white mb-1">{t.title}</h2>
-              <p className="text-white/60 text-lg">
+              <h2 className="text-xl md:text-3xl font-bold text-white mb-1">{t.title}</h2>
+              <p className="text-white/60 text-sm md:text-lg">
                 {t.artists && t.artists.length > 0
                   ? t.artists.map(a => a.name).join(', ')
                   : t.artist}
               </p>
             </div>
-            <div className="w-full max-w-lg">
-              <div className="relative h-16 rounded-lg overflow-hidden cursor-pointer bg-white/10" onMouseDown={handleProgressMouseDown}>
+            <div className="w-full max-w-sm md:max-w-lg">
+              <div className="relative h-12 md:h-16 rounded-lg overflow-hidden cursor-pointer bg-white/10" onMouseDown={handleProgressMouseDown}>
                 <div className="absolute inset-0 flex items-center gap-[2px] px-2">
                   {Array.from({ length: 80 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
@@ -93,22 +93,22 @@ export default function Player() {
                   })}
                 </div>
               </div>
-              <div className="flex justify-between text-white/50 text-sm mt-2">
+              <div className="flex justify-between text-white/50 text-xs mt-1.5">
                 <span>{formatDuration(Math.floor(currentTime))}</span>
                 <div className="flex items-center gap-2">
-                  {isBuffering && <span className="text-yellow-400 text-xs flex items-center gap-1 animate-pulse"><WifiOff size={12} /> Буферизация...</span>}
+                  {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация...</span>}
                   <span>{formatDuration(Math.floor(duration))}</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-8">
-              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/50 hover:text-white'}`}><Shuffle size={22} /></button>
-              <button onClick={prev} className="text-white/80 hover:text-white transition-colors"><SkipBack size={28} /></button>
-              <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-colors shadow-lg shadow-red-500/40 ${isBuffering ? 'animate-pulse' : ''}`}>
-                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white ml-1" />}
+            <div className="flex items-center gap-6 md:gap-8">
+              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/50 hover:text-white'}`}><Shuffle size={18} /></button>
+              <button onClick={prev} className="text-white/80 hover:text-white transition-colors"><SkipBack size={24} /></button>
+              <button onClick={togglePlay} className={`w-14 h-14 md:w-16 md:h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-colors shadow-lg shadow-red-500/40 ${isBuffering ? 'animate-pulse' : ''}`}>
+                {isBuffering ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={24} fill="white" className="text-white" /> : <Play size={24} fill="white" className="text-white ml-1" />}
               </button>
-              <button onClick={next} className="text-white/80 hover:text-white transition-colors"><SkipForward size={28} /></button>
-              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/50 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={22} /> : <Repeat size={22} />}</button>
+              <button onClick={next} className="text-white/80 hover:text-white transition-colors"><SkipForward size={24} /></button>
+              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/50 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}</button>
             </div>
           </div>
         </div>
@@ -125,7 +125,34 @@ export default function Player() {
           <div className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" style={{ left: `${progress * 100}%`, transform: 'translate(-50%, -50%)' }} />
         </div>
       </div>
-      <div className="flex items-center gap-4 px-4 py-3">
+
+      {/* Mobile player */}
+      <div className="flex md:hidden items-center gap-2 px-3 py-2">
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer" onClick={toggleFullscreen}>
+          <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+          {player.isPlaying && (
+            <div className="absolute bottom-0.5 right-0.5 flex gap-[2px] items-end h-2.5">
+              {[1, 2, 3].map((i) => (<div key={i} className="w-[3px] bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={toggleFullscreen}>
+          <p className="text-white text-xs font-medium truncate">{t.title}</p>
+          <p className="text-zinc-400 text-[11px] truncate">{t.artist}</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => toggleLike(t.id)} className={`p-1.5 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
+          <button onClick={toggleShuffle} className={`p-1.5 ${player.shuffle ? 'text-red-400' : 'text-zinc-500'}`}><Shuffle size={14} /></button>
+          <button onClick={prev} className="p-1.5 text-zinc-300"><SkipBack size={18} /></button>
+          <button onClick={togglePlay} className={`w-9 h-9 bg-white rounded-full flex items-center justify-center ${isBuffering ? 'animate-pulse' : ''}`}>
+            {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={16} className="text-black" fill="black" /> : <Play size={16} className="text-black ml-0.5" fill="black" />}
+          </button>
+          <button onClick={next} className="p-1.5 text-zinc-300"><SkipForward size={18} /></button>
+        </div>
+      </div>
+
+      {/* Desktop player */}
+      <div className="hidden md:flex items-center gap-4 px-4 py-3">
         <div className="flex items-center gap-3 w-64 shrink-0">
           <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
             <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />

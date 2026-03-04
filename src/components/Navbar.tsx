@@ -56,13 +56,13 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-xl border-b border-white/5">
-      <div className="max-w-7xl mx-auto px-4 flex items-center gap-4 h-16">
+      <div className="max-w-7xl mx-auto px-3 md:px-4 flex items-center gap-3 md:gap-4 h-14 md:h-16">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 shrink-0">
-          <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center">
-            <Music2 size={18} className="text-white" />
+        <Link to="/" className="flex items-center gap-1.5 shrink-0">
+          <div className="w-7 h-7 md:w-8 md:h-8 bg-red-500 rounded-lg flex items-center justify-center">
+            <Music2 size={15} className="text-white" />
           </div>
-          <span className="text-white font-black text-xl tracking-tight">GROMKO</span>
+          <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMKO</span>
         </Link>
 
         {/* Desktop nav */}
