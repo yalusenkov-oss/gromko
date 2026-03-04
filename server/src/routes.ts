@@ -195,7 +195,7 @@ router.get('/tracks/:id/stream', async (req: Request, res: Response) => {
   }
 
   // Otherwise serve from local filesystem
-  const filePath = path.join(PATHS.data, '..', 'data', streamPath.replace(/^\//, ''));
+  const filePath = path.join(PATHS.data, streamPath.replace(/^\//, ''));
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден на диске' });
 
   const stat = fs.statSync(filePath);

@@ -5,25 +5,29 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..', '..');
+const DEFAULT_DATA_DIR = process.env.NODE_ENV === 'production'
+  ? '/tmp/gromko-data'
+  : path.join(ROOT, 'data');
+const DATA_DIR = process.env.DATA_DIR || DEFAULT_DATA_DIR;
 
 export const PATHS = {
   /** Root data directory */
-  data: path.join(ROOT, 'data'),
+  data: DATA_DIR,
 
   /** Uploaded original audio files before processing */
-  uploads: path.join(ROOT, 'data', 'uploads'),
+  uploads: path.join(DATA_DIR, 'uploads'),
 
   /** Processed audio output: HLS segments, transcoded files */
-  audio: path.join(ROOT, 'data', 'audio'),
+  audio: path.join(DATA_DIR, 'audio'),
 
   /** Cover art (original + resized) */
-  covers: path.join(ROOT, 'data', 'covers'),
+  covers: path.join(DATA_DIR, 'covers'),
 
   /** Waveform JSON cache */
-  waveforms: path.join(ROOT, 'data', 'waveforms'),
+  waveforms: path.join(DATA_DIR, 'waveforms'),
 
   /** Temp directory for processing */
-  temp: path.join(ROOT, 'data', 'temp'),
+  temp: path.join(DATA_DIR, 'temp'),
 };
 
 /** Per-track audio directory: data/audio/{trackId}/ */
