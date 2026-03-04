@@ -12,6 +12,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
@@ -20,11 +21,11 @@ import routes from './routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const IS_PROD = process.env.NODE_ENV === 'production';
+const FRONTEND_DIR = path.join(__dirname, '..', '..', 'dist');
 
-// Ensure data directories exist
 ensureDirs();
 
-// Initialize database (async)
 await initSchema();
 
 const app = express();
@@ -32,10 +33,8 @@ const app = express();
 // ─── Middleware ───
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    // Allow localhost, vercel.app, and tunnel domains
-    const allowed = /^https?:\/\/(localhost(:\d+)?|.*\.vercel\.app|.*\.loca\.lt|.*\.trycloudflare\.com)$/;
+    const allowed = /^https?:\/\/(localhost(:\d+)?|.*\.vercel\.app|.*\.loca\.lt|.*\.trycloudflare\.com|.*\.timeweb\.cloud|.*\.tw1\.ru)$/;
     callback(null, allowed.test(origin));
   },
   credentials: true,
@@ -99,10 +98,17 @@ app.get('/health', async (_req, res) => {
   });
 });
 
-// ─── Catch-all: return JSON 404 for unknown routes ───
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found', hint: 'This is the GROMKO API server. Frontend is served by Vite on port 5173.' });
-});
+// ─── Frontend (production: serve built SPA from /dist) ───
+if (IS_PROD && fs.existsSync(FRONTEND_DIR)) {
+  app.use(express.static(FRONTEND_DIR, { maxAge: '7d' }));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
+  });
+} else {
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found', hint: 'This is the GROMKO API server. Frontend is served by Vite on port 5173.' });
+  });
+}
 
 // ─── Error handler ───
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
