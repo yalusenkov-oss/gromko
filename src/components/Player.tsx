@@ -202,10 +202,10 @@ export default function Player() {
               <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
               <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
             </div>
-            <button className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+            <button className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`} onClick={() => toggleLike(t.id)}>
               <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
             </button>
-            <button className="p-2 text-white">
+            <button className="p-2 text-white" onClick={togglePlay}>
               {player.isPlaying ? <Pause size={24} fill="white" /> : <Play size={24} fill="white" className="ml-0.5" />}
             </button>
           </div>

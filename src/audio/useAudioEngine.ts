@@ -34,8 +34,6 @@ export function useAudioEngine() {
     player,
     setProgress,
     setVolume: setStoreVolume,
-    nextTrack: storeNext,
-    prevTrack: storePrev,
   } = useStore();
 
   const lastTrackIdRef = useRef<string | null>(null);
@@ -130,14 +128,14 @@ export function useAudioEngine() {
   }, [setStoreVolume]);
 
   const engineNext = useCallback(() => {
+    // Engine handles track advancement; store sync happens via subscribe callback
     audioEngine.next();
-    storeNext();
-  }, [storeNext]);
+  }, []);
 
   const enginePrev = useCallback(() => {
+    // Engine handles track reversal; store sync happens via subscribe callback
     audioEngine.prev();
-    storePrev();
-  }, [storePrev]);
+  }, []);
 
   return {
     seek: engineSeek,

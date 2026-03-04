@@ -1,10 +1,24 @@
 import { useStore } from '../store';
 import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
 import TrackCard from '../components/TrackCard';
 import { Heart, Play, Shuffle } from 'lucide-react';
 
+function pluralizeTracks(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'трека';
+  return 'треков';
+}
+
 export default function LikedPage() {
-  const { currentUser, tracks, playTrack } = useStore();
+  const { currentUser, tracks, playTrack, fetchTracks } = useStore();
+
+  // Ensure we have a large enough batch of tracks loaded so liked ones appear
+  useEffect(() => {
+    fetchTracks({ limit: '500' });
+  }, []);
 
   if (!currentUser) {
     return (
@@ -37,7 +51,7 @@ export default function LikedPage() {
             <p className="text-sm text-zinc-400 uppercase tracking-widest font-medium mb-1">Плейлист</p>
             <h1 className="text-4xl md:text-5xl font-black mb-2">Любимое</h1>
             <p className="text-zinc-400 text-sm">
-              {currentUser.name} · {likedTracks.length} {likedTracks.length === 1 ? 'трек' : likedTracks.length < 5 ? 'трека' : 'треков'}
+              {currentUser.name} · {likedTracks.length} {pluralizeTracks(likedTracks.length)}
             </p>
           </div>
         </div>
