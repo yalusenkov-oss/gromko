@@ -17,7 +17,6 @@ import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
 import routes from './routes.js';
-import { startEmbeddedPostgres, stopEmbeddedPostgres } from './embedded-pg.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -37,20 +36,13 @@ console.log('  🔑 NODE_ENV:', process.env.NODE_ENV);
 console.log('  🔑 DATABASE_URL set:', !!process.env.DATABASE_URL);
 console.log('  🔑 PORT:', process.env.PORT || CONFIG.port);
 ensureDirs();
-// Start embedded PostgreSQL if no external DB configured
-try {
-    await startEmbeddedPostgres();
-}
-catch (err) {
-    console.error('  ❌ Failed to start embedded PostgreSQL:', err);
-    console.error('  💡 Set DATABASE_URL environment variable to use an external database instead');
-    process.exit(1);
-}
+// Connect to PostgreSQL and initialize schema
 try {
     await initSchema();
 }
 catch (err) {
     console.error('  ❌ Failed to initialize database schema:', err);
+    console.error('  💡 Make sure DATABASE_URL is set correctly');
     process.exit(1);
 }
 const app = express();
@@ -154,7 +146,6 @@ async function shutdown(signal) {
     server.close();
     const { closeDb } = await import('./db.js');
     await closeDb();
-    await stopEmbeddedPostgres();
     process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
