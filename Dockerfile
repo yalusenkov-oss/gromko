@@ -20,6 +20,8 @@ FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    postgresql \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -36,12 +38,13 @@ COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=frontend-build /app/dist ./dist
 
 # Pre-create writable data dirs (Timeweb runs as non-root user 'app')
-RUN mkdir -p /app/data/uploads /app/data/audio /app/data/covers /app/data/waveforms /app/data/temp \
-    && chmod -R 777 /app
+RUN mkdir -p /app/data/uploads /app/data/audio /app/data/covers /app/data/waveforms /app/data/temp /tmp/pgdata \
+    && chmod -R 777 /app /tmp/pgdata
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
 ENV PORT=3001
+ENV PGDATA=/tmp/pgdata
 
 EXPOSE 3001
 

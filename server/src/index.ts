@@ -18,6 +18,7 @@ import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
 import routes from './routes.js';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from './embedded-pg.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +26,9 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const FRONTEND_DIR = path.join(__dirname, '..', '..', 'dist');
 
 ensureDirs();
+
+// Start embedded PostgreSQL if no external DB configured
+await startEmbeddedPostgres();
 
 await initSchema();
 
@@ -135,6 +139,7 @@ async function shutdown(signal: string) {
   server.close();
   const { closeDb } = await import('./db.js');
   await closeDb();
+  stopEmbeddedPostgres();
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

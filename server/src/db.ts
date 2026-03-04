@@ -32,9 +32,9 @@ function buildPoolOptions(): pg.PoolConfig {
     ? false
     : !isLocalHost(host);
 
-  if (!connectionString && !hasDiscretePgVars && process.env.NODE_ENV === 'production') {
+  if (!connectionString && !hasDiscretePgVars) {
     throw new Error(
-      'Database is not configured. Set DATABASE_URL environment variable (e.g. postgresql://user:pass@host:5432/gromko).'
+      'Database is not configured. DATABASE_URL must be set (embedded PostgreSQL should have set it automatically).'
     );
   }
 
