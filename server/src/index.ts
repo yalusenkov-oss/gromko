@@ -25,12 +25,39 @@ const __dirname = path.dirname(__filename);
 const IS_PROD = process.env.NODE_ENV === 'production';
 const FRONTEND_DIR = path.join(__dirname, '..', '..', 'dist');
 
+// ─── Catch all unhandled errors to prevent silent crash loops ───
+process.on('uncaughtException', (err) => {
+  console.error('  ❌ UNCAUGHT EXCEPTION:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('  ❌ UNHANDLED REJECTION:', reason);
+});
+
+console.log('  ⏳ GROMKO server starting...');
+console.log('  📁 CWD:', process.cwd());
+console.log('  📁 __dirname:', __dirname);
+console.log('  📁 FRONTEND_DIR:', FRONTEND_DIR);
+console.log('  🔑 NODE_ENV:', process.env.NODE_ENV);
+console.log('  🔑 DATABASE_URL set:', !!process.env.DATABASE_URL);
+console.log('  🔑 PORT:', process.env.PORT || CONFIG.port);
+
 ensureDirs();
 
 // Start embedded PostgreSQL if no external DB configured
-await startEmbeddedPostgres();
+try {
+  await startEmbeddedPostgres();
+} catch (err) {
+  console.error('  ❌ Failed to start embedded PostgreSQL:', err);
+  console.error('  💡 Set DATABASE_URL environment variable to use an external database instead');
+  process.exit(1);
+}
 
-await initSchema();
+try {
+  await initSchema();
+} catch (err) {
+  console.error('  ❌ Failed to initialize database schema:', err);
+  process.exit(1);
+}
 
 const app = express();
 
