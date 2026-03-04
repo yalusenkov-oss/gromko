@@ -31,6 +31,7 @@ import { v4 as uuid } from 'uuid';
 import { query, queryOne, execute, initSchema } from './db.js';
 import { ensureDirs } from './config.js';
 import { processTrack, extractMetadata } from './audio-processor.js';
+import { parseArtistNames } from './parse-artists.js';
 // ─── Config ───
 const MAX_WORKERS = Math.max(1, Math.min(Number(process.env.WORKERS) || (os.cpus().length - 1), 6));
 const DRY_RUN = process.env.DRY_RUN === '1';
@@ -161,7 +162,10 @@ async function importSingleTrack(filePath, existingFiles) {
         const artist = meta.artist || 'Неизвестный артист';
         const genre = FORCE_GENRE || meta.genre || 'Другое';
         const year = meta.year || new Date().getFullYear();
-        const slug = await ensureArtist(artist, genre);
+        // Multi-artist: split by ", " / "feat." / "ft." / "&"
+        const artistNames = parseArtistNames(artist);
+        const primaryName = artistNames[0] || artist;
+        const slug = slugify(primaryName);
         // Insert track into DB
         await execute(`
       INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
@@ -173,6 +177,15 @@ async function importSingleTrack(filePath, existingFiles) {
             filename, meta.format, fs.statSync(filePath).size, meta.bitrate,
             meta.sampleRate, meta.channels
         ]);
+        // Create artists and link via junction table
+        for (let i = 0; i < artistNames.length; i++) {
+            await ensureArtist(artistNames[i], genre);
+            const aSlug = slugify(artistNames[i]);
+            const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
+            if (existing) {
+                await execute(`INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [trackId, existing.id, i]);
+            }
+        }
         existingFiles.add(filename);
         stats.queued++;
         return new Promise((resolve) => {

@@ -11,6 +11,7 @@ import { query, queryOne, execute } from './db.js';
 import { CONFIG, PATHS, trackHlsDir } from './config.js';
 import { enqueueTrack, extractMetadata, getQueueStatus } from './audio-processor.js';
 import { registerUser, loginUser, getUserById, authRequired, adminRequired, } from './auth.js';
+import { parseArtistNames } from './parse-artists.js';
 const router = Router();
 // ─── Multer config ───
 const uploadStorage = multer.diskStorage({
@@ -202,6 +203,12 @@ router.get('/tracks/:id/stream', async (req, res) => {
     const userId = req.user?.id || null;
     execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => { });
     execute('INSERT INTO play_history (track_id, quality, user_id) VALUES ($1, $2, $3)', [req.params.id, quality, userId]).catch(() => { });
+    // Update total_plays for all artists linked to this track
+    execute(`
+    UPDATE artists SET total_plays = total_plays + 1
+    WHERE id IN (SELECT artist_id FROM track_artists WHERE track_id = $1)
+       OR slug = $2
+  `, [req.params.id, track.artist_slug]).catch(() => { });
     // If URL is absolute (S3), redirect to it — browser/player fetches directly from CDN
     if (streamPath.startsWith('http://') || streamPath.startsWith('https://')) {
         return res.redirect(302, streamPath);
@@ -279,8 +286,8 @@ router.post('/tracks/upload', adminRequired, (req, res) => {
             const meta = await extractMetadata(audioFile.path);
             const trackId = uuid();
             const { title = meta.title || path.parse(audioFile.originalname).name, artist = meta.artist || 'Неизвестный артист', genre = meta.genre || 'Другое', year = meta.year || new Date().getFullYear(), explicit = 'false', } = req.body;
-            // Multi-artist: split by ", " and ensure each artist exists
-            const artistNames = artist.split(/,\s+/).map((n) => n.trim()).filter(Boolean);
+            // Multi-artist: split by ", " / "feat." / "ft." / "&" and ensure each artist exists
+            const artistNames = parseArtistNames(artist);
             const primaryName = artistNames[0] || artist;
             const slug = primaryName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
             await execute(`
@@ -553,6 +560,17 @@ router.delete('/admin/tracks/:id', adminRequired, async (req, res) => {
         return res.status(404).json({ error: 'Трек не найден' });
     res.json({ ok: true });
 });
+/** POST /api/admin/tracks/bulk-delete — delete multiple tracks by IDs */
+router.post('/admin/tracks/bulk-delete', adminRequired, async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0)
+        return res.status(400).json({ error: 'ids required' });
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    await execute(`DELETE FROM track_artists WHERE track_id IN (${placeholders})`, ids);
+    await execute(`DELETE FROM play_history WHERE track_id IN (${placeholders})`, ids);
+    const deleted = await execute(`DELETE FROM tracks WHERE id IN (${placeholders})`, ids);
+    res.json({ deleted });
+});
 /** PUT /api/admin/artists/:id — edit artist */
 router.put('/admin/artists/:id', adminRequired, async (req, res) => {
     const { name, slug, photo, banner, bio, genre, socials } = req.body;
@@ -797,7 +815,7 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
         const meta = await extractMetadata(sub.file_path);
         const trackId = uuid();
         const artist = sub.artist;
-        const artistNames = artist.split(/,\s+/).map((n) => n.trim()).filter(Boolean);
+        const artistNames = parseArtistNames(artist);
         const primarySlug = artistNames[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
         await execute(`
       INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,

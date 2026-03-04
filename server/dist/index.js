@@ -113,8 +113,23 @@ app.get('/health', async (_req, res) => {
 });
 // ─── Frontend (production: serve built SPA from /dist) ───
 if (IS_PROD && fs.existsSync(FRONTEND_DIR)) {
-    app.use(express.static(FRONTEND_DIR, { maxAge: '7d' }));
+    // Serve assets with long cache, but NEVER cache index.html
+    // (vite-plugin-singlefile inlines everything into index.html,
+    //  so browsers must always fetch the latest version)
+    app.use(express.static(FRONTEND_DIR, {
+        maxAge: '7d',
+        setHeaders: (res, filePath) => {
+            if (filePath.endsWith('.html') || filePath.endsWith('index.html')) {
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                res.setHeader('Pragma', 'no-cache');
+                res.setHeader('Expires', '0');
+            }
+        },
+    }));
     app.get('*', (_req, res) => {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
     });
 }
@@ -139,7 +154,33 @@ const server = app.listen(CONFIG.port, CONFIG.host, () => {
     console.log(`  ║  http://localhost:${CONFIG.port}              ║`);
     console.log('  ╚══════════════════════════════════════╝');
     console.log('');
+    // Recalculate artist stats on startup and every hour
+    recalcArtistStats();
+    setInterval(recalcArtistStats, 60 * 60 * 1000);
 });
+async function recalcArtistStats() {
+    try {
+        const { execute } = await import('./db.js');
+        await execute(`
+      UPDATE artists a SET
+        tracks_count = COALESCE(sub.cnt, 0),
+        total_plays = COALESCE(sub.tp, 0)
+      FROM (
+        SELECT ta.artist_id,
+               COUNT(DISTINCT t.id) as cnt,
+               COALESCE(SUM(t.plays), 0) as tp
+        FROM track_artists ta
+        JOIN tracks t ON t.id = ta.track_id AND t.status = 'ready'
+        GROUP BY ta.artist_id
+      ) sub
+      WHERE a.id = sub.artist_id
+    `);
+        console.log('  ✅ Artist stats recalculated');
+    }
+    catch (e) {
+        console.error('  ❌ Artist stats recalc error:', e.message);
+    }
+}
 // ─── Graceful shutdown ───
 async function shutdown(signal) {
     console.log(`\n  ${signal} received, shutting down...`);
