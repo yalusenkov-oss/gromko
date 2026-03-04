@@ -5,6 +5,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { execFile } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import { query, queryOne, execute } from './db.js';
 import { CONFIG, PATHS, trackHlsDir } from './config.js';
@@ -832,5 +833,80 @@ function formatArtistRow(row) {
         socials: { vk: row.socials_vk, instagram: row.socials_instagram, telegram: row.socials_telegram },
     };
 }
+// ═══════════════════════════════════════════════
+// S3 IMPORT (admin-only, runs as child process)
+// ═══════════════════════════════════════════════
+let s3ImportRunning = false;
+let s3ImportLog = [];
+/** POST /api/admin/s3-import — trigger S3 import */
+router.post('/admin/s3-import', adminRequired, async (req, res) => {
+    if (s3ImportRunning) {
+        return res.status(409).json({ error: 'Импорт уже запущен', log: s3ImportLog.slice(-50) });
+    }
+    const { limit = 30, genre, artist, dryRun } = req.body;
+    s3ImportRunning = true;
+    s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit})...`];
+    res.json({ ok: true, message: `S3 импорт запущен (limit=${limit})` });
+    // Find the s3-import script path
+    const __dir = path.dirname(new URL(import.meta.url).pathname);
+    const scriptPath = path.join(__dir, 's3-import.js');
+    const tsScriptPath = path.join(__dir, '..', 'src', 's3-import.ts');
+    // Use compiled JS version (server/dist/s3-import.js)
+    const script = fs.existsSync(scriptPath) ? scriptPath : tsScriptPath;
+    const runner = fs.existsSync(scriptPath) ? 'node' : 'npx';
+    const args = fs.existsSync(scriptPath) ? [scriptPath] : ['tsx', tsScriptPath];
+    const env = {
+        ...process.env,
+        LIMIT: String(limit || 30),
+        SKIP_EXISTING: '1',
+    };
+    if (genre)
+        env.GENRE = genre;
+    if (artist)
+        env.ARTIST_FILTER = artist;
+    if (dryRun)
+        env.DRY_RUN = '1';
+    try {
+        const child = execFile(runner, args, {
+            env,
+            maxBuffer: 10 * 1024 * 1024,
+            timeout: 30 * 60 * 1000, // 30 min max
+        }, (error, stdout, stderr) => {
+            if (stdout)
+                s3ImportLog.push(...stdout.split('\n').filter(Boolean));
+            if (stderr)
+                s3ImportLog.push(...stderr.split('\n').filter(Boolean));
+            if (error) {
+                s3ImportLog.push(`❌ Ошибка: ${error.message}`);
+            }
+            else {
+                s3ImportLog.push(`✅ Импорт завершён`);
+            }
+            s3ImportRunning = false;
+        });
+        child.stdout?.on('data', (data) => {
+            const lines = data.toString().split('\n').filter(Boolean);
+            s3ImportLog.push(...lines);
+            // Keep log manageable
+            if (s3ImportLog.length > 500)
+                s3ImportLog = s3ImportLog.slice(-300);
+        });
+        child.stderr?.on('data', (data) => {
+            s3ImportLog.push(...data.toString().split('\n').filter(Boolean));
+        });
+    }
+    catch (err) {
+        s3ImportLog.push(`❌ Не удалось запустить: ${err.message}`);
+        s3ImportRunning = false;
+    }
+});
+/** GET /api/admin/s3-import/status — check import status */
+router.get('/admin/s3-import/status', adminRequired, (_req, res) => {
+    res.json({
+        running: s3ImportRunning,
+        log: s3ImportLog.slice(-100),
+        lines: s3ImportLog.length,
+    });
+});
 export default router;
 //# sourceMappingURL=routes.js.map
