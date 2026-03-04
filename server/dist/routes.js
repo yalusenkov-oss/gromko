@@ -533,6 +533,16 @@ router.put('/admin/tracks/:id', adminRequired, async (req, res) => {
     const [withArtists] = await attachArtists([updated]);
     res.json(formatTrackRow(withArtists));
 });
+/** DELETE /api/admin/tracks/errors — delete all tracks with status='error' (must be before :id route!) */
+router.delete('/admin/tracks/errors', adminRequired, async (_req, res) => {
+    try {
+        const deleted = await execute(`DELETE FROM tracks WHERE status = 'error'`);
+        res.json({ deleted });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 /** DELETE /api/admin/tracks/:id */
 router.delete('/admin/tracks/:id', adminRequired, async (req, res) => {
     // Delete from junction table first, then track
@@ -931,16 +941,6 @@ router.get('/admin/s3-import/status', adminRequired, (_req, res) => {
         log: s3ImportLog.slice(-100),
         lines: s3ImportLog.length,
     });
-});
-/** DELETE /api/admin/tracks/errors — delete all tracks with status='error' */
-router.delete('/admin/tracks/errors', adminRequired, async (_req, res) => {
-    try {
-        const deleted = await execute(`DELETE FROM tracks WHERE status = 'error'`);
-        res.json({ deleted });
-    }
-    catch (err) {
-        res.status(500).json({ error: err.message });
-    }
 });
 export default router;
 //# sourceMappingURL=routes.js.map
