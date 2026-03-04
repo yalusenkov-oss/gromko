@@ -7,7 +7,7 @@ import { Heart, List, Send, Clock, CheckCircle, XCircle } from 'lucide-react';
 type Tab = 'likes' | 'playlists' | 'submissions';
 
 export default function ProfilePage() {
-  const { currentUser, tracks, playlists, submissions } = useStore();
+  const { currentUser, tracks, playlists, submissions, fetchMySubmissions } = useStore();
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as Tab) || 'likes';
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -20,6 +20,13 @@ export default function ProfilePage() {
     }
   }, [searchParams]);
 
+  // Fetch user's submissions from API
+  useEffect(() => {
+    if (currentUser) {
+      fetchMySubmissions();
+    }
+  }, [currentUser]);
+
   if (!currentUser) {
     navigate('/login');
     return null;
@@ -27,7 +34,7 @@ export default function ProfilePage() {
 
   const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id));
   const userPlaylists = playlists.filter(p => p.userId === currentUser.id);
-  const userSubmissions = submissions.filter(s => s.userId === currentUser.id);
+  const userSubmissions = submissions;
 
   const statusIcon = (status: string) => {
     if (status === 'pending') return <Clock size={14} className="text-yellow-400" />;

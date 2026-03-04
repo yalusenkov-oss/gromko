@@ -183,6 +183,7 @@ interface AppStore {
   fetchAdminUsers: () => Promise<void>;
   fetchAdminStats: () => Promise<void>;
   fetchAdminSubmissions: () => Promise<void>;
+  fetchMySubmissions: () => Promise<void>;
 
   player: PlayerState;
   playTrack: (track: Track, queue?: Track[]) => void;
@@ -303,6 +304,25 @@ export const useStore = create<AppStore>((set, get) => ({
       const data = await apiFetch('/admin/submissions');
       set({ adminSubmissions: Array.isArray(data) ? data : [] });
     } catch (e) { console.error('fetchAdminSubmissions:', e); }
+  },
+
+  fetchMySubmissions: async () => {
+    try {
+      const data = await apiFetch('/submissions/my');
+      const subs: Submission[] = (Array.isArray(data) ? data : []).map((s: any) => ({
+        id: s.id,
+        userId: s.userId || '',
+        title: s.title,
+        artist: s.artist,
+        genre: s.genre,
+        year: s.year,
+        comment: s.comment || '',
+        status: s.status,
+        rejectReason: s.rejectReason,
+        createdAt: s.createdAt,
+      }));
+      set({ submissions: subs });
+    } catch (e) { console.error('fetchMySubmissions:', e); }
   },
 
   player: {

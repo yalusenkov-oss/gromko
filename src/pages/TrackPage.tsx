@@ -1,16 +1,29 @@
 import { useParams, Link } from 'react-router-dom';
-import { useStore } from '../store';
+import { useStore, Track } from '../store';
 import { Play, Pause, Heart, Plus, Share2, Maximize2, Minimize2 } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { apiUrl } from '../lib/api';
 
 export default function TrackPage() {
   const { id } = useParams();
   const { tracks, player, playTrack, togglePlay, toggleLike, currentUser } = useStore();
   const [isFullViz, setIsFullViz] = useState(false);
+  const [fetchedTrack, setFetchedTrack] = useState<Track | null>(null);
 
-  const track = tracks.find(t => t.id === id);
+  // If track is not in store (direct URL visit), fetch it from API
+  useEffect(() => {
+    const found = tracks.find(t => t.id === id);
+    if (!found && id) {
+      fetch(apiUrl(`/tracks/${id}`))
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) setFetchedTrack(data); })
+        .catch(() => {});
+    }
+  }, [id, tracks]);
+
+  const track = tracks.find(t => t.id === id) || fetchedTrack;
   const similar = tracks.filter(t => t.id !== id && t.genre === track?.genre).slice(0, 6);
 
   if (!track) return (

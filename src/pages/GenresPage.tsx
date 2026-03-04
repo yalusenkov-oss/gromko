@@ -43,7 +43,7 @@ export default function GenresPage() {
             const count = genreCounts[genre] || 0;
             const cover = tracks.find(t => t.genre === genre)?.cover;
             return (
-              <Link key={genre} to={`/tracks`} onClick={() => {}} className="group relative aspect-square rounded-2xl overflow-hidden">
+              <Link key={genre} to={`/tracks?genre=${encodeURIComponent(genre)}`} className="group relative aspect-square rounded-2xl overflow-hidden">
                 {cover && <img src={cover} alt={genre} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />}
                 <div className={`absolute inset-0 bg-gradient-to-br ${GENRE_COLORS[genre] || 'from-zinc-700 to-zinc-900'} opacity-80 group-hover:opacity-70 transition-opacity`} />
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">

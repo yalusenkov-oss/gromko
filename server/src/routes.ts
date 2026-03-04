@@ -185,9 +185,10 @@ router.get('/tracks/:id/stream', async (req: Request, res: Response) => {
 
   if (!streamPath) return res.status(404).json({ error: `Качество "${quality}" недоступно` });
 
-  // Record play (fire & forget)
+  // Record play (fire & forget) — include user_id from authOptional middleware
+  const userId = req.user?.id || null;
   execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => {});
-  execute('INSERT INTO play_history (track_id, quality) VALUES ($1, $2)', [req.params.id, quality]).catch(() => {});
+  execute('INSERT INTO play_history (track_id, quality, user_id) VALUES ($1, $2, $3)', [req.params.id, quality, userId]).catch(() => {});
 
   // If URL is absolute (S3), redirect to it — browser/player fetches directly from CDN
   if (streamPath.startsWith('http://') || streamPath.startsWith('https://')) {
@@ -258,7 +259,7 @@ router.get('/tracks/:id/hls/:file', async (req: Request, res: Response) => {
 // ═══════════════════════════════════════════════
 
 /** POST /api/tracks/upload */
-router.post('/tracks/upload', (req: Request, res: Response) => {
+router.post('/tracks/upload', adminRequired, (req: Request, res: Response) => {
   uploadFields(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
 

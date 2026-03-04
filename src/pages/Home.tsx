@@ -1,4 +1,4 @@
-import { useStore, GENRES } from '../store';
+import { useStore, GENRES, Track } from '../store';
 import { Play, Pause, TrendingUp, Clock, Users, ChevronRight, Flame } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
@@ -201,5 +201,3 @@ function PopularCard({ track, allTracks }: { track: Track; allTracks: Track[] })
     </Link>
   );
 }
-
-import { Track } from '../store';

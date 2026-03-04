@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useStore, GENRES, Track } from '../store';
 import TrackCard from '../components/TrackCard';
 import { Search, Disc3, Play, Pause } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../lib/api';
 
 interface Album {
@@ -19,13 +19,20 @@ type Sort = 'new' | 'popular' | 'alpha';
 
 export default function TracksPage() {
   const { tracks, player, playTrack } = useStore();
+  const [searchParams] = useSearchParams();
   const [sort, setSort] = useState<Sort>('popular');
-  const [genre, setGenre] = useState('Все');
+  const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const PER_PAGE = 20;
+
+  // Sync genre from URL params (e.g. /tracks?genre=Trap)
+  useEffect(() => {
+    const g = searchParams.get('genre');
+    if (g && GENRES.includes(g)) setGenre(g);
+  }, [searchParams]);
 
   // Fetch all tracks with meta.album from API
   useEffect(() => {
