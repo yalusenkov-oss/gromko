@@ -75,27 +75,27 @@ export default function LikedPage() {
 
         {/* Action buttons */}
         {likedTracks.length > 0 && (
-          <div className="flex items-center justify-center md:justify-start gap-3 mb-6">
+          <div className="flex items-center justify-center md:justify-start gap-2 mb-6">
             <button
               onClick={() => playAll(false)}
-              className="flex items-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-400 text-white rounded-full font-medium transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 bg-red-500 hover:bg-red-400 text-white rounded-full text-sm font-medium transition-colors"
             >
-              <Play size={20} fill="currentColor" />
+              <Play size={16} fill="currentColor" />
               Играть
             </button>
             <button
               onClick={() => playAll(true)}
-              className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/15 text-white rounded-full font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/15 text-white rounded-full text-sm font-medium transition-colors"
             >
-              <Shuffle size={18} />
+              <Shuffle size={15} />
               Перемешать
             </button>
             <button
               onClick={handleShare}
-              className="flex items-center gap-2 px-4 py-3 bg-white/10 hover:bg-white/15 text-white rounded-full font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/15 text-white rounded-full text-sm font-medium transition-colors"
             >
-              {copied ? <Check size={18} className="text-green-400" /> : <Share2 size={18} />}
-              {copied ? 'Скопировано' : 'Поделиться'}
+              {copied ? <Check size={15} className="text-green-400" /> : <Share2 size={15} />}
+              {copied ? 'Ок' : 'Поделиться'}
             </button>
           </div>
         )}

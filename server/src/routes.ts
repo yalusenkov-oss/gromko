@@ -125,6 +125,43 @@ router.put('/auth/me', authRequired, async (req: Request, res: Response) => {
   }
 });
 
+/** POST /api/upload/avatar — upload user avatar */
+router.post('/upload/avatar', authRequired, (req: Request, res: Response) => {
+  const avatarStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(PATHS.uploads, { recursive: true });
+      cb(null, PATHS.uploads);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${uuid()}${ext}`);
+    },
+  });
+  const avatarUpload = multer({
+    storage: avatarStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+    fileFilter: (_req, file, cb) => {
+      if (/^image\//.test(file.mimetype)) cb(null, true);
+      else cb(new Error('Only images allowed'));
+    },
+  }).single('file');
+
+  avatarUpload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file' });
+    const url = `/uploads/${file.filename}`;
+    // Update user avatar in DB
+    try {
+      await execute('UPDATE users SET avatar = $1 WHERE id = $2', [url, req.user!.id]);
+      const updated = await getUserById(req.user!.id);
+      res.json({ url, user: updated });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+});
+
 // ═══════════════════════════════════════════════
 // TRACKS API
 // ═══════════════════════════════════════════════

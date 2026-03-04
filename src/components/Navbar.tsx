@@ -1,10 +1,10 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
-import { Search, Upload, LogOut, Settings, Menu, X, Heart } from 'lucide-react';
+import { Search, Upload, Settings, Menu, X, Heart } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 export default function Navbar() {
-  const { currentUser, logout, tracks, artists, openAuthModal } = useStore();
+  const { currentUser, tracks, artists, openAuthModal } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -144,7 +144,7 @@ export default function Navbar() {
               {(currentUser.role === 'user' || currentUser.role === 'admin') && (
                 <Link to="/submit" className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-sm font-medium rounded-lg transition-colors">
                   <Upload size={14} />
-                  <span>Добавить трек</span>
+                  <span>Предложить трек</span>
                 </Link>
               )}
               {isAdmin && (
@@ -160,9 +160,6 @@ export default function Navbar() {
                 <img src={currentUser.avatar} alt={currentUser.name} className="w-7 h-7 rounded-full object-cover" />
                 <span className="text-white text-sm hidden md:block">{currentUser.name}</span>
               </Link>
-              <button onClick={logout} className="text-zinc-400 hover:text-white transition-colors p-1.5">
-                <LogOut size={18} />
-              </button>
             </>
           ) : (
             <>

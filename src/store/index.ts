@@ -167,6 +167,7 @@ interface AppStore {
   logout: () => void;
   register: (name: string, email: string, password: string) => Promise<boolean>;
   restoreSession: () => Promise<void>;
+  updateProfile: (data: { name?: string; avatar?: string }) => Promise<boolean>;
 
   tracks: Track[];
   artists: Artist[];
@@ -265,6 +266,14 @@ export const useStore = create<AppStore>((set, get) => ({
       setToken(null);
       set({ currentUser: null, authLoading: false });
     }
+  },
+
+  updateProfile: async (data) => {
+    try {
+      const res = await apiFetch('/auth/me', { method: 'PUT', body: JSON.stringify(data) });
+      set({ currentUser: mapUser(res.user) });
+      return true;
+    } catch { return false; }
   },
 
   fetchTracks: async (params = {}) => {

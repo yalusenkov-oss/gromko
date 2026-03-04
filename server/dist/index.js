@@ -112,6 +112,11 @@ app.use('/waveforms', express.static(PATHS.waveforms, {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     },
 }));
+// Uploads: /uploads/{filename} (avatars, etc.)
+app.use('/uploads', express.static(PATHS.uploads, {
+    maxAge: '30d',
+    etag: true,
+}));
 // ─── API Routes ───
 app.use('/api', routes);
 // ─── Health check ───
