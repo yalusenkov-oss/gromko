@@ -29,7 +29,7 @@ export default function TracksPage() {
   const [view, setView] = useState<View>('tracks');
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
-  const PER_PAGE = 20;
+  const PER_PAGE = 50;
 
   // Sync genre from URL params (e.g. /tracks?genre=Trap)
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function TracksPage() {
 
   // Fetch all tracks with meta.album from API
   useEffect(() => {
-    fetch(apiUrl('/tracks?limit=500'))
+    fetch(apiUrl('/tracks?limit=9999'))
       .then(r => r.json())
       .then(data => { if (data.tracks) setAllTracks(data.tracks); })
       .catch(() => {});
@@ -47,27 +47,7 @@ export default function TracksPage() {
 
   const tracksWithMeta = allTracks.length > 0 ? allTracks : tracks;
 
-  // Only single tracks (not in multi-track albums)
-  const singleTracks = useMemo(() => {
-    // Build album membership
-    const albumTrackIds = new Set<string>();
-    const albumMap = new Map<string, Track[]>();
-    for (const t of tracksWithMeta) {
-      const albumName = t.meta?.album;
-      if (!albumName) continue;
-      if (!albumMap.has(albumName)) albumMap.set(albumName, []);
-      albumMap.get(albumName)!.push(t);
-    }
-    // Only exclude tracks from albums with 2+ tracks
-    for (const [, albumTracks] of albumMap) {
-      if (albumTracks.length > 1) {
-        for (const t of albumTracks) albumTrackIds.add(t.id);
-      }
-    }
-    return tracksWithMeta.filter(t => !albumTrackIds.has(t.id));
-  }, [tracksWithMeta]);
-
-  const filtered = (view === 'tracks' ? singleTracks : tracksWithMeta)
+  const filtered = tracksWithMeta
     .filter(t => genre === 'Все' || t.genre === genre)
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {

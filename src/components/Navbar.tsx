@@ -1,13 +1,12 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
-import { Search, Upload, Settings, Menu, X, Heart } from 'lucide-react';
+import { Search, Upload, Settings, Heart } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 export default function Navbar() {
   const { currentUser, tracks, artists, openAuthModal } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [searchVal, setSearchVal] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef<HTMLFormElement>(null);
@@ -167,44 +166,8 @@ export default function Navbar() {
               <button onClick={() => openAuthModal('register')} className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-sm font-medium rounded-lg transition-colors">Регистрация</button>
             </>
           )}
-          <button className="md:hidden text-zinc-400 hover:text-white transition-colors p-1.5" onClick={() => setMenuOpen(!menuOpen)}>
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {menuOpen && (
-        <div className="md:hidden bg-zinc-950 border-t border-white/5 px-4 py-4 space-y-2">
-          {navLinks.map(l => (
-            <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)}
-              className="block px-3 py-2 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
-              {l.label}
-            </Link>
-          ))}
-          {currentUser && (
-            <>
-              <Link to="/liked" onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-white/5 transition-colors">
-                <Heart size={14} fill="currentColor" /> Любимое ({currentUser.likedTracks.length})
-              </Link>
-              {isAdmin && (
-                <Link to="/admin" onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-purple-400 hover:text-purple-300 hover:bg-white/5 transition-colors">
-                  <Settings size={14} /> Панель управления
-                </Link>
-              )}
-            </>
-          )}
-          <form onSubmit={handleSearch} className="mt-3">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input type="text" placeholder="Поиск..." value={searchVal} onChange={e => setSearchVal(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none" />
-            </div>
-          </form>
-        </div>
-      )}
     </nav>
   );
 }
