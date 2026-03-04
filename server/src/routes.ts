@@ -941,6 +941,7 @@ function formatArtistRow(row: any) {
 
 let s3ImportRunning = false;
 let s3ImportLog: string[] = [];
+let s3ImportChild: ReturnType<typeof execFile> | null = null;
 
 /** POST /api/admin/s3-import — trigger S3 import */
 router.post('/admin/s3-import', adminRequired, async (req: Request, res: Response) => {
@@ -982,12 +983,19 @@ router.post('/admin/s3-import', adminRequired, async (req: Request, res: Respons
       if (stdout) s3ImportLog.push(...stdout.split('\n').filter(Boolean));
       if (stderr) s3ImportLog.push(...stderr.split('\n').filter(Boolean));
       if (error) {
-        s3ImportLog.push(`❌ Ошибка: ${error.message}`);
+        if (error.killed || error.signal === 'SIGTERM') {
+          s3ImportLog.push(`⛔ Импорт остановлен пользователем`);
+        } else {
+          s3ImportLog.push(`❌ Ошибка: ${error.message}`);
+        }
       } else {
         s3ImportLog.push(`✅ Импорт завершён`);
       }
       s3ImportRunning = false;
+      s3ImportChild = null;
     });
+
+    s3ImportChild = child;
 
     child.stdout?.on('data', (data: Buffer) => {
       const lines = data.toString().split('\n').filter(Boolean);
@@ -1003,6 +1011,21 @@ router.post('/admin/s3-import', adminRequired, async (req: Request, res: Respons
   } catch (err: any) {
     s3ImportLog.push(`❌ Не удалось запустить: ${err.message}`);
     s3ImportRunning = false;
+    s3ImportChild = null;
+  }
+});
+
+/** POST /api/admin/s3-import/stop — stop running import */
+router.post('/admin/s3-import/stop', adminRequired, (_req: Request, res: Response) => {
+  if (!s3ImportRunning || !s3ImportChild) {
+    return res.status(400).json({ error: 'Импорт не запущен' });
+  }
+  try {
+    s3ImportChild.kill('SIGTERM');
+    s3ImportLog.push(`⛔ Остановка импорта...`);
+    res.json({ ok: true, message: 'Импорт останавливается...' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

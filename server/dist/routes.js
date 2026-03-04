@@ -872,6 +872,7 @@ function formatArtistRow(row) {
 // ═══════════════════════════════════════════════
 let s3ImportRunning = false;
 let s3ImportLog = [];
+let s3ImportChild = null;
 /** POST /api/admin/s3-import — trigger S3 import */
 router.post('/admin/s3-import', adminRequired, async (req, res) => {
     if (s3ImportRunning) {
@@ -911,13 +912,20 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
             if (stderr)
                 s3ImportLog.push(...stderr.split('\n').filter(Boolean));
             if (error) {
-                s3ImportLog.push(`❌ Ошибка: ${error.message}`);
+                if (error.killed || error.signal === 'SIGTERM') {
+                    s3ImportLog.push(`⛔ Импорт остановлен пользователем`);
+                }
+                else {
+                    s3ImportLog.push(`❌ Ошибка: ${error.message}`);
+                }
             }
             else {
                 s3ImportLog.push(`✅ Импорт завершён`);
             }
             s3ImportRunning = false;
+            s3ImportChild = null;
         });
+        s3ImportChild = child;
         child.stdout?.on('data', (data) => {
             const lines = data.toString().split('\n').filter(Boolean);
             s3ImportLog.push(...lines);
@@ -932,6 +940,21 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
     catch (err) {
         s3ImportLog.push(`❌ Не удалось запустить: ${err.message}`);
         s3ImportRunning = false;
+        s3ImportChild = null;
+    }
+});
+/** POST /api/admin/s3-import/stop — stop running import */
+router.post('/admin/s3-import/stop', adminRequired, (_req, res) => {
+    if (!s3ImportRunning || !s3ImportChild) {
+        return res.status(400).json({ error: 'Импорт не запущен' });
+    }
+    try {
+        s3ImportChild.kill('SIGTERM');
+        s3ImportLog.push(`⛔ Остановка импорта...`);
+        res.json({ ok: true, message: 'Импорт останавливается...' });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 /** GET /api/admin/s3-import/status — check import status */

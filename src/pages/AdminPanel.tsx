@@ -1133,6 +1133,15 @@ function SettingsTab() {
     }
   };
 
+  const stopImport = async () => {
+    try {
+      await adminFetch('/admin/s3-import/stop', { method: 'POST' });
+      setImportLog(prev => [...prev, '⛔ Остановка...']);
+    } catch (err: any) {
+      setImportLog(prev => [...prev, `❌ ${err.message}`]);
+    }
+  };
+
   const setFeatured = async () => {
     if (!heroId) return;
     if (currentFeatured) await updateTrack(currentFeatured.id, { featured: false });
@@ -1142,8 +1151,8 @@ function SettingsTab() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* S3 Import */}
+    <div className="space-y-6">
+      {/* S3 Import — full width */}
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
         <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
           <Upload className="w-5 h-5 text-purple-400" />
@@ -1151,7 +1160,7 @@ function SettingsTab() {
         </h3>
         <p className="text-xs text-zinc-500 mb-4">Перенос треков из Yandex Object Storage в базу</p>
 
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           {/* Artist filter */}
           <div>
             <label className="text-xs text-zinc-400 mb-1 block">Артист (имя папки в S3)</label>
@@ -1159,8 +1168,9 @@ function SettingsTab() {
               type="text"
               value={importArtist}
               onChange={e => setImportArtist(e.target.value)}
-              placeholder="Оставьте пустым для всех артистов"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500"
+              placeholder="Все артисты"
+              disabled={importRunning}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500 disabled:opacity-50"
             />
           </div>
 
@@ -1172,26 +1182,32 @@ function SettingsTab() {
               value={importLimit}
               onChange={e => setImportLimit(Number(e.target.value))}
               min={0}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+              disabled={importRunning}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
             />
           </div>
 
-          {/* Skip existing */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={importSkipExisting}
-              onChange={e => setImportSkipExisting(e.target.checked)}
-              className="accent-purple-500"
-            />
-            <span className="text-sm text-zinc-300">Пропускать уже загруженные</span>
-          </label>
+          {/* Skip existing + buttons */}
+          <div className="flex flex-col justify-end gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={importSkipExisting}
+                onChange={e => setImportSkipExisting(e.target.checked)}
+                disabled={importRunning}
+                className="accent-purple-500"
+              />
+              <span className="text-sm text-zinc-300">Пропускать уже загруженные</span>
+            </label>
+          </div>
+        </div>
 
-          {/* Start button */}
+        {/* Action buttons */}
+        <div className="flex gap-3">
           <button
             onClick={startImport}
             disabled={importRunning}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {importRunning ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Импорт выполняется...</>
@@ -1199,18 +1215,31 @@ function SettingsTab() {
               <><Play className="w-4 h-4" /> Запустить импорт</>
             )}
           </button>
+          {importRunning && (
+            <button
+              onClick={stopImport}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition"
+            >
+              <Ban className="w-4 h-4" /> Остановить
+            </button>
+          )}
         </div>
 
         {/* Import log */}
         {importLog.length > 0 && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-zinc-500">Лог импорта</span>
-              {importRunning && <span className="flex items-center gap-1 text-xs text-purple-400"><Loader2 className="w-3 h-3 animate-spin" /> В процессе</span>}
+              <span className="text-xs text-zinc-500">Лог импорта ({importLog.length} строк)</span>
+              <div className="flex items-center gap-3">
+                {importRunning && <span className="flex items-center gap-1 text-xs text-purple-400"><Loader2 className="w-3 h-3 animate-spin" /> В процессе</span>}
+                {!importRunning && importLog.length > 0 && (
+                  <button onClick={() => setImportLog([])} className="text-xs text-zinc-600 hover:text-zinc-400 transition">Очистить</button>
+                )}
+              </div>
             </div>
             <div
               ref={logRef}
-              className="bg-black/50 rounded-lg border border-zinc-800 p-3 h-64 overflow-y-auto font-mono text-xs leading-relaxed"
+              className="bg-black/50 rounded-lg border border-zinc-800 p-3 h-80 overflow-y-auto font-mono text-xs leading-relaxed"
             >
               {importLog.map((line, i) => (
                 <div
@@ -1219,6 +1248,7 @@ function SettingsTab() {
                     line.includes('✅') ? 'text-green-400' :
                     line.includes('❌') ? 'text-red-400' :
                     line.includes('⚠') ? 'text-yellow-400' :
+                    line.includes('⛔') ? 'text-orange-400' :
                     line.includes('⏭') ? 'text-zinc-600' :
                     'text-zinc-400'
                   }`}
@@ -1230,6 +1260,9 @@ function SettingsTab() {
           </div>
         )}
       </div>
+
+      {/* Rest of settings — constrained width */}
+      <div className="max-w-2xl space-y-6">
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Главный трек (Hero)</h3>
         <p className="text-sm text-zinc-400 mb-4">
@@ -1264,6 +1297,7 @@ function SettingsTab() {
           <div className="flex justify-between text-zinc-400"><span>Фронтенд</span><span className="text-zinc-300 font-mono text-xs">React + Vite + Tailwind</span></div>
           <div className="flex justify-between text-zinc-400"><span>Бэкенд</span><span className="text-zinc-300 font-mono text-xs">Express + PostgreSQL + S3</span></div>
         </div>
+      </div>
       </div>
     </div>
   );
