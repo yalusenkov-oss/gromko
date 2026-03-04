@@ -584,6 +584,12 @@ async function main() {
   if (DRY_RUN)       console.log(`  🔍 Режим:     DRY RUN (без импорта)`);
   console.log('');
 
+  // Fail fast: verify DB connectivity before expensive full-bucket scan.
+  if (!DRY_RUN) {
+    ensureDirs();
+    await initSchema();
+  }
+
   // ── Step 1: List all objects in bucket ──
   const allObjects = await listAllObjects(S3_PREFIX);
 
@@ -636,11 +642,7 @@ async function main() {
     process.exit(0);
   }
 
-  // ── Step 3: Initialize DB and dirs ──
-  ensureDirs();
-  await initSchema();
-
-  // Get existing filenames/keys to skip duplicates
+  // ── Step 3: Get existing filenames/keys to skip duplicates ──
   const existingRows = await query('SELECT original_filename FROM tracks');
   const existingFiles = new Set<string>(
     existingRows.map((r: any) => r.original_filename).filter(Boolean)
