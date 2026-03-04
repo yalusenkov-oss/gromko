@@ -28,8 +28,9 @@ export default function Home() {
       {heroTrack && (
         <div
           className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden"
-          style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
         >
+          {/* Blurred background cover */}
+          <div className="absolute inset-0" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(20px) saturate(1.2)', transform: 'scale(1.1)' }} />
           {/* RF Warning Banner — overlay inside hero */}
           <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-3 py-1 flex items-center justify-center gap-2 text-center">
             <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest">

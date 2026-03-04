@@ -25,7 +25,7 @@ export default function TracksPage() {
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
+  const [expandedAlbum] = useState<string | null>(null);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const PER_PAGE = 20;
@@ -132,21 +132,13 @@ export default function TracksPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
               {albums.slice(0, expandedAlbum ? 12 : 8).map(album => {
-                const isExpanded = expandedAlbum === album.name;
                 const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
 
                 return (
                   <div key={album.name} className="col-span-1">
                     <div
                       className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer mb-2"
-                      onClick={() => {
-                        // Mobile: open fullscreen overlay; Desktop: toggle accordion
-                        if (window.innerWidth < 768) {
-                          setMobileAlbum(album);
-                        } else {
-                          setExpandedAlbum(isExpanded ? null : album.name);
-                        }
-                      }}
+                      onClick={() => setMobileAlbum(album)}
                     >
                       <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
@@ -160,15 +152,6 @@ export default function TracksPage() {
                     <p className="text-white text-sm font-semibold truncate">{album.name}</p>
                     <Link to={`/artist/${album.artistSlug}`} className="text-zinc-500 text-xs hover:text-white transition-colors truncate block">{album.artist}</Link>
                     <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков</p>
-
-                    {/* Desktop: Expanded album tracks */}
-                    {isExpanded && (
-                      <div className="hidden md:block mt-2 bg-zinc-900/50 rounded-xl border border-white/5 overflow-hidden">
-                        {album.tracks.sort((a, b) => b.plays - a.plays).map((t, i) => (
-                          <TrackCard key={t.id} track={t} queue={album.tracks} showRank={i + 1} />
-                        ))}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -191,24 +174,24 @@ export default function TracksPage() {
         )}
       </div>
 
-      {/* Mobile fullscreen album overlay — YM style */}
+      {/* Fullscreen album overlay */}
       {mobileAlbum && (
-        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto md:hidden">
+        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto">
           {/* Blurred background from album cover */}
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
-          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4">
+          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4 max-w-2xl mx-auto">
             {/* Close button */}
             <button
               onClick={() => setMobileAlbum(null)}
-              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center"
+              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition"
             >
               <X size={18} className="text-white" />
             </button>
 
             {/* Album cover */}
-            <img src={mobileAlbum.cover} alt={mobileAlbum.name} className="w-56 h-56 rounded-2xl object-cover shadow-2xl mb-5" />
+            <img src={mobileAlbum.cover} alt={mobileAlbum.name} className="w-56 h-56 md:w-72 md:h-72 rounded-2xl object-cover shadow-2xl mb-5" />
 
             {/* Album title */}
             <h2 className="text-white font-bold text-xl text-center">{mobileAlbum.name}</h2>

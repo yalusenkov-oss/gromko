@@ -29,6 +29,7 @@ export interface Artist {
   name: string;
   slug: string;
   photo: string;
+  banner?: string | null;
   bio: string;
   genre: string;
   tracksCount: number;

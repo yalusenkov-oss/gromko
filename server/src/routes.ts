@@ -600,7 +600,7 @@ router.delete('/admin/tracks/:id', adminRequired, async (req: Request, res: Resp
 
 /** PUT /api/admin/artists/:id — edit artist */
 router.put('/admin/artists/:id', adminRequired, async (req: Request, res: Response) => {
-  const { name, slug, photo, bio, genre, socials } = req.body;
+  const { name, slug, photo, banner, bio, genre, socials } = req.body;
   const updates: string[] = [];
   const params: any[] = [];
   let idx = 1;
@@ -608,6 +608,7 @@ router.put('/admin/artists/:id', adminRequired, async (req: Request, res: Respon
   if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
   if (slug !== undefined) { updates.push(`slug = $${idx++}`); params.push(slug); }
   if (photo !== undefined) { updates.push(`photo = $${idx++}`); params.push(photo); }
+  if (banner !== undefined) { updates.push(`banner = $${idx++}`); params.push(banner); }
   if (bio !== undefined) { updates.push(`bio = $${idx++}`); params.push(bio); }
   if (genre !== undefined) { updates.push(`genre = $${idx++}`); params.push(genre); }
   if (socials?.vk !== undefined) { updates.push(`socials_vk = $${idx++}`); params.push(socials.vk); }
@@ -718,6 +719,44 @@ router.put('/admin/artists/:id/photo-url', adminRequired, async (req: Request, r
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL обязателен' });
   await execute('UPDATE artists SET photo = $1 WHERE id = $2', [url, req.params.id]);
   res.json({ photo: url });
+});
+
+/** POST /api/admin/artists/:id/banner — upload artist banner */
+router.post('/admin/artists/:id/banner', adminRequired, (req: Request, res: Response) => {
+  const bannerStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(PATHS.covers, 'artists');
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `${req.params.id}-banner${ext}`);
+    },
+  });
+  const upload = multer({
+    storage: bannerStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) cb(null, true);
+      else cb(new Error('Только изображения'));
+    },
+  }).single('banner');
+  upload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+    const bannerUrl = `/covers/artists/${req.file.filename}`;
+    await execute('UPDATE artists SET banner = $1 WHERE id = $2', [bannerUrl, req.params.id]);
+    res.json({ banner: bannerUrl });
+  });
+});
+
+/** PUT /api/admin/artists/:id/banner-url — set artist banner from external URL */
+router.put('/admin/artists/:id/banner-url', adminRequired, async (req: Request, res: Response) => {
+  const { url } = req.body;
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL обязателен' });
+  await execute('UPDATE artists SET banner = $1 WHERE id = $2', [url, req.params.id]);
+  res.json({ banner: url });
 });
 
 // ─── Submissions (user-submitted tracks pending review) ───
@@ -929,7 +968,7 @@ async function attachArtists(tracks: any[]): Promise<any[]> {
 function formatArtistRow(row: any) {
   return {
     id: row.id, name: row.name, slug: row.slug,
-    photo: row.photo, bio: row.bio, genre: row.genre,
+    photo: row.photo, banner: row.banner || null, bio: row.bio, genre: row.genre,
     tracksCount: row.tracks_count, totalPlays: row.total_plays,
     socials: { vk: row.socials_vk, instagram: row.socials_instagram, telegram: row.socials_telegram },
   };

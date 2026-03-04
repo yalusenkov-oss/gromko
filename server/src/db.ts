@@ -135,6 +135,7 @@ export async function initSchema(): Promise<void> {
         name TEXT NOT NULL,
         slug TEXT NOT NULL UNIQUE,
         photo TEXT,
+        banner TEXT,
         bio TEXT,
         genre TEXT,
         tracks_count INTEGER NOT NULL DEFAULT 0,
@@ -200,6 +201,8 @@ export async function initSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_play_history_user ON play_history(user_id);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `);
+    // Migration: add banner column if missing
+    await client.query(`ALTER TABLE artists ADD COLUMN IF NOT EXISTS banner TEXT`);
     console.log('  ✅ Database schema initialized');
   } finally {
     client.release();

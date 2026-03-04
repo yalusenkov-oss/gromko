@@ -19,7 +19,6 @@ export default function ArtistPage() {
   const { artists, player, playTrack, togglePlay } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
 
   const artist = artists.find(a => a.slug === slug);
@@ -101,6 +100,7 @@ export default function ArtistPage() {
   );
 
   const isAnyPlaying = artistTracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
+  const bannerImage = artist.banner || artist.photo;
 
   const handlePlayAll = () => {
     if (isAnyPlaying) togglePlay();
@@ -117,8 +117,9 @@ export default function ArtistPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
       {/* Banner */}
-      <div className="relative h-72 md:h-96 overflow-hidden"
-        style={{ backgroundImage: `url(${artist.photo})`, backgroundSize: 'cover', backgroundPosition: 'center top' }}>
+      <div className="relative h-72 md:h-96 overflow-hidden">
+        {/* Blurred background */}
+        <div className="absolute inset-0" style={{ backgroundImage: `url(${bannerImage})`, backgroundSize: 'cover', backgroundPosition: 'center top', filter: 'blur(20px) saturate(1.2)', transform: 'scale(1.1)' }} />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/50 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 max-w-5xl mx-auto flex items-end gap-6">
           <img src={artist.photo} alt={artist.name}
@@ -185,8 +186,8 @@ export default function ArtistPage() {
               <h2 className="text-lg font-bold">Альбомы ({albums.length})</h2>
             </div>
 
-            {/* Mobile: album grid — tap opens fullscreen overlay */}
-            <div className="md:hidden grid grid-cols-2 gap-3">
+            {/* Album grid — tap opens fullscreen overlay */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
               {albums.map(album => {
                 const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
                 return (
@@ -196,57 +197,26 @@ export default function ArtistPage() {
                     className="text-left group"
                   >
                     <div className="relative aspect-square rounded-xl overflow-hidden mb-2">
-                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover" />
+                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       {isAlbumPlaying && (
                         <div className="absolute bottom-2 right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
                           <Pause size={14} fill="white" className="text-white" />
                         </div>
+                      )}
+                      {!isAlbumPlaying && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handlePlayAlbum(album); }}
+                          className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-black/60 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Play size={16} fill="white" className="text-white ml-0.5" />
+                        </button>
                       )}
                     </div>
                     <h3 className="text-white font-semibold text-sm truncate">{album.name}</h3>
                     <p className="text-zinc-500 text-xs">{artist.name}</p>
                     <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков</p>
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Desktop: accordion style */}
-            <div className="hidden md:block space-y-4">
-              {albums.map(album => {
-                const isExpanded = expandedAlbum === album.name;
-                const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
-
-                return (
-                  <div key={album.name} className="bg-white/3 rounded-2xl overflow-hidden border border-white/5">
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="relative w-24 h-24 rounded-xl overflow-hidden shrink-0 group cursor-pointer"
-                        onClick={() => handlePlayAlbum(album)}>
-                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          {isAlbumPlaying ? <Pause size={24} fill="white" className="text-white" /> : <Play size={24} fill="white" className="text-white ml-1" />}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-white font-bold text-lg truncate">{album.name}</h3>
-                        <p className="text-zinc-500 text-sm">{album.year} · {album.tracks.length} {album.tracks.length === 1 ? 'трек' : album.tracks.length >= 2 && album.tracks.length <= 4 ? 'трека' : 'треков'}</p>
-                        <p className="text-zinc-600 text-xs mt-0.5">{formatPlays(album.totalPlays)} прослушиваний</p>
-                      </div>
-                      <button
-                        onClick={() => setExpandedAlbum(isExpanded ? null : album.name)}
-                        className="text-zinc-400 hover:text-white transition-colors p-2"
-                      >
-                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                      </button>
-                    </div>
-                    {isExpanded && (
-                      <div className="border-t border-white/5 px-2 pb-2">
-                        {album.tracks.map((t, i) => (
-                          <TrackCard key={t.id} track={t} queue={album.tracks} showRank={i + 1} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 );
               })}
             </div>
@@ -267,24 +237,24 @@ export default function ArtistPage() {
         )}
       </div>
 
-      {/* Mobile fullscreen album overlay — YM style */}
+      {/* Fullscreen album overlay */}
       {mobileAlbum && (
-        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto md:hidden">
+        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto">
           {/* Blurred background from album cover */}
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
-          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4">
+          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4 max-w-2xl mx-auto">
             {/* Close button */}
             <button
               onClick={() => setMobileAlbum(null)}
-              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center"
+              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition"
             >
               <X size={18} className="text-white" />
             </button>
 
             {/* Album cover */}
-            <img src={mobileAlbum.cover} alt={mobileAlbum.name} className="w-56 h-56 rounded-2xl object-cover shadow-2xl mb-5" />
+            <img src={mobileAlbum.cover} alt={mobileAlbum.name} className="w-56 h-56 md:w-72 md:h-72 rounded-2xl object-cover shadow-2xl mb-5" />
 
             {/* Album title */}
             <h2 className="text-white font-bold text-xl text-center">{mobileAlbum.name}</h2>
