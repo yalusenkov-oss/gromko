@@ -30,20 +30,20 @@ import 'dotenv/config';
 
 // ─── S3 Config ───
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net';
-const S3_REGION   = process.env.S3_REGION   || 'ru-central1';
-const S3_ACCESS   = process.env.S3_ACCESS_KEY || '';
-const S3_SECRET   = process.env.S3_SECRET_KEY || '';
+const S3_ENDPOINT = (process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net').trim();
+const S3_REGION   = (process.env.S3_REGION   || 'ru-central1').trim();
+const S3_ACCESS   = (process.env.S3_ACCESS_KEY || '').trim();
+const S3_SECRET   = (process.env.S3_SECRET_KEY || '').trim();
 
 /** Бакет для обработанных файлов (CDN) */
-export const CDN_BUCKET = process.env.S3_CDN_BUCKET || process.env.S3_BUCKET || 'musicpfvlisten';
+export const CDN_BUCKET = (process.env.S3_CDN_BUCKET || process.env.S3_BUCKET || 'musicpfvlisten').trim();
 
 /** Префикс для обработанных файлов внутри бакета */
-export const CDN_PREFIX = process.env.S3_CDN_PREFIX || 'cdn';
+export const CDN_PREFIX = (process.env.S3_CDN_PREFIX || 'cdn').trim();
 
 /** Публичный базовый URL для прямого доступа к файлам */
-export const CDN_BASE_URL = process.env.S3_CDN_URL
-  || `${S3_ENDPOINT}/${CDN_BUCKET}`;
+export const CDN_BASE_URL = (process.env.S3_CDN_URL
+  || `${S3_ENDPOINT}/${CDN_BUCKET}`).trim();
 
 /** Включён ли S3 storage (если ключи заданы) */
 export const S3_ENABLED = !!(S3_ACCESS && S3_SECRET);
