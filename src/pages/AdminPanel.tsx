@@ -217,11 +217,14 @@ function DashboardTab() {
 /* ═══════════════════════════════════════════════ */
 
 function TracksTab() {
-  const { tracks, fetchTracks, updateTrack, deleteTrack } = useStore();
+  const { tracks, artists, fetchTracks, updateTrack, deleteTrack } = useStore();
   const [search, setSearch] = useState('');
   const [genreFilter, setGenreFilter] = useState('');
+  const [artistFilter, setArtistFilter] = useState('');
   const [editTrack, setEditTrack] = useState<Track | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => { fetchTracks(); }, []);
 
@@ -232,12 +235,49 @@ function TracksTab() {
       list = list.filter(t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.id.includes(q));
     }
     if (genreFilter) list = list.filter(t => t.genre === genreFilter);
+    if (artistFilter) list = list.filter(t =>
+      t.artistSlug === artistFilter ||
+      t.artists?.some(a => a.slug === artistFilter)
+    );
     return list;
-  }, [tracks, search, genreFilter]);
+  }, [tracks, search, genreFilter, artistFilter]);
 
   const handleDelete = async (id: string) => {
     await deleteTrack(id);
     setConfirmDelete(null);
+    setSelected(prev => { const next = new Set(prev); next.delete(id); return next; });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      await adminFetch('/admin/tracks/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      await fetchTracks();
+      setSelected(new Set());
+    } catch (e: any) {
+      alert('Ошибка удаления: ' + e.message);
+    }
+    setBulkDeleting(false);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map(t => t.id)));
+    }
   };
 
   return (
@@ -267,15 +307,39 @@ function TracksTab() {
           <option value="">Все жанры</option>
           {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
+        <select value={artistFilter} onChange={e => { setArtistFilter(e.target.value); setSelected(new Set()); }}
+          className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none max-w-[200px]">
+          <option value="">Все артисты</option>
+          {[...artists].sort((a, b) => a.name.localeCompare(b.name)).map(a => (
+            <option key={a.slug} value={a.slug}>{a.name}</option>
+          ))}
+        </select>
         <span className="text-xs text-zinc-500">{filtered.length} / {tracks.length}</span>
         <button onClick={() => fetchTracks()} className="p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
+
+      {/* Bulk actions */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 bg-red-950/30 border border-red-900/50 rounded-xl px-4 py-3">
+          <span className="text-red-400 text-sm font-medium">Выбрано: {selected.size}</span>
+          <button onClick={handleBulkDelete} disabled={bulkDeleting}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition">
+            {bulkDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Удалить выбранные
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-zinc-400 hover:text-white text-sm transition">Снять выделение</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
+              <th className="p-3 w-8">
+                <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
+                  className="rounded border-zinc-600 bg-zinc-800 text-purple-500 focus:ring-purple-500 cursor-pointer" />
+              </th>
               <th className="p-3 w-12"></th>
               <th className="p-3">Трек</th>
               <th className="p-3">Артист(ы)</th>
@@ -289,7 +353,11 @@ function TracksTab() {
           </thead>
           <tbody>
             {filtered.map(t => (
-              <tr key={t.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition group">
+              <tr key={t.id} className={`border-b border-zinc-800/50 hover:bg-zinc-800/30 transition group ${selected.has(t.id) ? 'bg-purple-900/10' : ''}`}>
+                <td className="p-3">
+                  <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelect(t.id)}
+                    className="rounded border-zinc-600 bg-zinc-800 text-purple-500 focus:ring-purple-500 cursor-pointer" />
+                </td>
                 <td className="p-3">
                   {t.cover ? <img src={t.cover} alt="" className="w-10 h-10 rounded object-cover" /> : <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center"><Music className="w-4 h-4 text-zinc-600" /></div>}
                 </td>

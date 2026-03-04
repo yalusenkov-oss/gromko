@@ -247,7 +247,7 @@ export default function ArtistPage() {
 
       {/* Fullscreen album overlay */}
       {mobileAlbum && (
-        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto">
+        <div className="fixed inset-0 z-[60] bg-zinc-950 overflow-y-auto">
           {/* Blurred background from album cover */}
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
@@ -320,7 +320,7 @@ export default function ArtistPage() {
             </div>
 
             {/* Album stats */}
-            <p className="text-zinc-600 text-xs mt-4">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
+            <p className="text-zinc-600 text-xs mt-4 text-center w-full">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
           </div>
         </div>
       )}

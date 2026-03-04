@@ -604,6 +604,17 @@ router.delete('/admin/tracks/:id', adminRequired, async (req: Request, res: Resp
   res.json({ ok: true });
 });
 
+/** POST /api/admin/tracks/bulk-delete — delete multiple tracks by IDs */
+router.post('/admin/tracks/bulk-delete', adminRequired, async (req: Request, res: Response) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+  const placeholders = ids.map((_: string, i: number) => `$${i + 1}`).join(',');
+  await execute(`DELETE FROM track_artists WHERE track_id IN (${placeholders})`, ids);
+  await execute(`DELETE FROM play_history WHERE track_id IN (${placeholders})`, ids);
+  const deleted = await execute(`DELETE FROM tracks WHERE id IN (${placeholders})`, ids);
+  res.json({ deleted });
+});
+
 /** PUT /api/admin/artists/:id — edit artist */
 router.put('/admin/artists/:id', adminRequired, async (req: Request, res: Response) => {
   const { name, slug, photo, banner, bio, genre, socials } = req.body;
