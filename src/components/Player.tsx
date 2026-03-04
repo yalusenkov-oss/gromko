@@ -119,30 +119,30 @@ export default function Player() {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40">
       {/* Mobile player — Yandex Music style */}
-      <div className="flex md:hidden flex-col bg-zinc-900/95 backdrop-blur-xl border-t border-white/10 rounded-t-xl" onClick={toggleFullscreen}>
-        <div className="flex items-center gap-3 px-3 py-2.5">
-          <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0">
+      <div className="flex md:hidden flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
+        {/* Thin red progress bar at top */}
+        <div className="h-[2px] bg-zinc-800 w-full">
+          <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
             <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-[13px] font-medium truncate leading-tight">{t.title}</p>
-            <p className="text-zinc-400 text-[11px] truncate leading-tight">{t.artist}</p>
+            <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
+            <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
           </div>
           <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
-            <Heart size={20} fill={isLiked ? 'currentColor' : 'none'} />
+            <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
           </button>
           <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="p-2 text-white">
             {isBuffering
-              ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : player.isPlaying
-                ? <Pause size={22} fill="white" />
-                : <Play size={22} fill="white" className="ml-0.5" />
+                ? <Pause size={24} fill="white" />
+                : <Play size={24} fill="white" className="ml-0.5" />
             }
           </button>
-        </div>
-        {/* Thin progress bar at bottom */}
-        <div className="h-[2px] bg-zinc-700 w-full">
-          <div className="h-full bg-zinc-400 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
         </div>
       </div>
 
