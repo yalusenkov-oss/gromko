@@ -5,7 +5,7 @@ import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
   Volume2, VolumeX, Heart, Maximize2, ChevronDown, WifiOff
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { audioEngine, EngineState } from '../audio/engine';
 
 export default function Player() {
@@ -19,10 +19,32 @@ export default function Player() {
   const [engineState, setEngineState] = useState<EngineState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
+  // Animation state for fullscreen
+  const [fsVisible, setFsVisible] = useState(false);
+  const [fsAnimating, setFsAnimating] = useState(false);
+  const prevFullscreen = useRef(player.isFullscreen);
 
   useEffect(() => {
     return audioEngine.subscribe(setEngineState);
   }, []);
+
+  // Animate fullscreen open/close
+  useEffect(() => {
+    if (player.isFullscreen && !prevFullscreen.current) {
+      // Opening
+      setFsVisible(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setFsAnimating(true));
+      });
+    } else if (!player.isFullscreen && prevFullscreen.current) {
+      // Closing
+      setFsAnimating(false);
+      const timer = setTimeout(() => setFsVisible(false), 350);
+      prevFullscreen.current = player.isFullscreen;
+      return () => clearTimeout(timer);
+    }
+    prevFullscreen.current = player.isFullscreen;
+  }, [player.isFullscreen]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const bar = e.currentTarget;
@@ -57,58 +79,90 @@ export default function Player() {
   const isBuffering = engineState?.state === 'buffering';
   const qualityLabel = engineState?.actualBitrate || '';
 
-  if (player.isFullscreen) {
+  if (player.isFullscreen || fsVisible) {
     return (
-      <div className="fixed inset-0 z-50 bg-zinc-950 flex flex-col" style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
-        <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-3xl" />
-        <div className="relative z-10 flex flex-col h-full p-5 md:p-8">
-          <div className="flex justify-between items-center mb-2 md:mb-8">
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><ChevronDown size={24} /></button>
+      <div
+        className={`fixed inset-0 z-50 transition-all duration-350 ease-out ${fsAnimating ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+      >
+        <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-3xl" />
+        <div className={`relative z-10 flex flex-col h-full safe-area-inset transition-transform duration-350 ease-out ${fsAnimating ? 'translate-y-0' : 'translate-y-full'}`}>
+          {/* Header */}
+          <div className="flex justify-between items-center px-5 pt-4 pb-2 md:px-8 md:pt-6">
+            <button onClick={toggleFullscreen} className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white transition-colors -ml-2">
+              <ChevronDown size={28} />
+            </button>
             <div className="text-center">
-              <span className="text-white/50 text-xs uppercase tracking-widest">Сейчас играет</span>
-              {qualityLabel && <span className="text-white/30 text-[10px] block mt-0.5">{qualityLabel}</span>}
+              <span className="text-white/40 text-[10px] uppercase tracking-[0.2em]">Сейчас играет</span>
+              {qualityLabel && <span className="text-white/25 text-[9px] block mt-0.5">{qualityLabel}</span>}
             </div>
-            <div className="w-6" />
+            <div className="w-10" />
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 md:gap-8">
-            <div className={`w-64 h-64 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl transition-transform duration-500 ${player.isPlaying ? 'scale-100' : 'scale-95 opacity-80'}`}>
+
+          {/* Cover + Info — fills available space */}
+          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 gap-6 min-h-0">
+            {/* Cover */}
+            <div className={`w-full max-w-[75vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             </div>
-            <div className="text-center">
-              <h2 className="text-xl md:text-3xl font-bold text-white mb-1">{t.title}</h2>
-              <p className="text-white/60 text-sm md:text-lg">
+
+            {/* Title + Artist */}
+            <div className="text-center w-full max-w-sm">
+              <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
+              <p className="text-white/50 text-base md:text-lg mt-1 truncate">
                 {t.artists && t.artists.length > 0
                   ? t.artists.map(a => a.name).join(', ')
                   : t.artist}
               </p>
             </div>
-            <div className="w-full max-w-sm md:max-w-lg">
-              <div className="relative h-12 md:h-16 rounded-lg overflow-hidden cursor-pointer bg-white/10" onMouseDown={handleProgressMouseDown}>
-                <div className="absolute inset-0 flex items-center gap-[2px] px-2">
-                  {Array.from({ length: 80 }).map((_, i) => {
+          </div>
+
+          {/* Controls block — pinned to bottom */}
+          <div className="px-6 md:px-12 pb-8 md:pb-10 space-y-5 max-w-lg mx-auto w-full">
+            {/* Progress waveform */}
+            <div>
+              <div className="relative h-14 rounded-xl overflow-hidden cursor-pointer bg-white/8" onMouseDown={handleProgressMouseDown} onTouchStart={(e) => {
+                const bar = e.currentTarget;
+                const rect = bar.getBoundingClientRect();
+                const touch = e.touches[0];
+                const p = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                seek(p);
+              }}>
+                <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
+                  {Array.from({ length: 60 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
-                    const isActive = i / 80 <= progress;
-                    const isBufferedBar = i / 80 <= buffered;
-                    return (<div key={i} className={`flex-1 rounded-full transition-colors duration-150 ${isActive ? 'bg-red-500' : isBufferedBar ? 'bg-white/20' : 'bg-white/10'}`} style={{ height: `${Math.min(90, h)}%` }} />);
+                    const isActive = i / 60 <= progress;
+                    const isBufferedBar = i / 60 <= buffered;
+                    return (<div key={i} className={`flex-1 rounded-full transition-colors duration-150 ${isActive ? 'bg-red-500' : isBufferedBar ? 'bg-white/20' : 'bg-white/8'}`} style={{ height: `${Math.min(90, h)}%` }} />);
                   })}
                 </div>
               </div>
-              <div className="flex justify-between text-white/50 text-xs mt-1.5">
+              <div className="flex justify-between text-white/40 text-xs mt-2 px-0.5">
                 <span>{formatDuration(Math.floor(currentTime))}</span>
                 <div className="flex items-center gap-2">
-                  {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация...</span>}
+                  {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация</span>}
                   <span>{formatDuration(Math.floor(duration))}</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-6 md:gap-8">
-              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/50 hover:text-white'}`}><Shuffle size={18} /></button>
-              <button onClick={prev} className="text-white/80 hover:text-white transition-colors"><SkipBack size={24} /></button>
-              <button onClick={togglePlay} className={`w-14 h-14 md:w-16 md:h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-colors shadow-lg shadow-red-500/40 ${isBuffering ? 'animate-pulse' : ''}`}>
-                {isBuffering ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={24} fill="white" className="text-white" /> : <Play size={24} fill="white" className="text-white ml-1" />}
+
+            {/* Playback controls */}
+            <div className="flex items-center justify-center gap-8">
+              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
+              <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
+              <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
+                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white ml-1" />}
               </button>
-              <button onClick={next} className="text-white/80 hover:text-white transition-colors"><SkipForward size={24} /></button>
-              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/50 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}</button>
+              <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
+              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
+            </div>
+
+            {/* Like button */}
+            <div className="flex items-center justify-center">
+              <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
+                <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
+                <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
+              </button>
             </div>
           </div>
         </div>

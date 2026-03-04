@@ -69,8 +69,8 @@ export default function Home() {
           <div className="absolute inset-0 md:hidden" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
           <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(16px) saturate(1.2)', transform: 'scale(1.08)' }} />
           {/* RF Warning Banner — overlay inside hero */}
-          <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-3 py-1 flex items-center justify-center gap-2 text-center">
-            <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest">
+          <div className="absolute top-0 left-0 right-0 z-20 bg-red-950/80 backdrop-blur-md px-4 py-1.5 flex items-center justify-center text-center">
+            <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest leading-tight">
               ⚠️ САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ
             </span>
           </div>

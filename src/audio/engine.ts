@@ -446,6 +446,9 @@ class AudioEngine {
     navigator.mediaSession.setActionHandler('pause', () => this.pause());
     navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
     navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
+    // Disable seek buttons so iOS shows prev/next track instead of ±10s
+    navigator.mediaSession.setActionHandler('seekbackward', null);
+    navigator.mediaSession.setActionHandler('seekforward', null);
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime !== undefined) {
         this.seekTo(details.seekTime);
