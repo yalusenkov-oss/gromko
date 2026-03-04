@@ -61,6 +61,30 @@ router.post('/auth/login', async (req, res) => {
         res.status(401).json({ error: err.message });
     }
 });
+/** POST /api/admin/bootstrap — promote first admin (one-time) */
+router.post('/admin/bootstrap', async (req, res) => {
+    try {
+        const { secret, userId } = req.body;
+        // Simple secret to prevent random access
+        if (secret !== 'gromko-bootstrap-2026') {
+            return res.status(403).json({ error: 'Invalid secret' });
+        }
+        // Check if any admin already exists
+        const existing = await queryOne(`SELECT id FROM users WHERE role = 'admin' LIMIT 1`);
+        if (existing) {
+            return res.status(400).json({ error: 'Admin already exists, bootstrap disabled' });
+        }
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        await execute(`UPDATE users SET role = 'admin' WHERE id = $1`, [userId]);
+        const user = await getUserById(userId);
+        res.json({ success: true, user });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 /** GET /api/auth/me — current user */
 router.get('/auth/me', authRequired, (req, res) => {
     res.json({ user: req.user });
