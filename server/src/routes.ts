@@ -214,6 +214,12 @@ router.get('/tracks/:id/stream', async (req: Request, res: Response) => {
   const userId = req.user?.id || null;
   execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => {});
   execute('INSERT INTO play_history (track_id, quality, user_id) VALUES ($1, $2, $3)', [req.params.id, quality, userId]).catch(() => {});
+  // Update total_plays for all artists linked to this track
+  execute(`
+    UPDATE artists SET total_plays = total_plays + 1
+    WHERE id IN (SELECT artist_id FROM track_artists WHERE track_id = $1)
+       OR slug = $2
+  `, [req.params.id, track.artist_slug]).catch(() => {});
 
   // If URL is absolute (S3), redirect to it — browser/player fetches directly from CDN
   if (streamPath.startsWith('http://') || streamPath.startsWith('https://')) {

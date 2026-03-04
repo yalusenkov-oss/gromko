@@ -150,7 +150,34 @@ const server = app.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`  ║  http://localhost:${CONFIG.port}              ║`);
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
+
+  // Recalculate artist stats on startup and every hour
+  recalcArtistStats();
+  setInterval(recalcArtistStats, 60 * 60 * 1000);
 });
+
+async function recalcArtistStats() {
+  try {
+    const { execute } = await import('./db.js');
+    await execute(`
+      UPDATE artists a SET
+        tracks_count = COALESCE(sub.cnt, 0),
+        total_plays = COALESCE(sub.tp, 0)
+      FROM (
+        SELECT ta.artist_id,
+               COUNT(DISTINCT t.id) as cnt,
+               COALESCE(SUM(t.plays), 0) as tp
+        FROM track_artists ta
+        JOIN tracks t ON t.id = ta.track_id AND t.status = 'ready'
+        GROUP BY ta.artist_id
+      ) sub
+      WHERE a.id = sub.artist_id
+    `);
+    console.log('  ✅ Artist stats recalculated');
+  } catch (e: any) {
+    console.error('  ❌ Artist stats recalc error:', e.message);
+  }
+}
 
 // ─── Graceful shutdown ───
 async function shutdown(signal: string) {
