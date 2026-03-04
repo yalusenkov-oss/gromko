@@ -117,92 +117,96 @@ export default function Player() {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-xl border-t border-white/5">
-      <div className="absolute top-0 left-0 right-0 h-[3px] cursor-pointer group" onMouseDown={handleProgressMouseDown}>
-        <div className="h-full bg-white/10 relative">
-          <div className="absolute h-full bg-white/5 transition-all duration-300" style={{ width: `${buffered * 100}%` }} />
-          <div className="absolute h-full bg-red-500 transition-all duration-100" style={{ width: `${progress * 100}%` }} />
-          <div className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" style={{ left: `${progress * 100}%`, transform: 'translate(-50%, -50%)' }} />
-        </div>
-      </div>
-
-      {/* Mobile player */}
-      <div className="flex md:hidden items-center gap-2 px-3 py-2">
-        <div className="relative w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer" onClick={toggleFullscreen}>
-          <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-          {player.isPlaying && (
-            <div className="absolute bottom-0.5 right-0.5 flex gap-[2px] items-end h-2.5">
-              {[1, 2, 3].map((i) => (<div key={i} className="w-[3px] bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
-            </div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={toggleFullscreen}>
-          <p className="text-white text-xs font-medium truncate">{t.title}</p>
-          <p className="text-zinc-400 text-[11px] truncate">{t.artist}</p>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => toggleLike(t.id)} className={`p-1.5 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
-          <button onClick={toggleShuffle} className={`p-1.5 ${player.shuffle ? 'text-red-400' : 'text-zinc-500'}`}><Shuffle size={14} /></button>
-          <button onClick={prev} className="p-1.5 text-zinc-300"><SkipBack size={18} /></button>
-          <button onClick={togglePlay} className={`w-9 h-9 bg-white rounded-full flex items-center justify-center ${isBuffering ? 'animate-pulse' : ''}`}>
-            {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={16} className="text-black" fill="black" /> : <Play size={16} className="text-black ml-0.5" fill="black" />}
+    <div className="fixed bottom-0 left-0 right-0 z-40">
+      {/* Mobile player — Yandex Music style */}
+      <div className="flex md:hidden flex-col bg-zinc-900/95 backdrop-blur-xl border-t border-white/10 rounded-t-xl" onClick={toggleFullscreen}>
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0">
+            <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-[13px] font-medium truncate leading-tight">{t.title}</p>
+            <p className="text-zinc-400 text-[11px] truncate leading-tight">{t.artist}</p>
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+            <Heart size={20} fill={isLiked ? 'currentColor' : 'none'} />
           </button>
-          <button onClick={next} className="p-1.5 text-zinc-300"><SkipForward size={18} /></button>
+          <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="p-2 text-white">
+            {isBuffering
+              ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : player.isPlaying
+                ? <Pause size={22} fill="white" />
+                : <Play size={22} fill="white" className="ml-0.5" />
+            }
+          </button>
+        </div>
+        {/* Thin progress bar at bottom */}
+        <div className="h-[2px] bg-zinc-700 w-full">
+          <div className="h-full bg-zinc-400 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
         </div>
       </div>
 
       {/* Desktop player */}
-      <div className="hidden md:flex items-center gap-4 px-4 py-3">
-        <div className="flex items-center gap-3 w-64 shrink-0">
-          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
-            <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Maximize2 size={16} className="text-white" /></div>
-            {player.isPlaying && (
-              <div className="absolute bottom-1 right-1 flex gap-0.5 items-end h-3">
-                {[1, 2, 3].map((i) => (<div key={i} className="w-0.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
-              </div>
-            )}
+      <div className="hidden md:block bg-zinc-950/95 backdrop-blur-xl border-t border-white/5">
+        <div className="absolute top-0 left-0 right-0 h-[3px] cursor-pointer group" onMouseDown={handleProgressMouseDown}>
+          <div className="h-full bg-white/10 relative">
+            <div className="absolute h-full bg-white/5 transition-all duration-300" style={{ width: `${buffered * 100}%` }} />
+            <div className="absolute h-full bg-red-500 transition-all duration-100" style={{ width: `${progress * 100}%` }} />
+            <div className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" style={{ left: `${progress * 100}%`, transform: 'translate(-50%, -50%)' }} />
           </div>
-          <div className="min-w-0">
-            <p className="text-white text-sm font-medium truncate">{t.title}</p>
-            <p className="text-zinc-400 text-xs truncate">{t.artist}</p>
-          </div>
-          <button onClick={() => toggleLike(t.id)} className={`shrink-0 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500 hover:text-white'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
         </div>
-        <div className="flex-1 flex flex-col items-center gap-1">
-          <div className="flex items-center gap-5">
-            <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
-            <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
-            <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
-              {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black ml-0.5" fill="black" />}
-            </button>
-            <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
-            <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
-          </div>
-          <div className="flex items-center gap-2 w-full max-w-md">
-            <span className="text-zinc-500 text-xs w-10 text-right">{formatDuration(Math.floor(currentTime))}</span>
-            <div className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group" onMouseDown={(e) => { const rect = e.currentTarget.getBoundingClientRect(); seek((e.clientX - rect.left) / rect.width); }}>
-              <div className="absolute h-full bg-white/5 rounded-full" style={{ width: `${buffered * 100}%` }} />
-              <div className="h-full bg-white rounded-full relative" style={{ width: `${progress * 100}%` }}>
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow" />
-              </div>
+        <div className="flex items-center gap-4 px-4 py-3">
+          <div className="flex items-center gap-3 w-64 shrink-0">
+            <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
+              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Maximize2 size={16} className="text-white" /></div>
+              {player.isPlaying && (
+                <div className="absolute bottom-1 right-1 flex gap-0.5 items-end h-3">
+                  {[1, 2, 3].map((i) => (<div key={i} className="w-0.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
+                </div>
+              )}
             </div>
-            <span className="text-zinc-500 text-xs w-10">{formatDuration(Math.floor(duration))}</span>
+            <div className="min-w-0">
+              <p className="text-white text-sm font-medium truncate">{t.title}</p>
+              <p className="text-zinc-400 text-xs truncate">{t.artist}</p>
+            </div>
+            <button onClick={() => toggleLike(t.id)} className={`shrink-0 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500 hover:text-white'}`}><Heart size={16} fill={isLiked ? 'currentColor' : 'none'} /></button>
           </div>
-        </div>
-        <div className="flex items-center gap-3 w-56 justify-end">
-          {qualityLabel && <span className="text-zinc-600 text-[10px] bg-white/5 px-1.5 py-0.5 rounded hidden lg:block">{qualityLabel}</span>}
-          {isBuffering && <WifiOff size={14} className="text-yellow-400 animate-pulse" />}
-          <div className="relative">
-            <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
-            {showVolume && (
-              <div className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10 rounded-lg p-3 shadow-xl">
-                <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-24 accent-red-500" style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '8px', height: '80px' }} />
+          <div className="flex-1 flex flex-col items-center gap-1">
+            <div className="flex items-center gap-5">
+              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
+              <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
+              <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
+                {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black ml-0.5" fill="black" />}
+              </button>
+              <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
+              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
+            </div>
+            <div className="flex items-center gap-2 w-full max-w-md">
+              <span className="text-zinc-500 text-xs w-10 text-right">{formatDuration(Math.floor(currentTime))}</span>
+              <div className="flex-1 h-1 bg-white/10 rounded-full cursor-pointer relative group" onMouseDown={(e) => { const rect = e.currentTarget.getBoundingClientRect(); seek((e.clientX - rect.left) / rect.width); }}>
+                <div className="absolute h-full bg-white/5 rounded-full" style={{ width: `${buffered * 100}%` }} />
+                <div className="h-full bg-white rounded-full relative" style={{ width: `${progress * 100}%` }}>
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow" />
+                </div>
               </div>
-            )}
+              <span className="text-zinc-500 text-xs w-10">{formatDuration(Math.floor(duration))}</span>
+            </div>
           </div>
-          <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-20 accent-red-500 h-1" />
-          <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>
+          <div className="flex items-center gap-3 w-56 justify-end">
+            {qualityLabel && <span className="text-zinc-600 text-[10px] bg-white/5 px-1.5 py-0.5 rounded">{qualityLabel}</span>}
+            {isBuffering && <WifiOff size={14} className="text-yellow-400 animate-pulse" />}
+            <div className="relative">
+              <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
+              {showVolume && (
+                <div className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10 rounded-lg p-3 shadow-xl">
+                  <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-24 accent-red-500" style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '8px', height: '80px' }} />
+                </div>
+              )}
+            </div>
+            <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-20 accent-red-500 h-1" />
+            <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>
+          </div>
         </div>
       </div>
     </div>

@@ -190,9 +190,9 @@ export default function ArtistPage() {
 
                 return (
                   <div key={album.name} className="bg-white/3 rounded-2xl overflow-hidden border border-white/5">
-                    {/* Album header */}
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="relative w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden shrink-0 group cursor-pointer"
+                    {/* Album header — desktop */}
+                    <div className="hidden md:flex items-center gap-4 p-4">
+                      <div className="relative w-24 h-24 rounded-xl overflow-hidden shrink-0 group cursor-pointer"
                         onClick={() => handlePlayAlbum(album)}>
                         <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -200,7 +200,7 @@ export default function ArtistPage() {
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-white font-bold text-base md:text-lg truncate">{album.name}</h3>
+                        <h3 className="text-white font-bold text-lg truncate">{album.name}</h3>
                         <p className="text-zinc-500 text-sm">{album.year} · {album.tracks.length} {album.tracks.length === 1 ? 'трек' : album.tracks.length >= 2 && album.tracks.length <= 4 ? 'трека' : 'треков'}</p>
                         <p className="text-zinc-600 text-xs mt-0.5">{formatPlays(album.totalPlays)} прослушиваний</p>
                       </div>
@@ -212,9 +212,72 @@ export default function ArtistPage() {
                       </button>
                     </div>
 
-                    {/* Album tracks (expanded) */}
+                    {/* Album header — mobile (YM style) */}
+                    <div className="md:hidden">
+                      <button
+                        onClick={() => setExpandedAlbum(isExpanded ? null : album.name)}
+                        className="flex items-center gap-3 p-3 w-full text-left"
+                      >
+                        <img src={album.cover} alt={album.name} className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-bold text-sm truncate">{album.name}</h3>
+                          <p className="text-zinc-500 text-xs">{album.year} · {album.tracks.length} {album.tracks.length === 1 ? 'трек' : album.tracks.length >= 2 && album.tracks.length <= 4 ? 'трека' : 'треков'}</p>
+                        </div>
+                        {isExpanded ? <ChevronUp size={18} className="text-zinc-500 shrink-0" /> : <ChevronDown size={18} className="text-zinc-500 shrink-0" />}
+                      </button>
+
+                      {/* Expanded: centered cover + track list */}
+                      {isExpanded && (
+                        <div className="pb-4">
+                          {/* Big centered cover */}
+                          <div className="flex justify-center px-6 pt-2 pb-4">
+                            <img src={album.cover} alt={album.name} className="w-52 h-52 rounded-2xl object-cover shadow-2xl" />
+                          </div>
+                          {/* Album info */}
+                          <div className="text-center px-4 mb-4">
+                            <h3 className="text-white font-bold text-lg">{album.name}</h3>
+                            <p className="text-zinc-400 text-sm mt-0.5">{artist.name} · {album.year}</p>
+                            <p className="text-zinc-600 text-xs mt-1">{formatPlays(album.totalPlays)} прослушиваний</p>
+                          </div>
+                          {/* Play album button */}
+                          <div className="flex justify-center mb-4">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handlePlayAlbum(album); }}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-red-500 hover:bg-red-400 rounded-full text-sm font-semibold transition-colors shadow-lg shadow-red-500/25"
+                            >
+                              {isAlbumPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" className="ml-0.5" />}
+                              {isAlbumPlaying ? 'Пауза' : 'Слушать'}
+                            </button>
+                          </div>
+                          {/* Track list — numbered, clean */}
+                          <div className="px-3 space-y-0.5">
+                            {album.tracks.map((t, i) => {
+                              const isCurrent = player.currentTrack?.id === t.id;
+                              const isPlaying = isCurrent && player.isPlaying;
+                              return (
+                                <button
+                                  key={t.id}
+                                  onClick={() => playTrack(t, album.tracks)}
+                                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'active:bg-white/5'}`}
+                                >
+                                  <span className={`w-6 text-center text-sm tabular-nums ${isCurrent ? 'text-red-400 font-bold' : 'text-zinc-600'}`}>
+                                    {isPlaying ? '▸' : i + 1}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-sm truncate ${isCurrent ? 'text-red-400 font-medium' : 'text-white'}`}>{t.title}</p>
+                                  </div>
+                                  <span className="text-zinc-600 text-xs tabular-nums">{t.duration ? `${Math.floor(t.duration / 60)}:${String(t.duration % 60).padStart(2, '0')}` : ''}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Album tracks (expanded) — desktop */}
                     {isExpanded && (
-                      <div className="border-t border-white/5 px-2 pb-2">
+                      <div className="hidden md:block border-t border-white/5 px-2 pb-2">
                         {album.tracks.map((t, i) => (
                           <TrackCard key={t.id} track={t} queue={album.tracks} showRank={i + 1} />
                         ))}
