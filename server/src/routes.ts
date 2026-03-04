@@ -1005,4 +1005,14 @@ router.get('/admin/s3-import/status', adminRequired, (_req: Request, res: Respon
   });
 });
 
+/** DELETE /api/admin/tracks/errors — delete all tracks with status='error' */
+router.delete('/admin/tracks/errors', adminRequired, async (_req: Request, res: Response) => {
+  try {
+    const deleted = await execute(`DELETE FROM tracks WHERE status = 'error'`);
+    res.json({ deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
