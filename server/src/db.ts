@@ -11,7 +11,11 @@ const { Pool } = pg;
 let pool: pg.Pool | undefined;
 
 function isLocalHost(host?: string): boolean {
-  return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (!host) return true;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+  // Private network ranges (Timeweb internal DB uses 192.168.x.x)
+  if (host.startsWith('10.') || host.startsWith('172.') || host.startsWith('192.168.')) return true;
+  return false;
 }
 
 function hostFromUrl(url?: string): string | undefined {
@@ -27,6 +31,8 @@ function buildPoolOptions(): pg.PoolConfig {
   const shouldUseSsl = process.env.DATABASE_SSL === 'false'
     ? false
     : !isLocalHost(host);
+
+  console.log(`  🔌 DB config: host=${host}, ssl=${shouldUseSsl}, hasConnectionString=${!!connectionString}`);
 
   if (!connectionString && !hasDiscretePgVars) {
     throw new Error(
