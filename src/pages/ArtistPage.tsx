@@ -119,7 +119,7 @@ export default function ArtistPage() {
       {/* Banner */}
       <div className="relative h-72 md:h-96 overflow-hidden">
         {/* Blurred background */}
-        <div className="absolute inset-0" style={{ backgroundImage: `url(${bannerImage})`, backgroundSize: 'cover', backgroundPosition: 'center top', filter: 'blur(4px) saturate(1.1)', transform: 'scale(1.03)' }} />
+        <div className="absolute inset-0" style={{ backgroundImage: `url(${bannerImage})`, backgroundSize: 'cover', backgroundPosition: 'center top', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/50 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 max-w-5xl mx-auto flex items-end gap-6">
           <img src={artist.photo} alt={artist.name}

@@ -48,10 +48,10 @@ export default function TrackPage() {
         <div className="fixed inset-0 z-45 bg-black flex flex-col items-center justify-center gap-8 p-8"
           style={{ backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
           <div className="absolute inset-0 bg-black/80 backdrop-blur-3xl" />
+          <button onClick={() => setIsFullViz(false)} className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center text-white/70 hover:text-white transition-colors backdrop-blur-sm">
+            <Minimize2 size={20} />
+          </button>
           <div className="relative z-10 w-full max-w-2xl flex flex-col items-center gap-6">
-            <button onClick={() => setIsFullViz(false)} className="absolute top-0 right-0 text-white/70 hover:text-white transition-colors">
-              <Minimize2 size={24} />
-            </button>
             <img src={track.cover} alt={track.title} className="w-64 h-64 rounded-2xl shadow-2xl object-cover" />
             <div className="text-center">
               <h2 className="text-3xl font-black">{track.title}</h2>

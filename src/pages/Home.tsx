@@ -1,8 +1,9 @@
 import { useStore, GENRES, Track } from '../store';
-import { Play, Pause, TrendingUp, Clock, Users, ChevronRight, Flame } from 'lucide-react';
+import { Play, Pause, TrendingUp, Clock, Users, ChevronRight, Flame, Disc3 } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
 
 export default function Home() {
   const { tracks, artists, heroTrackId, activeGenre, setActiveGenre, player, playTrack, togglePlay } = useStore();
@@ -14,7 +15,42 @@ export default function Home() {
 
   const filteredTracks = activeGenre === 'Все' ? tracks : tracks.filter(t => t.genre === activeGenre);
   const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
-  const newTracks = tracks.filter(t => t.isNew).slice(0, 6);
+  const newTracks = tracks.filter(t => t.isNew).slice(0, 5);
+
+  // Build popular albums from tracks
+  const popularAlbums = useMemo(() => {
+    const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; totalPlays: number; tracks: Track[] }>();
+    for (const t of tracks) {
+      const albumName = t.meta?.album;
+      if (!albumName) continue;
+      if (!albumMap.has(albumName)) {
+        albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, totalPlays: 0, tracks: [] });
+      }
+      const a = albumMap.get(albumName)!;
+      a.tracks.push(t);
+      a.totalPlays += t.plays;
+    }
+    return [...albumMap.values()]
+      .filter(a => a.tracks.length > 1)
+      .sort((a, b) => b.totalPlays - a.totalPlays)
+      .slice(0, 4);
+  }, [tracks]);
+
+  // Top 4 artists by plays, with fallback photo from most popular track cover
+  const topArtists = useMemo(() => {
+    const sorted = [...artists].sort((a, b) => b.totalPlays - a.totalPlays).slice(0, 4);
+    return sorted.map(a => {
+      // If artist has no photo or it's a default placeholder, use cover from their most popular track
+      const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
+      if (needsFallback) {
+        const artistTrack = [...tracks]
+          .filter(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug)
+          .sort((x, y) => y.plays - x.plays)[0];
+        return { ...a, photo: artistTrack?.cover || a.photo };
+      }
+      return a;
+    });
+  }, [artists, tracks]);
 
   const handleHeroPlay = () => {
     if (!heroTrack) return;
@@ -30,7 +66,7 @@ export default function Home() {
           className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden"
         >
           {/* Blurred background cover */}
-          <div className="absolute inset-0" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(4px) saturate(1.1)', transform: 'scale(1.03)' }} />
+          <div className="absolute inset-0" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
           {/* RF Warning Banner — overlay inside hero */}
           <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-3 py-1 flex items-center justify-center gap-2 text-center">
             <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest">
@@ -103,14 +139,38 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Carousel */}
+          {/* Top 5 track cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
             {popularTracks.slice(0, 5).map(track => (
               <PopularCard key={track.id} track={track} allTracks={tracks} />
             ))}
           </div>
 
-          {/* List */}
+          {/* Popular Albums */}
+          {popularAlbums.length > 0 && (
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Disc3 size={18} className="text-red-400" />
+                <h3 className="text-lg font-semibold">Популярные альбомы</h3>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {popularAlbums.map(album => (
+                  <Link key={album.name} to={`/artist/${album.artistSlug}`} className="group relative block rounded-xl overflow-hidden">
+                    <div className="aspect-square">
+                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                      <p className="text-white text-sm font-semibold truncate">{album.name}</p>
+                      <p className="text-zinc-400 text-xs truncate">{album.artist} · {album.tracks.length} треков</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Track list */}
           <div className="space-y-1">
             {(activeGenre === 'Все' ? popularTracks : filteredTracks.sort((a,b) => b.plays - a.plays)).slice(0, 8).map((track, i) => (
               <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
@@ -119,7 +179,7 @@ export default function Home() {
         </section>
 
         {/* New tracks */}
-        {(activeGenre === 'Все' || newTracks.some(t => t.genre === activeGenre)) && (
+        {(activeGenre === 'Все' || newTracks.some(t => t.genre === activeGenre)) && newTracks.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
@@ -127,8 +187,8 @@ export default function Home() {
                 <h2 className="text-xl font-bold">Новинки</h2>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
-              {(activeGenre === 'Все' ? newTracks : newTracks.filter(t => t.genre === activeGenre)).map(track => (
+            <div className="space-y-1">
+              {(activeGenre === 'Все' ? newTracks : newTracks.filter(t => t.genre === activeGenre)).slice(0, 5).map(track => (
                 <TrackCard key={track.id} track={track} queue={newTracks} />
               ))}
             </div>
@@ -146,11 +206,17 @@ export default function Home() {
               Все артисты <ChevronRight size={16} />
             </Link>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {artists.map(artist => (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {topArtists.map(artist => (
               <Link key={artist.id} to={`/artist/${artist.slug}`} className="group text-center">
                 <div className="aspect-square rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
-                  <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  {artist.photo ? (
+                    <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  ) : (
+                    <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                      <Users size={32} className="text-zinc-600" />
+                    </div>
+                  )}
                 </div>
                 <p className="text-white text-sm font-medium truncate">{artist.name}</p>
                 <p className="text-zinc-500 text-xs">{formatPlays(artist.totalPlays)} прослушиваний</p>
