@@ -283,6 +283,13 @@ async function recalcArtistStats() {
       ) sub
       WHERE a.id = sub.artist_id
     `);
+
+    // Step 3: Remove "new" flag from tracks older than 24 hours
+    await execute(`
+      UPDATE tracks SET is_new = FALSE
+      WHERE is_new = TRUE AND created_at < NOW() - INTERVAL '24 hours'
+    `);
+
     console.log('  ✅ Artist stats recalculated');
   } catch (e: any) {
     console.error('  ❌ Artist stats recalc error:', e.message);

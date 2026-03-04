@@ -25,14 +25,16 @@ export default function TracksPage() {
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [view, setView] = useState<View>('tracks');
+  const [view, setView] = useState<View>((searchParams.get('view') as View) || 'tracks');
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
   const PER_PAGE = 50;
 
-  // Sync genre from URL params (e.g. /tracks?genre=Trap)
+  // Sync genre and view from URL params
   useEffect(() => {
     const g = searchParams.get('genre');
     if (g && GENRES.includes(g)) setGenre(g);
+    const v = searchParams.get('view');
+    if (v === 'albums' || v === 'tracks') setView(v);
   }, [searchParams]);
 
   const filtered = tracks

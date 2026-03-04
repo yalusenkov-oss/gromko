@@ -126,25 +126,27 @@ export default function Player() {
             <div className="w-10" />
           </div>
 
-          {/* Cover + Title + Artist — grouped together */}
-          <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-12 min-h-0 pb-2">
-            <div className={`w-full max-w-[60vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
-              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-            </div>
-            {/* Title + Artist — directly below cover */}
-            <div className="text-center w-full mt-4 px-2">
-              <h2 className="text-xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
-              <p className="text-white/50 text-sm md:text-lg mt-0.5 truncate">
-                {t.artists && t.artists.length > 0
-                  ? t.artists.map(a => a.name).join(', ')
-                  : t.artist}
-              </p>
-            </div>
-          </div>
-
-          {/* Bottom section — progress, controls, like */}
-          <div className="shrink-0 px-6 md:px-12 max-w-lg mx-auto w-full"
+          {/* Main content — evenly distributed */}
+          <div className="flex-1 flex flex-col justify-between px-6 md:px-12 min-h-0"
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 4px)' }}>
+
+            {/* Cover + Title + Artist */}
+            <div className="flex-1 flex flex-col items-center justify-center min-h-0 px-2">
+              <div className={`w-full max-w-[60vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
+                <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+              </div>
+              <div className="text-center w-full mt-4 px-2">
+                <h2 className="text-xl md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
+                <p className="text-white/50 text-sm md:text-lg mt-0.5 truncate">
+                  {t.artists && t.artists.length > 0
+                    ? t.artists.map(a => a.name).join(', ')
+                    : t.artist}
+                </p>
+              </div>
+            </div>
+
+            {/* Progress, controls, like — pinned below */}
+            <div className="shrink-0 max-w-lg mx-auto w-full pt-4">
             {/* Progress waveform */}
             <div className="mb-2">
               <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
@@ -184,9 +186,10 @@ export default function Player() {
                 <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
               </button>
             </div>
-          </div>
-        </div>
-      </div>
+          </div>{/* end controls section */}
+          </div>{/* end justify-between */}
+        </div>{/* end relative z-10 */}
+      </div>{/* end overlay */}
       </>
     );
   }

@@ -32,7 +32,7 @@ export default function Home() {
     return [...albumMap.values()]
       .filter(a => a.tracks.length > 1)
       .sort((a, b) => b.totalPlays - a.totalPlays)
-      .slice(0, 4);
+      .slice(0, 6);
   }, [tracks]);
 
   // Top 4 artists by plays, with fallback photo from most popular track cover
@@ -156,11 +156,16 @@ export default function Home() {
           {/* Popular Albums */}
           {popularAlbums.length > 0 && (
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <Disc3 size={18} className="text-red-400" />
-                <h3 className="text-lg font-semibold">Популярные альбомы</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Disc3 size={18} className="text-red-400" />
+                  <h3 className="text-lg font-semibold">Популярные альбомы</h3>
+                </div>
+                <Link to="/tracks?view=albums" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
+                  Все альбомы <ChevronRight size={16} />
+                </Link>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {popularAlbums.map(album => (
                   <Link key={album.name} to={`/artist/${album.artistSlug}`} className="group relative block rounded-xl overflow-hidden">
                     <div className="aspect-square">
