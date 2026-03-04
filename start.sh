@@ -3,23 +3,33 @@ set -e
 
 PGDATA="/app/pgdata"
 
+# Ensure data directories exist and are writable
+mkdir -p /app/data/uploads /app/data/audio /app/data/covers /app/data/waveforms /app/data/temp 2>/dev/null || true
+
 # If DATABASE_URL is already set (external DB), skip local PostgreSQL
 if [ -z "$DATABASE_URL" ]; then
   echo "  [start.sh] No DATABASE_URL set — starting embedded PostgreSQL..."
 
+  PGUSER="$(whoami)"
+
   # Initialize DB cluster if first run
   if [ ! -f "$PGDATA/PG_VERSION" ]; then
     echo "  [start.sh] Initializing PostgreSQL data directory in $PGDATA..."
-    initdb -D "$PGDATA" --auth=trust --encoding=UTF8 --locale=C
+    mkdir -p "$PGDATA" 2>/dev/null || true
+    chmod 700 "$PGDATA" 2>/dev/null || true
+    initdb -D "$PGDATA" --auth=trust --encoding=UTF8 --locale=C --username="$PGUSER"
   fi
 
+  # Ensure correct ownership
+  chmod 700 "$PGDATA" 2>/dev/null || true
+
   echo "  [start.sh] Starting PostgreSQL..."
-  pg_ctl -D "$PGDATA" -l /tmp/pg.log start -w -t 30
+  pg_ctl -D "$PGDATA" -l /tmp/pg.log start -w -t 30 || { echo "  [start.sh] pg_ctl start failed, log:"; cat /tmp/pg.log; exit 1; }
 
   # Create gromko database if it doesn't exist
-  psql -v ON_ERROR_STOP=1 -tc "SELECT 1 FROM pg_database WHERE datname='gromko'" | grep -q 1 || psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE gromko"
+  psql -U "$PGUSER" -tc "SELECT 1 FROM pg_database WHERE datname='gromko'" | grep -q 1 || psql -U "$PGUSER" -c "CREATE DATABASE gromko"
 
-  export DATABASE_URL="postgresql://$(whoami)@localhost/gromko"
+  export DATABASE_URL="postgresql://${PGUSER}@localhost/gromko"
   echo "  [start.sh] PostgreSQL ready: $DATABASE_URL"
 else
   echo "  [start.sh] Using external DATABASE_URL"
