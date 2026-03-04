@@ -14,8 +14,8 @@ export default function Home() {
   const allGenres = ['Все', ...GENRES];
 
   const filteredTracks = activeGenre === 'Все' ? tracks : tracks.filter(t => t.genre === activeGenre);
-  const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
-  const newTracks = tracks.filter(t => t.isNew).slice(0, 5);
+  const popularTracks = [...filteredTracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
+  const newTracks = (activeGenre === 'Все' ? tracks : filteredTracks).filter(t => t.isNew).slice(0, 5);
 
   // Build popular albums from tracks
   const popularAlbums = useMemo(() => {
@@ -143,9 +143,15 @@ export default function Home() {
 
           {/* Top 5 tracks as list */}
           <div className="space-y-1 mb-8">
-            {(activeGenre === 'Все' ? popularTracks : filteredTracks.sort((a,b) => b.plays - a.plays)).slice(0, 5).map((track, i) => (
-              <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
-            ))}
+            {popularTracks.length > 0 ? (
+              popularTracks.slice(0, 5).map((track, i) => (
+                <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-zinc-500 text-sm">Треки загружаются...</p>
+              </div>
+            )}
           </div>
 
           {/* Popular Albums */}
@@ -174,7 +180,7 @@ export default function Home() {
         </section>
 
         {/* New tracks */}
-        {(activeGenre === 'Все' || newTracks.some(t => t.genre === activeGenre)) && newTracks.length > 0 && (
+        {newTracks.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
@@ -183,7 +189,7 @@ export default function Home() {
               </div>
             </div>
             <div className="space-y-1">
-              {(activeGenre === 'Все' ? newTracks : newTracks.filter(t => t.genre === activeGenre)).slice(0, 5).map(track => (
+              {newTracks.slice(0, 5).map(track => (
                 <TrackCard key={track.id} track={track} queue={newTracks} />
               ))}
             </div>

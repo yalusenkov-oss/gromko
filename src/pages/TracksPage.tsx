@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, GENRES, Track } from '../store';
 import TrackCard from '../components/TrackCard';
-import { Search, Disc3, Play, Pause, X, Heart, MoreHorizontal } from 'lucide-react';
+import { Search, Disc3, Play, Pause, X, Heart, MoreHorizontal, Music, Shuffle } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../lib/api';
 import { formatPlays } from '../utils/format';
@@ -17,6 +17,7 @@ interface Album {
 }
 
 type Sort = 'new' | 'popular' | 'alpha';
+type View = 'tracks' | 'albums';
 
 export default function TracksPage() {
   const { tracks, player, playTrack } = useStore();
@@ -25,7 +26,7 @@ export default function TracksPage() {
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [expandedAlbum] = useState<string | null>(null);
+  const [view, setView] = useState<View>('tracks');
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const PER_PAGE = 20;
@@ -46,7 +47,27 @@ export default function TracksPage() {
 
   const tracksWithMeta = allTracks.length > 0 ? allTracks : tracks;
 
-  const filtered = tracksWithMeta
+  // Only single tracks (not in multi-track albums)
+  const singleTracks = useMemo(() => {
+    // Build album membership
+    const albumTrackIds = new Set<string>();
+    const albumMap = new Map<string, Track[]>();
+    for (const t of tracksWithMeta) {
+      const albumName = t.meta?.album;
+      if (!albumName) continue;
+      if (!albumMap.has(albumName)) albumMap.set(albumName, []);
+      albumMap.get(albumName)!.push(t);
+    }
+    // Only exclude tracks from albums with 2+ tracks
+    for (const [, albumTracks] of albumMap) {
+      if (albumTracks.length > 1) {
+        for (const t of albumTracks) albumTrackIds.add(t.id);
+      }
+    }
+    return tracksWithMeta.filter(t => !albumTrackIds.has(t.id));
+  }, [tracksWithMeta]);
+
+  const filtered = (view === 'tracks' ? singleTracks : tracksWithMeta)
     .filter(t => genre === 'Все' || t.genre === genre)
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
@@ -82,32 +103,74 @@ export default function TracksPage() {
       album.totalPlays += track.plays;
     }
 
-    // Only keep albums with 2+ tracks
-    return [...albumMap.values()]
-      .filter(a => a.tracks.length > 1)
-      .sort((a, b) => b.totalPlays - a.totalPlays)
-      .slice(0, 12);
-  }, [tracksWithMeta, genre]);
+    let result = [...albumMap.values()].filter(a => a.tracks.length > 1);
+
+    // Apply search filter to albums too
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(a => a.name.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q));
+    }
+
+    return result.sort((a, b) => {
+      if (sort === 'popular') return b.totalPlays - a.totalPlays;
+      if (sort === 'new') return b.year - a.year;
+      return a.name.localeCompare(b.name);
+    });
+  }, [tracksWithMeta, genre, search, sort]);
 
   const handlePlayAlbum = (album: Album) => {
     const firstTrack = album.tracks[0];
     if (firstTrack) playTrack(firstTrack, album.tracks);
   };
 
+  const handleShuffleAll = () => {
+    const source = view === 'tracks' ? filtered : tracksWithMeta.filter(t => genre === 'Все' || t.genre === genre);
+    if (source.length === 0) return;
+    const shuffled = [...source].sort(() => Math.random() - 0.5);
+    playTrack(shuffled[0], shuffled);
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-32">
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
-        <h1 className="text-3xl font-black mb-6">Все треки</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-black">Музыка</h1>
+          <button
+            onClick={handleShuffleAll}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-full text-sm font-medium transition-colors"
+          >
+            <Shuffle size={16} />
+            Перемешать всё
+          </button>
+        </div>
+
+        {/* View toggle: Tracks / Albums */}
+        <div className="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
+          <button
+            onClick={() => { setView('tracks'); setPage(1); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${view === 'tracks' ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            <Music size={16} />
+            Треки
+          </button>
+          <button
+            onClick={() => { setView('albums'); setPage(1); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${view === 'albums' ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            <Disc3 size={16} />
+            Альбомы
+          </button>
+        </div>
 
         {/* Filters */}
         <div className="flex flex-col md:flex-row gap-3 mb-6">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-            <input type="text" placeholder="Поиск треков..." value={search} onChange={e => setSearch(e.target.value)}
+            <input type="text" placeholder={view === 'tracks' ? 'Поиск треков...' : 'Поиск альбомов...'} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50" />
           </div>
 
-          <select value={genre} onChange={e => setGenre(e.target.value)}
+          <select value={genre} onChange={e => { setGenre(e.target.value); setPage(1); }}
             className="bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
             <option value="Все">Все жанры</option>
             {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
@@ -115,7 +178,7 @@ export default function TracksPage() {
 
           <div className="flex gap-1 bg-white/5 rounded-xl p-1">
             {(['popular', 'new', 'alpha'] as Sort[]).map(s => (
-              <button key={s} onClick={() => setSort(s)}
+              <button key={s} onClick={() => { setSort(s); setPage(1); }}
                 className={`px-3 py-1.5 rounded-lg text-sm transition-all ${sort === s ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}>
                 {s === 'popular' ? 'Популярные' : s === 'new' ? 'Новые' : 'А-Я'}
               </button>
@@ -123,17 +186,35 @@ export default function TracksPage() {
           </div>
         </div>
 
-        {/* Albums section */}
-        {albums.length > 0 && !search && (
-          <section className="mb-10">
-            <div className="flex items-center gap-2 mb-5">
-              <Disc3 size={18} className="text-red-400" />
-              <h2 className="text-lg font-bold">Альбомы</h2>
+        {/* === TRACKS VIEW === */}
+        {view === 'tracks' && (
+          <>
+            <p className="text-zinc-600 text-sm mb-4">{filtered.length} треков</p>
+            <div className="space-y-1">
+              {paged.map((t, i) => <TrackCard key={t.id} track={t} queue={filtered} showRank={i + 1} />)}
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
-              {albums.slice(0, expandedAlbum ? 12 : 8).map(album => {
-                const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
+            {paged.length < filtered.length && (
+              <button onClick={() => setPage(p => p + 1)}
+                className="w-full mt-6 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-sm text-zinc-400 hover:text-white transition-all">
+                Загрузить ещё
+              </button>
+            )}
+            {filtered.length === 0 && (
+              <div className="text-center py-16">
+                <Music size={40} className="text-zinc-700 mx-auto mb-4" />
+                <p className="text-zinc-500">Треков не найдено</p>
+              </div>
+            )}
+          </>
+        )}
 
+        {/* === ALBUMS VIEW === */}
+        {view === 'albums' && (
+          <>
+            <p className="text-zinc-600 text-sm mb-4">{albums.length} альбомов</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {albums.map(album => {
+                const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
                 return (
                   <div key={album.name} className="col-span-1">
                     <div
@@ -156,21 +237,13 @@ export default function TracksPage() {
                 );
               })}
             </div>
-          </section>
-        )}
-
-        {/* Tracks list */}
-        <p className="text-zinc-600 text-sm mb-4">{filtered.length} треков</p>
-
-        <div className="space-y-1">
-          {paged.map((t, i) => <TrackCard key={t.id} track={t} queue={filtered} showRank={i + 1} />)}
-        </div>
-
-        {paged.length < filtered.length && (
-          <button onClick={() => setPage(p => p + 1)}
-            className="w-full mt-6 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-sm text-zinc-400 hover:text-white transition-all">
-            Загрузить ещё
-          </button>
+            {albums.length === 0 && (
+              <div className="text-center py-16">
+                <Disc3 size={40} className="text-zinc-700 mx-auto mb-4" />
+                <p className="text-zinc-500">Альбомов не найдено</p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
