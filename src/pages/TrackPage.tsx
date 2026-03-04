@@ -49,7 +49,7 @@ export default function TrackPage() {
           style={{ backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
           <div className="absolute inset-0 bg-black/80 backdrop-blur-3xl" />
           <div className="relative z-10 w-full max-w-2xl flex flex-col items-center gap-6">
-            <button onClick={() => setIsFullViz(false)} className="self-end text-white/70 hover:text-white transition-colors">
+            <button onClick={() => setIsFullViz(false)} className="absolute top-0 right-0 text-white/70 hover:text-white transition-colors">
               <Minimize2 size={24} />
             </button>
             <img src={track.cover} alt={track.title} className="w-64 h-64 rounded-2xl shadow-2xl object-cover" />
@@ -64,25 +64,16 @@ export default function TrackPage() {
 
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
         {/* Track hero */}
-        <div className="flex flex-col md:flex-row gap-8 mb-12">
+        <div className="flex flex-col md:flex-row gap-8 mb-12 items-center md:items-start">
           <div className="relative group shrink-0">
             <div className="w-56 h-56 md:w-72 md:h-72 rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
               <img src={track.cover} alt={track.title} className="w-full h-full object-cover" />
             </div>
-            {isActive && (
-              <div className="absolute inset-0 rounded-2xl flex items-center justify-center">
-                <div className="flex gap-1 items-end h-10">
-                  {[1,2,3,4,5].map(i => (
-                    <div key={i} className="w-1.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${30 + i * 12}%`, animationDelay: `${i * 0.1}s` }} />
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
-          <div className="flex flex-col justify-end gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-col justify-end gap-4 w-full md:w-auto">
+            <div className="text-center md:text-left">
+              <div className="flex items-center gap-2 mb-2 justify-center md:justify-start">
                 <span className="text-zinc-500 text-sm uppercase tracking-wider">{track.genre}</span>
                 {track.explicit && <span className="text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded">EXPLICIT</span>}
               </div>
@@ -98,15 +89,15 @@ export default function TrackPage() {
                   : <Link to={`/artist/${track.artistSlug}`} className="hover:text-white transition-colors">{track.artist}</Link>
                 }
               </div>
-              <div className="flex items-center gap-4 mt-3 text-zinc-500 text-sm">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-zinc-500 text-sm justify-center md:justify-start">
                 <span>{track.year}</span>
+                <span>{formatDuration(track.duration)}</span>
                 <span>{formatPlays(track.plays)} прослушиваний</span>
                 <span>{track.likes.toLocaleString()} лайков</span>
-                <span>{formatDuration(track.duration)}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 justify-center md:justify-start">
               <button onClick={handlePlay}
                 className="flex items-center gap-2.5 px-6 py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
                 {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}

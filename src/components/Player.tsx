@@ -3,7 +3,7 @@ import { useAudioEngine } from '../audio/useAudioEngine';
 import { formatDuration } from '../utils/format';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  Volume2, VolumeX, Heart, Maximize2, X, ChevronDown, WifiOff
+  Volume2, VolumeX, Heart, Maximize2, ChevronDown, WifiOff
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { audioEngine, EngineState } from '../audio/engine';
@@ -62,16 +62,16 @@ export default function Player() {
       <div className="fixed inset-0 z-50 bg-zinc-950 flex flex-col" style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
         <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-3xl" />
         <div className="relative z-10 flex flex-col h-full p-5 md:p-8">
-          <div className="flex justify-between items-center mb-4 md:mb-8">
+          <div className="flex justify-between items-center mb-2 md:mb-8">
             <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><ChevronDown size={24} /></button>
             <div className="text-center">
               <span className="text-white/50 text-xs uppercase tracking-widest">Сейчас играет</span>
               {qualityLabel && <span className="text-white/30 text-[10px] block mt-0.5">{qualityLabel}</span>}
             </div>
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors"><X size={20} /></button>
+            <div className="w-6" />
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center gap-5 md:gap-8">
-            <div className={`w-56 h-56 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl transition-transform duration-500 ${player.isPlaying ? 'scale-100' : 'scale-95 opacity-80'}`}>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 md:gap-8">
+            <div className={`w-64 h-64 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl transition-transform duration-500 ${player.isPlaying ? 'scale-100' : 'scale-95 opacity-80'}`}>
               <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             </div>
             <div className="text-center">
