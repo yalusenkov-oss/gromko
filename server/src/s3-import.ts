@@ -54,12 +54,12 @@ import { processTrack, extractMetadata } from './audio-processor.js';
 
 // ─── S3 Config ───
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net';
-const S3_REGION   = process.env.S3_REGION   || 'ru-central1';
-const S3_BUCKET   = process.env.S3_BUCKET   || 'musicpfvlisten';
-const S3_PREFIX   = process.env.S3_PREFIX   || '';
-const S3_ACCESS   = process.env.S3_ACCESS_KEY;
-const S3_SECRET   = process.env.S3_SECRET_KEY;
+const S3_ENDPOINT = (process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net').trim();
+const S3_REGION   = (process.env.S3_REGION   || 'ru-central1').trim();
+const S3_BUCKET   = (process.env.S3_BUCKET   || 'musicpfvlisten').trim();
+const S3_PREFIX   = (process.env.S3_PREFIX   || '').trim();
+const S3_ACCESS   = process.env.S3_ACCESS_KEY?.trim();
+const S3_SECRET   = process.env.S3_SECRET_KEY?.trim();
 
 if (!S3_ACCESS || !S3_SECRET) {
   console.error(`
