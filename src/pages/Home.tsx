@@ -164,7 +164,7 @@ export default function Home() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-3">
                       <p className="text-white text-sm font-semibold truncate">{album.name}</p>
-                      <p className="text-zinc-400 text-xs truncate">{album.artist} · {album.tracks.length} треков</p>
+                      <p className="text-zinc-400 text-xs truncate">{album.artist} · {album.tracks.length} треков · {formatPlays(album.totalPlays)}</p>
                     </div>
                   </Link>
                 ))}

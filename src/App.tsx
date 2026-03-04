@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useStore } from './store';
 import Navbar from './components/Navbar';
@@ -14,6 +14,13 @@ import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
 import SubmitPage from './pages/SubmitPage';
 import AdminPanel from './pages/AdminPanel';
+
+/** Scroll to top on every route change */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+}
 
 function NotFound() {
   return (
@@ -63,6 +70,7 @@ export function App() {
 
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Routes>
         {/* Auth redirects — open modal over current page */}
         <Route path="/login" element={<LoginRedirect />} />

@@ -1,7 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, MoreHorizontal } from 'lucide-react';
-import { formatPlays } from '../utils/format';
+import { formatPlays, formatDuration } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo } from 'react';
 import { apiUrl } from '../lib/api';
@@ -223,7 +223,7 @@ export default function ArtistPage() {
                     </div>
                     <h3 className="text-white font-semibold text-sm truncate">{album.name}</h3>
                     <p className="text-zinc-500 text-xs">{artist.name}</p>
-                    <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков</p>
+                    <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков · {formatPlays(album.totalPlays)}</p>
                   </button>
                 );
               })}
@@ -312,7 +312,7 @@ export default function ArtistPage() {
                       <p className={`text-sm font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
                     </div>
                     <span className="text-zinc-600 text-xs tabular-nums">
-                      {t.duration ? `${Math.floor(t.duration / 60)}:${String(t.duration % 60).padStart(2, '0')}` : ''}
+                      {t.duration ? formatDuration(t.duration) : ''}
                     </span>
                   </button>
                 );
