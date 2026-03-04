@@ -23,6 +23,19 @@ import sharp from 'sharp';
 import { execute } from './db.js';
 import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
 import { S3_ENABLED, uploadToS3, uploadDirToS3, getS3Url } from './s3-storage.js';
+// ─── Set FFmpeg/FFprobe paths from npm packages (for environments without system ffmpeg) ───
+try {
+    // @ts-ignore
+    const ffmpegInstaller = await import('@ffmpeg-installer/ffmpeg');
+    ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+}
+catch { /* system ffmpeg will be used */ }
+try {
+    // @ts-ignore
+    const ffprobeInstaller = await import('@ffprobe-installer/ffprobe');
+    ffmpeg.setFfprobePath(ffprobeInstaller.path);
+}
+catch { /* system ffprobe will be used */ }
 // ─────────────────────────────────────────────
 // 1. Metadata Extraction
 // ─────────────────────────────────────────────
