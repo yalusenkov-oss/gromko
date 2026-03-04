@@ -33,7 +33,8 @@ COPY start.sh ./start.sh
 RUN chmod +x start.sh
 
 RUN mkdir -p /tmp/gromko-data/uploads /tmp/gromko-data/audio /tmp/gromko-data/covers /tmp/gromko-data/waveforms /tmp/gromko-data/temp && chmod -R 777 /tmp/gromko-data
-RUN mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+RUN mkdir -p /app/pgdata && chmod -R 777 /app/pgdata
+RUN mkdir -p /var/run/postgresql && chmod 777 /var/run/postgresql
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/tmp/gromko-data
