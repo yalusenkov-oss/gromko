@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm --prefix server run build",
     "preview": "vite preview",
+    "start": "NODE_ENV=production node server/dist/index.js",
     "postinstall": "if [ -f server/package.json ]; then npm --prefix server install --include=dev; else echo 'skip server install: server/package.json not found yet'; fi",
     "start:server": "if [ ! -d server/node_modules ]; then npm --prefix server install --include=dev; fi && npm --prefix server run start:tsx"
   },
