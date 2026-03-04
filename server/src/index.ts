@@ -166,7 +166,7 @@ async function shutdown(signal: string) {
   server.close();
   const { closeDb } = await import('./db.js');
   await closeDb();
-  stopEmbeddedPostgres();
+  await stopEmbeddedPostgres();
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

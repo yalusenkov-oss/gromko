@@ -1,107 +1,55 @@
 /**
- * Embedded PostgreSQL — starts a local PG instance if no DATABASE_URL is set.
- * Uses the `embedded-postgres` npm package which downloads PG binaries automatically.
- * No system-level PostgreSQL installation required.
+ * Embedded PostgreSQL via PGlite (Postgres compiled to WASM).
+ * Works on any platform without external binaries.
+ *
+ * When DATABASE_URL is NOT set, PGlite is used as an in-memory
+ * (or /tmp-persisted) PostgreSQL instance.
+ *
+ * When DATABASE_URL IS set, this module does nothing — the app
+ * uses the external pg.Pool from db.ts.
  */
-import EmbeddedPostgres from 'embedded-postgres';
-import fs from 'fs';
-import path from 'path';
-const PGPORT = 5432;
-const PGUSER = 'gromko';
-const PGPASSWORD = 'gromko';
-const PGDATABASE = 'gromko';
-const DATA_DIR = process.env.PGDATA || '/tmp/pgdata';
-let pg = null;
-function createPgInstance() {
-    return new EmbeddedPostgres({
-        databaseDir: DATA_DIR,
-        user: PGUSER,
-        password: PGPASSWORD,
-        port: PGPORT,
-        persistent: true,
-        createPostgresUser: process.getuid?.() === 0,
-        onLog: (msg) => console.log('  [PG]', msg),
-        onError: (msg) => console.error('  [PG ERROR]', msg),
-    });
-}
-/** Check if the PG data directory has already been fully initialized */
-function isDataDirInitialized() {
-    return fs.existsSync(path.join(DATA_DIR, 'PG_VERSION'));
-}
-/** Remove data dir contents so initdb can start fresh */
-function cleanDataDir() {
-    console.log('  🗑️  Cleaning stale data directory:', DATA_DIR);
-    try {
-        fs.rmSync(DATA_DIR, { recursive: true, force: true });
-    }
-    catch (e) {
-        console.warn('  ⚠️  Could not clean data dir:', e.message);
-    }
-}
+import { PGlite } from '@electric-sql/pglite';
+const DATA_DIR = process.env.PGDATA || '/tmp/pglite-data';
+let pgliteInstance = null;
+/**
+ * Start PGlite embedded Postgres.
+ * Returns the PGlite instance (or null if DATABASE_URL is set).
+ */
 export async function startEmbeddedPostgres() {
-    // If DATABASE_URL is set, skip embedded PG entirely
     if (process.env.DATABASE_URL) {
-        console.log('  ℹ️  DATABASE_URL found — skipping embedded PostgreSQL');
-        return process.env.DATABASE_URL;
+        console.log('  ℹ️  DATABASE_URL found — skipping embedded PGlite');
+        return null;
     }
-    console.log('  🐘 Starting embedded PostgreSQL (npm package)...');
-    console.log('  📁 PGDATA:', DATA_DIR);
-    console.log('  👤 UID:', process.getuid?.(), '  GID:', process.getgid?.());
-    console.log('  📁 Data dir exists:', fs.existsSync(DATA_DIR));
-    console.log('  📁 Data dir initialized:', isDataDirInitialized());
-    pg = createPgInstance();
-    // ── Step 1: Initialize ──
-    if (!isDataDirInitialized()) {
-        // If data dir exists but is not initialized (partial/broken state), clean it
-        if (fs.existsSync(DATA_DIR)) {
-            cleanDataDir();
-            pg = createPgInstance();
-        }
-        console.log('  📁 Initializing PostgreSQL data directory...');
-        try {
-            await pg.initialise();
-            console.log('  ✅ Data directory initialized');
-        }
-        catch (initErr) {
-            console.error('  ❌ initdb failed:', initErr.message || initErr);
-            // One more try: clean and re-create
-            cleanDataDir();
-            pg = createPgInstance();
-            await pg.initialise();
-            console.log('  ✅ Data directory initialized (retry)');
-        }
-    }
-    else {
-        console.log('  ℹ️  Data directory already initialized, skipping initdb');
-    }
-    // ── Step 2: Start ──
-    console.log('  🚀 Starting PostgreSQL server...');
-    await pg.start();
-    console.log('  ✅ PostgreSQL is running on port ' + PGPORT);
-    // ── Step 3: Create database ──
+    console.log('  🐘 Starting PGlite (Postgres in WASM)...');
+    console.log('  📁 Data dir:', DATA_DIR);
     try {
-        await pg.createDatabase(PGDATABASE);
-        console.log(`  ✅ Database "${PGDATABASE}" created`);
+        pgliteInstance = new PGlite(DATA_DIR);
+        // Quick smoke test
+        const res = await pgliteInstance.query("SELECT 'PGlite ready' as status");
+        console.log('  ✅ PGlite is running:', res.rows[0]?.status);
+        return pgliteInstance;
     }
-    catch (e) {
-        if (e.message?.includes('already exists')) {
-            console.log(`  ℹ️  Database "${PGDATABASE}" already exists`);
-        }
-        else {
-            console.warn('  ⚠️  DB create warning:', e.message);
-        }
+    catch (err) {
+        console.error('  ❌ PGlite failed to start:', err.message || err);
+        console.error('  💡 Set DATABASE_URL environment variable to use an external database instead');
+        throw err;
     }
-    const dbUrl = `postgresql://${PGUSER}:${PGPASSWORD}@127.0.0.1:${PGPORT}/${PGDATABASE}`;
-    process.env.DATABASE_URL = dbUrl;
-    console.log(`  📎 DATABASE_URL = ${dbUrl}`);
-    return dbUrl;
 }
-/** Stop embedded PostgreSQL gracefully */
-export function stopEmbeddedPostgres() {
-    if (pg) {
-        console.log('  🛑 Stopping embedded PostgreSQL...');
-        pg.stop().catch((e) => console.error('  ⚠️  PG stop error:', e));
-        pg = null;
+/** Get the running PGlite instance */
+export function getPGlite() {
+    return pgliteInstance;
+}
+/** Stop PGlite gracefully */
+export async function stopEmbeddedPostgres() {
+    if (pgliteInstance) {
+        console.log('  🛑 Closing PGlite...');
+        try {
+            await pgliteInstance.close();
+        }
+        catch (e) {
+            console.error('  ⚠️  PGlite close error:', e.message);
+        }
+        pgliteInstance = null;
     }
 }
 //# sourceMappingURL=embedded-pg.js.map
