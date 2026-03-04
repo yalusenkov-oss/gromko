@@ -1,8 +1,7 @@
 # Dependencies
 node_modules/
 
-# Build output (frontend only — server/dist is committed for deployment)
-/dist/
+# Build output — committed for Timeweb deployment
 
 # Data (audio files, covers, waveforms, uploads)
 data/
