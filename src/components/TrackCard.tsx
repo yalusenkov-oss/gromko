@@ -22,11 +22,11 @@ export default function TrackCard({ track, queue, showRank }: Props) {
   };
 
   return (
-    <div className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer ${isActive ? 'bg-white/8' : 'hover:bg-white/5'}`}>
+    <div className={`group flex items-center gap-3 px-3 py-2.5 md:py-3 rounded-xl transition-all cursor-pointer ${isActive ? 'bg-white/8' : 'hover:bg-white/5'}`}>
       {showRank && (
         <span className="text-zinc-600 text-sm w-5 text-center shrink-0">{showRank}</span>
       )}
-      <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0" onClick={handlePlay}>
+      <div className="relative w-12 h-12 md:w-[52px] md:h-[52px] rounded-lg overflow-hidden flex-shrink-0" onClick={handlePlay}>
         <img src={track.cover} alt={track.title} className="w-full h-full object-cover" />
         <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           {isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white ml-0.5" />}

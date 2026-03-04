@@ -200,10 +200,10 @@ export default function Home() {
               Все артисты <ChevronRight size={16} />
             </Link>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {topArtists.map(artist => (
-              <Link key={artist.id} to={`/artist/${artist.slug}`} className="group text-center">
-                <div className="aspect-square rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
+              <Link key={artist.id} to={`/artist/${artist.slug}`} className="group flex flex-col items-center">
+                <div className="w-28 h-28 md:w-32 md:h-32 rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
                   {artist.photo ? (
                     <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   ) : (
@@ -212,7 +212,7 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-                <p className="text-white text-sm font-medium truncate">{artist.name}</p>
+                <p className="text-white text-sm font-medium truncate max-w-full">{artist.name}</p>
                 <p className="text-zinc-500 text-xs">{formatPlays(artist.totalPlays)} прослушиваний</p>
               </Link>
             ))}

@@ -100,7 +100,14 @@ export default function ArtistPage() {
   );
 
   const isAnyPlaying = artistTracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
-  const bannerImage = artist.banner || artist.photo;
+  
+  // Fallback photo: use most popular track cover if artist has no photo
+  const needsPhotoFallback = !artist.photo || artist.photo.includes('default') || artist.photo.includes('placeholder');
+  const fallbackPhoto = needsPhotoFallback && artistTracks.length > 0
+    ? [...artistTracks].sort((a, b) => b.plays - a.plays)[0]?.cover
+    : null;
+  const artistPhoto = fallbackPhoto || artist.photo;
+  const bannerImage = artist.banner || artistPhoto;
 
   const handlePlayAll = () => {
     if (isAnyPlaying) togglePlay();
@@ -123,7 +130,7 @@ export default function ArtistPage() {
         <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: `url(${bannerImage})`, backgroundSize: 'cover', backgroundPosition: 'center top', filter: 'blur(16px) saturate(1.2)', transform: 'scale(1.08)' }} />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/50 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 max-w-5xl mx-auto flex items-end gap-6">
-          <img src={artist.photo} alt={artist.name}
+          <img src={artistPhoto} alt={artist.name}
             className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-zinc-950 shadow-xl" />
           <div>
             <p className="text-zinc-400 text-sm mb-1">{artist.genre}</p>
@@ -262,7 +269,7 @@ export default function ArtistPage() {
 
             {/* Artist + year */}
             <div className="flex items-center gap-2 mt-2">
-              <img src={artist.photo} alt={artist.name} className="w-6 h-6 rounded-full object-cover" />
+              <img src={artistPhoto} alt={artist.name} className="w-6 h-6 rounded-full object-cover" />
               <span className="text-zinc-400 text-sm">{artist.name}</span>
               <span className="text-zinc-600 text-sm">·</span>
               <span className="text-zinc-400 text-sm">{mobileAlbum.year}</span>

@@ -81,6 +81,8 @@ export default function Player() {
 
   if (player.isFullscreen || fsVisible) {
     return (
+      <>
+      {/* Fullscreen overlay */}
       <div
         className={`fixed inset-0 z-50 transition-all duration-350 ease-out ${fsAnimating ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
@@ -167,6 +169,31 @@ export default function Player() {
           </div>
         </div>
       </div>
+
+      {/* Keep bottom bar behind fullscreen so it doesn't vanish */}
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        <div className="flex md:hidden flex-col bg-zinc-950 border-t border-white/5">
+          <div className="h-[2px] bg-zinc-800 w-full">
+            <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
+          </div>
+          <div className="flex items-center gap-3 px-3 py-2">
+            <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
+              <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
+            </div>
+            <button className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+              <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
+            </button>
+            <button className="p-2 text-white">
+              {player.isPlaying ? <Pause size={24} fill="white" /> : <Play size={24} fill="white" className="ml-0.5" />}
+            </button>
+          </div>
+        </div>
+      </div>
+      </>
     );
   }
 

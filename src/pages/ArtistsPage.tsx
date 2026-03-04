@@ -1,12 +1,27 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, GENRES } from '../store';
-import { Search } from 'lucide-react';
+import { Search, Users } from 'lucide-react';
 
 export default function ArtistsPage() {
-  const { artists } = useStore();
+  const { artists, tracks } = useStore();
   const [search, setSearch] = useState('');
   const [genre, setGenre] = useState('Все');
+
+  // Build a fallback photo map: artist slug -> cover of their most popular track
+  const artistPhotoMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of artists) {
+      const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
+      if (needsFallback) {
+        const best = [...tracks]
+          .filter(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug)
+          .sort((x, y) => y.plays - x.plays)[0];
+        if (best) map.set(a.slug, best.cover);
+      }
+    }
+    return map;
+  }, [artists, tracks]);
 
   const filtered = artists
     .filter(a => genre === 'Все' || a.genre === genre)
@@ -31,16 +46,25 @@ export default function ArtistsPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-          {filtered.map(artist => (
-            <Link key={artist.id} to={`/artist/${artist.slug}`} className="group text-center">
-              <div className="aspect-square rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
-                <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-              </div>
-              <p className="text-white text-sm font-semibold truncate">{artist.name}</p>
-              <p className="text-zinc-500 text-xs">{artist.genre}</p>
-              <p className="text-zinc-600 text-xs">{artist.tracksCount} {artist.tracksCount === 1 ? 'трек' : artist.tracksCount >= 2 && artist.tracksCount <= 4 ? 'трека' : 'треков'}</p>
-            </Link>
-          ))}
+          {filtered.map(artist => {
+            const photo = artistPhotoMap.get(artist.slug) || artist.photo;
+            return (
+              <Link key={artist.id} to={`/artist/${artist.slug}`} className="group text-center">
+                <div className="aspect-square rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
+                  {photo ? (
+                    <img src={photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  ) : (
+                    <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                      <Users size={32} className="text-zinc-600" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-white text-sm font-semibold truncate">{artist.name}</p>
+                <p className="text-zinc-500 text-xs">{artist.genre}</p>
+                <p className="text-zinc-600 text-xs">{artist.tracksCount} {artist.tracksCount === 1 ? 'трек' : artist.tracksCount >= 2 && artist.tracksCount <= 4 ? 'трека' : 'треков'}</p>
+              </Link>
+            );
+          })}
         </div>
       </div>
     </div>
