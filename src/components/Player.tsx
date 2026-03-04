@@ -23,6 +23,7 @@ export default function Player() {
   const [fsVisible, setFsVisible] = useState(false);
   const [fsAnimating, setFsAnimating] = useState(false);
   const prevFullscreen = useRef(player.isFullscreen);
+  const lockScrollY = useRef(0);
 
   useEffect(() => {
     return audioEngine.subscribe(setEngineState);
@@ -45,6 +46,33 @@ export default function Player() {
     }
     prevFullscreen.current = player.isFullscreen;
   }, [player.isFullscreen]);
+
+  // Prevent page scrolling behind fullscreen player overlay.
+  useEffect(() => {
+    if (!fsVisible) return;
+
+    lockScrollY.current = window.scrollY;
+    const { body } = document;
+    const prevBodyStyle = {
+      overflow: body.style.overflow,
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+    };
+
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${lockScrollY.current}px`;
+    body.style.width = '100%';
+
+    return () => {
+      body.style.overflow = prevBodyStyle.overflow;
+      body.style.position = prevBodyStyle.position;
+      body.style.top = prevBodyStyle.top;
+      body.style.width = prevBodyStyle.width;
+      window.scrollTo(0, lockScrollY.current);
+    };
+  }, [fsVisible]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const bar = e.currentTarget;
