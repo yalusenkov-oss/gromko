@@ -65,8 +65,9 @@ export default function Home() {
         <div
           className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden"
         >
-          {/* Blurred background cover */}
-          <div className="absolute inset-0" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
+          {/* Blurred background cover — light blur mobile, stronger on desktop */}
+          <div className="absolute inset-0 md:hidden" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
+          <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(16px) saturate(1.2)', transform: 'scale(1.08)' }} />
           {/* RF Warning Banner — overlay inside hero */}
           <div className="absolute top-0 left-0 right-0 z-10 bg-red-950/70 backdrop-blur-sm px-3 py-1 flex items-center justify-center gap-2 text-center">
             <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest">
@@ -139,16 +140,16 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Top 5 track cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-            {popularTracks.slice(0, 5).map(track => (
-              <PopularCard key={track.id} track={track} allTracks={tracks} />
+          {/* Top 5 tracks as list */}
+          <div className="space-y-1 mb-8">
+            {(activeGenre === 'Все' ? popularTracks : filteredTracks.sort((a,b) => b.plays - a.plays)).slice(0, 5).map((track, i) => (
+              <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
             ))}
           </div>
 
           {/* Popular Albums */}
           {popularAlbums.length > 0 && (
-            <div className="mb-6">
+            <div>
               <div className="flex items-center gap-2 mb-4">
                 <Disc3 size={18} className="text-red-400" />
                 <h3 className="text-lg font-semibold">Популярные альбомы</h3>
@@ -169,13 +170,6 @@ export default function Home() {
               </div>
             </div>
           )}
-
-          {/* Track list */}
-          <div className="space-y-1">
-            {(activeGenre === 'Все' ? popularTracks : filteredTracks.sort((a,b) => b.plays - a.plays)).slice(0, 8).map((track, i) => (
-              <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
-            ))}
-          </div>
         </section>
 
         {/* New tracks */}
@@ -228,43 +222,5 @@ export default function Home() {
 
       <div className="pb-24" />
     </div>
-  );
-}
-
-function PopularCard({ track, allTracks }: { track: Track; allTracks: Track[] }) {
-  const { player, playTrack, togglePlay } = useStore();
-  const isActive = player.currentTrack?.id === track.id;
-  const isPlaying = isActive && player.isPlaying;
-
-  const handlePlay = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (isActive) togglePlay();
-    else playTrack(track, allTracks);
-  };
-
-  return (
-    <Link to={`/track/${track.id}`} className="group relative block rounded-xl overflow-hidden">
-      <div className="aspect-square">
-        <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-      </div>
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-      <div className="absolute bottom-0 left-0 right-0 p-3">
-        <p className="text-white text-sm font-semibold truncate">{track.title}</p>
-        <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
-      </div>
-      <button
-        onClick={handlePlay}
-        className={`absolute top-2 right-2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-lg ${isActive ? 'bg-red-500 opacity-100' : 'bg-black/50 opacity-0 group-hover:opacity-100'}`}
-      >
-        {isPlaying ? <Pause size={14} fill="white" className="text-white" /> : <Play size={14} fill="white" className="text-white ml-0.5" />}
-      </button>
-      {isActive && (
-        <div className="absolute top-2 left-2 flex gap-0.5 items-end h-5">
-          {[1,2,3].map(i => (
-            <div key={i} className="w-1 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.15}s` }} />
-          ))}
-        </div>
-      )}
-    </Link>
   );
 }
