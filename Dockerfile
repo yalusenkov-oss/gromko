@@ -20,13 +20,11 @@ FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    postgresql \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install server production dependencies
+# Install server production dependencies (includes embedded-postgres)
 COPY server/package.json server/package-lock.json* ./server/
 RUN cd server && npm ci --omit=dev
 

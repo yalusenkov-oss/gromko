@@ -1,44 +1,18 @@
 /**
  * Embedded PostgreSQL — starts a local PG instance if no DATABASE_URL is set.
- * Works inside Docker container where `pg_isready`, `initdb`, `pg_ctl` are available.
+ * Uses the `embedded-postgres` npm package which downloads PG binaries automatically.
+ * No system-level PostgreSQL installation required.
  */
 
-import { execSync, execFileSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import EmbeddedPostgres from 'embedded-postgres';
 
-const PGDATA = process.env.PGDATA || '/tmp/pgdata';
-const PGPORT = '5432';
+const PGPORT = 5432;
 const PGUSER = 'gromko';
+const PGPASSWORD = 'gromko';
 const PGDATABASE = 'gromko';
-const SOCKET_DIR = '/tmp';
+const DATA_DIR = process.env.PGDATA || '/tmp/pgdata';
 
-function pgBin(name: string): string {
-  // Try common PostgreSQL binary paths
-  const paths = [
-    `/usr/lib/postgresql/15/bin/${name}`,
-    `/usr/lib/postgresql/16/bin/${name}`,
-    `/usr/lib/postgresql/17/bin/${name}`,
-    `/usr/bin/${name}`,
-  ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return p;
-  }
-  // fallback — hope it's on PATH
-  return name;
-}
-
-function run(bin: string, args: string[], env?: Record<string, string>): string {
-  try {
-    return execFileSync(bin, args, {
-      encoding: 'utf-8',
-      env: { ...process.env, ...env },
-      timeout: 30000,
-    }).trim();
-  } catch (e: any) {
-    return e.stderr?.toString() || e.message;
-  }
-}
+let pg: EmbeddedPostgres | null = null;
 
 export async function startEmbeddedPostgres(): Promise<string> {
   // If DATABASE_URL is set, skip embedded PG entirely
@@ -47,75 +21,44 @@ export async function startEmbeddedPostgres(): Promise<string> {
     return process.env.DATABASE_URL;
   }
 
-  console.log('  🐘 Starting embedded PostgreSQL...');
+  console.log('  🐘 Starting embedded PostgreSQL (npm package)...');
 
-  // 1. Init data directory if needed
-  if (!fs.existsSync(path.join(PGDATA, 'PG_VERSION'))) {
-    console.log(`  📁 Initializing data directory: ${PGDATA}`);
-    fs.mkdirSync(PGDATA, { recursive: true });
-    const initResult = run(pgBin('initdb'), [
-      '-D', PGDATA,
-      '-U', PGUSER,
-      '--no-locale',
-      '--encoding=UTF8',
-      '--auth=trust',
-    ]);
-    if (!fs.existsSync(path.join(PGDATA, 'PG_VERSION'))) {
-      console.error('  ❌ initdb failed:', initResult);
-      throw new Error('Failed to initialize PostgreSQL data directory');
-    }
-    console.log('  ✅ Data directory initialized');
-  }
+  pg = new EmbeddedPostgres({
+    databaseDir: DATA_DIR,
+    user: PGUSER,
+    password: PGPASSWORD,
+    port: PGPORT,
+    persistent: true,
+    // Timeweb runs containers as non-root user 'app' — create a postgres system user if running as root
+    createPostgresUser: process.getuid?.() === 0,
+    onLog: (msg: string) => console.log('  [PG]', msg),
+    onError: (msg: string | Error | unknown) => console.error('  [PG ERROR]', msg),
+  });
 
-  // 2. Configure pg_hba.conf for local trust auth
-  const hbaPath = path.join(PGDATA, 'pg_hba.conf');
-  fs.writeFileSync(hbaPath, [
-    'local all all trust',
-    'host all all 127.0.0.1/32 trust',
-    'host all all ::1/128 trust',
-  ].join('\n') + '\n');
+  // Initialize data directory (idempotent — skips if already initialized)
+  console.log('  � Initializing PostgreSQL data directory...');
+  await pg.initialise();
+  console.log('  ✅ Data directory ready');
 
-  // 3. Start PostgreSQL
+  // Start the server
   console.log('  🚀 Starting PostgreSQL server...');
-  run(pgBin('pg_ctl'), [
-    'start',
-    '-D', PGDATA,
-    '-l', '/tmp/pg.log',
-    '-o', `-p ${PGPORT} -k ${SOCKET_DIR}`,
-    '-w',  // wait for startup
-  ]);
-
-  // 4. Wait for PG to be ready (up to 10 seconds)
-  let ready = false;
-  for (let i = 0; i < 20; i++) {
-    try {
-      execSync(`${pgBin('pg_isready')} -h 127.0.0.1 -p ${PGPORT} -U ${PGUSER} -q`, { timeout: 2000 });
-      ready = true;
-      break;
-    } catch {
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
-
-  if (!ready) {
-    // Print PG log for debugging
-    try { console.error(fs.readFileSync('/tmp/pg.log', 'utf-8')); } catch {}
-    throw new Error('PostgreSQL did not start in time');
-  }
-
+  await pg.start();
   console.log('  ✅ PostgreSQL is running on port ' + PGPORT);
 
-  // 5. Create database if it doesn't exist
+  // Create the application database
   try {
-    execSync(
-      `${pgBin('psql')} -h 127.0.0.1 -p ${PGPORT} -U ${PGUSER} -tc "SELECT 1 FROM pg_database WHERE datname='${PGDATABASE}'" | grep -q 1 || ${pgBin('psql')} -h 127.0.0.1 -p ${PGPORT} -U ${PGUSER} -c "CREATE DATABASE ${PGDATABASE}"`,
-      { encoding: 'utf-8', shell: '/bin/sh', timeout: 10000 }
-    );
+    await pg.createDatabase(PGDATABASE);
+    console.log(`  ✅ Database "${PGDATABASE}" created`);
   } catch (e: any) {
-    console.warn('  ⚠️  DB create warning:', e.message);
+    // Database might already exist — that's fine
+    if (!e.message?.includes('already exists')) {
+      console.warn('  ⚠️  DB create warning:', e.message);
+    } else {
+      console.log(`  ℹ️  Database "${PGDATABASE}" already exists`);
+    }
   }
 
-  const dbUrl = `postgresql://${PGUSER}@127.0.0.1:${PGPORT}/${PGDATABASE}`;
+  const dbUrl = `postgresql://${PGUSER}:${PGPASSWORD}@127.0.0.1:${PGPORT}/${PGDATABASE}`;
   process.env.DATABASE_URL = dbUrl;
   console.log(`  📎 DATABASE_URL = ${dbUrl}`);
   return dbUrl;
@@ -123,10 +66,9 @@ export async function startEmbeddedPostgres(): Promise<string> {
 
 /** Stop embedded PostgreSQL gracefully */
 export function stopEmbeddedPostgres(): void {
-  if (process.env.DATABASE_URL?.includes('127.0.0.1') && fs.existsSync(path.join(PGDATA, 'PG_VERSION'))) {
+  if (pg) {
     console.log('  🛑 Stopping embedded PostgreSQL...');
-    try {
-      run(pgBin('pg_ctl'), ['stop', '-D', PGDATA, '-m', 'fast']);
-    } catch {}
+    pg.stop().catch((e) => console.error('  ⚠️  PG stop error:', e));
+    pg = null;
   }
 }
