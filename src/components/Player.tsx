@@ -127,71 +127,63 @@ export default function Player() {
           </div>
 
           {/* Main content */}
-          <div className="flex-1 flex flex-col px-7 md:px-12 min-h-0 overflow-hidden"
+          <div className="flex-1 flex flex-col items-center justify-center px-7 md:px-12 min-h-0 overflow-hidden"
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)' }}>
 
-            {/* Cover — upper area */}
-            <div className="flex items-end justify-center min-h-0" style={{ flex: '1' }}>
-              <div className={`w-full max-w-[78vw] md:max-w-md aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
-                <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+            {/* Cover */}
+            <div className={`w-full max-w-[72vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
+              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+            </div>
+
+            {/* Title + Artist */}
+            <div className="text-center w-full max-w-lg mt-5 mb-1">
+              <h2 className="text-[22px] md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
+              <p className="text-white/50 text-[15px] md:text-lg mt-1 truncate">
+                {t.artists && t.artists.length > 0
+                  ? t.artists.map(a => a.name).join(', ')
+                  : t.artist}
+              </p>
+            </div>
+
+            {/* Progress waveform */}
+            <div className="w-full max-w-lg mt-4">
+              <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
+                <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
+                  {Array.from({ length: 60 }).map((_, i) => {
+                    const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
+                    const isActive = i / 60 <= progress;
+                    const isBufferedBar = i / 60 <= buffered;
+                    return (<div key={i} className={`flex-1 rounded-full transition-colors duration-150 ${isActive ? 'bg-red-500' : isBufferedBar ? 'bg-white/20' : 'bg-white/8'}`} style={{ height: `${Math.min(90, h)}%` }} />);
+                  })}
+                </div>
+              </div>
+              <div className="flex justify-between text-white/40 text-xs mt-1.5 px-0.5">
+                <span>{formatDuration(Math.floor(currentTime))}</span>
+                <div className="flex items-center gap-2">
+                  {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация</span>}
+                  <span>{formatDuration(Math.floor(duration))}</span>
+                </div>
               </div>
             </div>
 
-            {/* Title + progress + controls */}
-            <div className="shrink-0 max-w-lg mx-auto w-full">
-              {/* Title + Artist — centered */}
-              <div className="text-center w-full mt-4 mb-3">
-                <h2 className="text-[22px] md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
-                <p className="text-white/50 text-[15px] md:text-lg mt-0.5 truncate">
-                  {t.artists && t.artists.length > 0
-                    ? t.artists.map(a => a.name).join(', ')
-                    : t.artist}
-                </p>
-              </div>
+            {/* Playback controls */}
+            <div className="flex items-center justify-center gap-8 mt-5">
+              <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
+              <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
+              <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
+                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white ml-1" />}
+              </button>
+              <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
+              <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
+            </div>
 
-              {/* Progress waveform */}
-              <div className="mb-3">
-                <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
-                  <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
-                    {Array.from({ length: 60 }).map((_, i) => {
-                      const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
-                      const isActive = i / 60 <= progress;
-                      const isBufferedBar = i / 60 <= buffered;
-                      return (<div key={i} className={`flex-1 rounded-full transition-colors duration-150 ${isActive ? 'bg-red-500' : isBufferedBar ? 'bg-white/20' : 'bg-white/8'}`} style={{ height: `${Math.min(90, h)}%` }} />);
-                    })}
-                  </div>
-                </div>
-                <div className="flex justify-between text-white/40 text-xs mt-1.5 px-0.5">
-                  <span>{formatDuration(Math.floor(currentTime))}</span>
-                  <div className="flex items-center gap-2">
-                    {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация</span>}
-                    <span>{formatDuration(Math.floor(duration))}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Playback controls */}
-              <div className="flex items-center justify-center gap-8 mb-3">
-                <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
-                <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
-                <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
-                  {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white ml-1" />}
-                </button>
-                <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
-                <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
-              </div>
-
-              {/* Like button */}
-              <div className="flex items-center justify-center">
-                <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
-                  <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
-                  <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
-                </button>
-              </div>
-            </div>{/* end controls */}
-
-            {/* Empty space below everything */}
-            <div style={{ flex: '0.25' }} />
+            {/* Like button */}
+            <div className="flex items-center justify-center mt-5">
+              <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
+                <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
+                <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
+              </button>
+            </div>
           </div>{/* end main content */}
         </div>{/* end relative z-10 */}
       </div>{/* end overlay */}
