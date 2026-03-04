@@ -238,6 +238,32 @@ function generateMasterPlaylist(hlsDir, qualities) {
     return 'master.m3u8';
 }
 // ─────────────────────────────────────────────
+// 5b. HLS from already-transcoded files (copy codec, no re-encode)
+// ─────────────────────────────────────────────
+function generateHlsFromTranscoded(inputPath, outputDir, qualityKey) {
+    return new Promise((resolve, reject) => {
+        const playlistName = `${qualityKey}.m3u8`;
+        const segmentPattern = path.join(outputDir, `${qualityKey}_%03d.ts`);
+        const playlistPath = path.join(outputDir, playlistName);
+        fs.mkdirSync(outputDir, { recursive: true });
+        ffmpeg(inputPath)
+            .audioCodec('copy') // No re-encoding — just segment the already-transcoded file
+            .noVideo()
+            .format('hls')
+            .outputOptions([
+            `-hls_time`, `${CONFIG.hlsSegmentDuration}`,
+            `-hls_list_size`, `0`,
+            `-hls_segment_type`, `mpegts`,
+            `-hls_segment_filename`, segmentPattern,
+            `-hls_playlist_type`, `vod`,
+        ])
+            .output(playlistPath)
+            .on('end', () => resolve(playlistName))
+            .on('error', (err) => reject(err))
+            .run();
+    });
+}
+// ─────────────────────────────────────────────
 // 6. Waveform Peak Generation
 // ─────────────────────────────────────────────
 function generateWaveformPeaks(inputPath, numPeaks) {
@@ -341,14 +367,16 @@ export async function processTrack(trackId, inputPath, coverPath, keepOriginal) 
             await transcodeToQuality(inputPath, losslessPath, CONFIG.qualities.lossless, loudness);
             streams.lossless = `/audio/${trackId}/lossless.flac`;
         }
-        // ── Step 5: Generate HLS streams ──
+        // ── Step 5: Generate HLS streams (from already-transcoded files, NOT from source) ──
         console.log(`[${trackId}] Generating HLS streams...`);
         const hlsQualities = [];
-        const lowHls = await generateHlsStream(inputPath, hlsDir, 'low', CONFIG.qualities.low);
+        // Use the transcoded m4a files as input to avoid re-encoding
+        const lowHls = await generateHlsFromTranscoded(lowPath, hlsDir, 'low');
         hlsQualities.push({ key: 'low', playlist: lowHls, bandwidth: 64000 });
-        const medHls = await generateHlsStream(inputPath, hlsDir, 'medium', CONFIG.qualities.medium);
+        const medHls = await generateHlsFromTranscoded(mediumPath, hlsDir, 'medium');
         hlsQualities.push({ key: 'medium', playlist: medHls, bandwidth: 128000 });
-        const highHls = await generateHlsStream(inputPath, hlsDir, 'high', CONFIG.qualities.high);
+        const highSrc = (streams.high !== streams.medium) ? path.join(audioDir, 'high.m4a') : mediumPath;
+        const highHls = await generateHlsFromTranscoded(highSrc, hlsDir, 'high');
         hlsQualities.push({ key: 'high', playlist: highHls, bandwidth: 256000 });
         const masterPlaylist = generateMasterPlaylist(hlsDir, hlsQualities);
         // ── Step 6: Generate waveform ──
