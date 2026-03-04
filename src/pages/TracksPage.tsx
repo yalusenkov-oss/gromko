@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, GENRES, Track } from '../store';
 import TrackCard from '../components/TrackCard';
-import { Search, Disc3, Play, Pause } from 'lucide-react';
+import { Search, Disc3, Play, Pause, X, Heart, MoreHorizontal } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../lib/api';
+import { formatPlays } from '../utils/format';
 
 interface Album {
   name: string;
@@ -25,6 +26,7 @@ export default function TracksPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
+  const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const PER_PAGE = 20;
 
@@ -137,7 +139,14 @@ export default function TracksPage() {
                   <div key={album.name} className="col-span-1">
                     <div
                       className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer mb-2"
-                      onClick={() => setExpandedAlbum(isExpanded ? null : album.name)}
+                      onClick={() => {
+                        // Mobile: open fullscreen overlay; Desktop: toggle accordion
+                        if (window.innerWidth < 768) {
+                          setMobileAlbum(album);
+                        } else {
+                          setExpandedAlbum(isExpanded ? null : album.name);
+                        }
+                      }}
                     >
                       <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
@@ -152,9 +161,9 @@ export default function TracksPage() {
                     <Link to={`/artist/${album.artistSlug}`} className="text-zinc-500 text-xs hover:text-white transition-colors truncate block">{album.artist}</Link>
                     <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков</p>
 
-                    {/* Expanded album tracks */}
+                    {/* Desktop: Expanded album tracks */}
                     {isExpanded && (
-                      <div className="mt-2 bg-white/3 rounded-xl border border-white/5 overflow-hidden">
+                      <div className="hidden md:block mt-2 bg-zinc-900/50 rounded-xl border border-white/5 overflow-hidden">
                         {album.tracks.sort((a, b) => b.plays - a.plays).map((t, i) => (
                           <TrackCard key={t.id} track={t} queue={album.tracks} showRank={i + 1} />
                         ))}
@@ -181,6 +190,85 @@ export default function TracksPage() {
           </button>
         )}
       </div>
+
+      {/* Mobile fullscreen album overlay — YM style */}
+      {mobileAlbum && (
+        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto md:hidden">
+          {/* Blurred background from album cover */}
+          <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
+
+          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4">
+            {/* Close button */}
+            <button
+              onClick={() => setMobileAlbum(null)}
+              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center"
+            >
+              <X size={18} className="text-white" />
+            </button>
+
+            {/* Album cover */}
+            <img src={mobileAlbum.cover} alt={mobileAlbum.name} className="w-56 h-56 rounded-2xl object-cover shadow-2xl mb-5" />
+
+            {/* Album title */}
+            <h2 className="text-white font-bold text-xl text-center">{mobileAlbum.name}</h2>
+
+            {/* Artist + year */}
+            <div className="flex items-center gap-2 mt-2">
+              <Link to={`/artist/${mobileAlbum.artistSlug}`} onClick={() => setMobileAlbum(null)} className="text-zinc-400 text-sm hover:text-white transition-colors">{mobileAlbum.artist}</Link>
+              <span className="text-zinc-600 text-sm">·</span>
+              <span className="text-zinc-400 text-sm">{mobileAlbum.year}</span>
+            </div>
+
+            {/* Action buttons: more, play, heart */}
+            <div className="flex items-center gap-5 mt-5">
+              <button className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
+                <MoreHorizontal size={20} className="text-white" />
+              </button>
+              <button
+                onClick={() => handlePlayAlbum(mobileAlbum)}
+                className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30"
+              >
+                {mobileAlbum.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying
+                  ? <Pause size={24} fill="white" className="text-white" />
+                  : <Play size={24} fill="white" className="text-white ml-1" />
+                }
+              </button>
+              <button className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
+                <Heart size={20} className="text-white" />
+              </button>
+            </div>
+
+            {/* Track list */}
+            <div className="w-full mt-7 space-y-0.5">
+              {mobileAlbum.tracks.map((t, i) => {
+                const isCurrent = player.currentTrack?.id === t.id;
+                const isPlaying = isCurrent && player.isPlaying;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => playTrack(t, mobileAlbum.tracks)}
+                    className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'active:bg-white/5'}`}
+                  >
+                    <span className={`w-6 text-center text-sm tabular-nums ${isCurrent ? 'text-red-400 font-bold' : 'text-zinc-600'}`}>
+                      {isPlaying ? '▸' : i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
+                    </div>
+                    <span className="text-zinc-600 text-xs tabular-nums">
+                      {t.duration ? `${Math.floor(t.duration / 60)}:${String(t.duration % 60).padStart(2, '0')}` : ''}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Album stats */}
+            <p className="text-zinc-600 text-xs mt-4">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
