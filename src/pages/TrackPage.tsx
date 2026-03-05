@@ -102,7 +102,7 @@ export default function TrackPage() {
             <div className="flex items-center gap-3 justify-center md:justify-start">
               <button onClick={handlePlay}
                 className="flex items-center gap-2.5 px-6 py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
-                {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}
+                {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" />}
                 {isPlaying ? 'Пауза' : 'Слушать'}
               </button>
               <button onClick={() => toggleLike(track.id)}

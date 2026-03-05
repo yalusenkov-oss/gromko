@@ -62,7 +62,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
         <div className="relative w-12 h-12 md:w-[52px] md:h-[52px] rounded-lg overflow-hidden flex-shrink-0" onClick={handlePlay}>
           <img src={track.cover} alt={track.title} className="w-full h-full object-cover" draggable={false} />
           <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-            {isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white ml-0.5" />}
+            {isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white" />}
           </div>
           {isActive && !isPlaying && (
             <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
@@ -152,7 +152,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
               {/* Go to album */}
               {track.meta?.album && (
                 <button
-                  onClick={() => { setShowMenu(false); navigate(`/artist/${track.artistSlug}?album=${encodeURIComponent(track.meta!.album!)}`, { state: { openAlbum: true } }); }}
+                  onClick={() => { setShowMenu(false); navigate(`/artist/${track.artistSlug}?album=${encodeURIComponent(track.meta!.album!)}`, { state: { openAlbum: true }, replace: false }); }}
                   className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
                 >
                   <Disc3 size={18} className="text-zinc-400" />

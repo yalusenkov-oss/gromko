@@ -1,4 +1,4 @@
-import { useParams, useSearchParams, useLocation } from 'react-router-dom';
+import { useParams, useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, MoreHorizontal } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
@@ -18,7 +18,8 @@ export default function ArtistPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const location = useLocation();
-  const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike, toggleLike } = useStore();
+  const navigate = useNavigate();
+  const { artists, player, playTrack, togglePlay, toggleFullscreen, currentUser, toggleAlbumLike, toggleLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
@@ -109,10 +110,10 @@ export default function ArtistPage() {
 
   if (!artist) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
-      {openAlbumFromNav && albumParam ? (
+      {albumParam ? (
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-white/20 border-t-red-500 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-zinc-500">Загрузка альбома...</p>
+          <p className="text-zinc-500">Загрузка...</p>
         </div>
       ) : (
         <p className="text-zinc-500">Артист не найден</p>
@@ -171,7 +172,7 @@ export default function ArtistPage() {
         <div className="flex items-center gap-3">
           <button onClick={handlePlayAll}
             className="flex items-center gap-2.5 px-6 py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
-            {isAnyPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}
+            {isAnyPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" />}
             {isAnyPlaying ? 'Пауза' : 'Слушать всё'}
           </button>
         </div>
@@ -238,7 +239,7 @@ export default function ArtistPage() {
                           onClick={(e) => { e.stopPropagation(); handlePlayAlbum(album); }}
                           className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-black/60 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all"
                         >
-                          <Play size={16} fill="white" className="text-white ml-0.5" />
+                          <Play size={16} fill="white" className="text-white" />
                         </button>
                       )}
                     </div>
@@ -273,10 +274,16 @@ export default function ArtistPage() {
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
-          <div className="relative z-10 flex flex-col items-center pt-12 px-4 max-w-2xl mx-auto" style={{ paddingBottom: player.currentTrack ? '100px' : '32px' }}>
-            {/* Close button */}
+          <div className="relative z-10 flex flex-col items-center pt-12 px-4 max-w-2xl mx-auto" style={{ paddingBottom: player.currentTrack ? '140px' : '80px' }}>
+            {/* Close button — go back if navigated from context menu, else just close overlay */}
             <button
-              onClick={() => setMobileAlbum(null)}
+              onClick={() => {
+                if (openAlbumFromNav) {
+                  navigate(-1);
+                } else {
+                  setMobileAlbum(null);
+                }
+              }}
               className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition"
             >
               <X size={18} className="text-white" />
@@ -307,7 +314,7 @@ export default function ArtistPage() {
               >
                 {mobileAlbum.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying
                   ? <Pause size={24} fill="white" className="text-white" />
-                  : <Play size={24} fill="white" className="text-white ml-1" />
+                  : <Play size={24} fill="white" className="text-white" />
                 }
               </button>
               {(() => {
@@ -352,43 +359,64 @@ export default function ArtistPage() {
             <p className="text-zinc-600 text-xs mt-4 text-center w-full">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
           </div>
 
-          {/* Mini player bar inside album overlay — matches main mini player */}
-          {player.currentTrack && (
-            <div className="fixed bottom-0 left-0 right-0 z-[61] bg-zinc-950 border-t border-white/5" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-              <div className="flex flex-col">
-                {/* Thin red progress bar at top */}
-                <div className="h-[2px] bg-zinc-800 w-full">
-                  <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${player.progress * 100}%` }} />
-                </div>
-                <div className="flex items-center gap-3 px-3 py-2">
-                  <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                    <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-full h-full object-cover" />
+          {/* Bottom bar: mini player + nav inside album overlay */}
+          <div className="fixed bottom-0 left-0 right-0 z-[61] md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            {/* Mini player — tap opens fullscreen (only when track playing) */}
+            {player.currentTrack && (
+              <div className="bg-zinc-950 border-t border-white/5">
+                <div className="flex flex-col" onClick={toggleFullscreen}>
+                  {/* Thin red progress bar at top */}
+                  <div className="h-[2px] bg-zinc-800 w-full">
+                    <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${player.progress * 100}%` }} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium truncate leading-snug">{player.currentTrack.title}</p>
-                    <p className="text-zinc-400 text-xs truncate leading-snug">{player.currentTrack.artist}</p>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                      <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate leading-snug">{player.currentTrack.title}</p>
+                      <p className="text-zinc-400 text-xs truncate leading-snug">{player.currentTrack.artist}</p>
+                    </div>
+                    {(() => {
+                      const isTrackLiked = currentUser?.likedTracks?.includes(player.currentTrack!.id) ?? false;
+                      return (
+                        <button onClick={(e) => { e.stopPropagation(); toggleLike(player.currentTrack!.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isTrackLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+                          <Heart size={22} fill={isTrackLiked ? 'currentColor' : 'none'} />
+                        </button>
+                      );
+                    })()}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                      className="w-10 h-10 flex items-center justify-center text-white"
+                    >
+                      {player.isPlaying
+                        ? <Pause size={24} fill="white" />
+                        : <Play size={24} fill="white" />
+                      }
+                    </button>
                   </div>
-                  {(() => {
-                    const isTrackLiked = currentUser?.likedTracks?.includes(player.currentTrack!.id) ?? false;
-                    return (
-                      <button onClick={() => toggleLike(player.currentTrack!.id)} className={`p-2 transition-colors ${isTrackLiked ? 'text-red-500' : 'text-zinc-500'}`}>
-                        <Heart size={22} fill={isTrackLiked ? 'currentColor' : 'none'} />
-                      </button>
-                    );
-                  })()}
-                  <button
-                    onClick={togglePlay}
-                    className="p-2 text-white"
-                  >
-                    {player.isPlaying
-                      ? <Pause size={24} fill="white" />
-                      : <Play size={24} fill="white" className="ml-0.5" />
-                    }
-                  </button>
                 </div>
               </div>
+            )}
+            {/* Bottom nav — always visible */}
+            <div className="bg-zinc-950/95 backdrop-blur-xl border-t border-white/5" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+              <div className="flex items-center justify-around px-4 py-2">
+                {[
+                  { to: '/', icon: 'home' },
+                  { to: '/tracks', icon: 'music' },
+                  { to: '/artists', icon: 'mic' },
+                  ...(currentUser ? [{ to: '/liked', icon: 'heart' }] : []),
+                ].map(({ to, icon }) => (
+                  <a key={to} href={to} className="flex items-center justify-center w-12 h-10 rounded-xl text-zinc-500 active:text-zinc-300 transition-colors">
+                    {icon === 'home' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}
+                    {icon === 'music' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>}
+                    {icon === 'mic' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 8-9.04 9.06a2.82 2.82 0 1 0 3.98 3.98L16 12"/><circle cx="17" cy="7" r="5"/></svg>}
+                    {icon === 'heart' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>}
+                  </a>
+                ))}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

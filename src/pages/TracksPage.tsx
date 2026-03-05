@@ -19,7 +19,7 @@ type Sort = 'new' | 'popular' | 'alpha';
 type View = 'tracks' | 'albums';
 
 export default function TracksPage() {
-  const { tracks, player, playTrack, currentUser, toggleAlbumLike } = useStore();
+  const { tracks, player, playTrack, togglePlay, toggleFullscreen, toggleLike, currentUser, toggleAlbumLike } = useStore();
   const [searchParams] = useSearchParams();
   const [sort, setSort] = useState<Sort>('popular');
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
@@ -197,7 +197,7 @@ export default function TracksPage() {
                         onClick={(e) => { e.stopPropagation(); handlePlayAlbum(album); }}
                         className={`absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all ${isAlbumPlaying ? 'bg-red-500 opacity-100' : 'bg-black/60 opacity-0 group-hover:opacity-100'}`}
                       >
-                        {isAlbumPlaying ? <Pause size={16} fill="white" className="text-white" /> : <Play size={16} fill="white" className="text-white ml-0.5" />}
+                        {isAlbumPlaying ? <Pause size={16} fill="white" className="text-white" /> : <Play size={16} fill="white" className="text-white" />}
                       </button>
                     </div>
                     <p className="text-white text-sm font-semibold truncate">{album.name}</p>
@@ -219,12 +219,12 @@ export default function TracksPage() {
 
       {/* Fullscreen album overlay */}
       {mobileAlbum && (
-        <div className="fixed inset-0 z-50 bg-zinc-950 overflow-y-auto">
+        <div className="fixed inset-0 z-[60] bg-zinc-950 overflow-y-auto">
           {/* Blurred background from album cover */}
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
-          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4 max-w-2xl mx-auto">
+          <div className="relative z-10 flex flex-col items-center pt-12 px-4 max-w-2xl mx-auto" style={{ paddingBottom: player.currentTrack ? '140px' : '80px' }}>
             {/* Close button */}
             <button
               onClick={() => setMobileAlbum(null)}
@@ -257,7 +257,7 @@ export default function TracksPage() {
               >
                 {mobileAlbum.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying
                   ? <Pause size={24} fill="white" className="text-white" />
-                  : <Play size={24} fill="white" className="text-white ml-1" />
+                  : <Play size={24} fill="white" className="text-white" />
                 }
               </button>
               {(() => {
@@ -300,6 +300,65 @@ export default function TracksPage() {
 
             {/* Album stats */}
             <p className="text-zinc-600 text-xs mt-4">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
+          </div>
+
+          {/* Bottom bar: mini player + nav inside album overlay */}
+          <div className="fixed bottom-0 left-0 right-0 z-[61] md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            {/* Mini player — tap opens fullscreen (only when track playing) */}
+            {player.currentTrack && (
+              <div className="bg-zinc-950 border-t border-white/5">
+                <div className="flex flex-col" onClick={toggleFullscreen}>
+                  {/* Thin red progress bar at top */}
+                  <div className="h-[2px] bg-zinc-800 w-full">
+                    <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${player.progress * 100}%` }} />
+                  </div>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                      <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate leading-snug">{player.currentTrack.title}</p>
+                      <p className="text-zinc-400 text-xs truncate leading-snug">{player.currentTrack.artist}</p>
+                    </div>
+                    {(() => {
+                      const isTrackLiked = currentUser?.likedTracks?.includes(player.currentTrack!.id) ?? false;
+                      return (
+                        <button onClick={(e) => { e.stopPropagation(); toggleLike(player.currentTrack!.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isTrackLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+                          <Heart size={22} fill={isTrackLiked ? 'currentColor' : 'none'} />
+                        </button>
+                      );
+                    })()}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                      className="w-10 h-10 flex items-center justify-center text-white"
+                    >
+                      {player.isPlaying
+                        ? <Pause size={24} fill="white" />
+                        : <Play size={24} fill="white" />
+                      }
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Bottom nav — always visible */}
+            <div className="bg-zinc-950/95 backdrop-blur-xl border-t border-white/5" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+              <div className="flex items-center justify-around px-4 py-2">
+                {[
+                  { to: '/', icon: 'home' },
+                  { to: '/tracks', icon: 'music' },
+                  { to: '/artists', icon: 'mic' },
+                  ...(currentUser ? [{ to: '/liked', icon: 'heart' }] : []),
+                ].map(({ to, icon }) => (
+                  <a key={to} href={to} className="flex items-center justify-center w-12 h-10 rounded-xl text-zinc-500 active:text-zinc-300 transition-colors">
+                    {icon === 'home' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}
+                    {icon === 'music' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>}
+                    {icon === 'mic' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 8-9.04 9.06a2.82 2.82 0 1 0 3.98 3.98L16 12"/><circle cx="17" cy="7" r="5"/></svg>}
+                    {icon === 'heart' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>}
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

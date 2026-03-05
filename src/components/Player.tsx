@@ -126,34 +126,29 @@ export default function Player() {
   const isBuffering = engineState?.state === 'buffering';
   const qualityLabel = engineState?.actualBitrate || '';
 
-  if (player.isFullscreen || fsVisible) {
-    // Swipe-down handlers for the fullscreen header area
-    const handleSwipeStart = (e: React.TouchEvent) => {
-      // Only track vertical swipes from the header/cover area
-      swipeStartY.current = e.touches[0].clientY;
-      setSwipeOffset(0);
-    };
-    const handleSwipeMove = (e: React.TouchEvent) => {
-      if (swipeStartY.current === null) return;
-      const dy = e.touches[0].clientY - swipeStartY.current;
-      if (dy > 0) {
-        setSwipeOffset(dy);
-      }
-    };
-    const handleSwipeEnd = () => {
-      if (swipeOffset > 120) {
-        toggleFullscreen(); // close
-      }
-      swipeStartY.current = null;
-      setSwipeOffset(0);
-    };
+  // Swipe-down handlers for the fullscreen header area
+  const handleSwipeStart = (e: React.TouchEvent) => {
+    swipeStartY.current = e.touches[0].clientY;
+    setSwipeOffset(0);
+  };
+  const handleSwipeMove = (e: React.TouchEvent) => {
+    if (swipeStartY.current === null) return;
+    const dy = e.touches[0].clientY - swipeStartY.current;
+    if (dy > 0) setSwipeOffset(dy);
+  };
+  const handleSwipeEnd = () => {
+    if (swipeOffset > 120) toggleFullscreen();
+    swipeStartY.current = null;
+    setSwipeOffset(0);
+  };
 
-    const translateY = swipeOffset > 0 ? Math.min(swipeOffset * 0.5, 80) : 0;
-    const overlayOpacity = swipeOffset > 0 ? Math.max(0.3, 1 - swipeOffset / 400) : 1;
+  const translateY = swipeOffset > 0 ? Math.min(swipeOffset * 0.5, 80) : 0;
+  const overlayOpacity = swipeOffset > 0 ? Math.max(0.3, 1 - swipeOffset / 400) : 1;
 
-    return (
-      <>
-      {/* Fullscreen overlay */}
+  return (
+    <>
+    {/* Fullscreen overlay — always in DOM, animated via opacity/transform */}
+    {fsVisible && (
       <div
         className={`fixed inset-0 z-50 transition-all duration-350 ease-out ${fsAnimating ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{
@@ -243,7 +238,7 @@ export default function Player() {
               <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
               <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
               <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
-                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white ml-1" />}
+                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white" />}
               </button>
               <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
               <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
@@ -257,15 +252,11 @@ export default function Player() {
               </button>
             </div>
           </div>{/* end main content */}
-        </div>{/* end relative z-10 */}
-      </div>{/* end overlay */}
-      </>
-    );
-  }
+        </div>
+      </div>
+    )}
 
-  return (
-    <>
-    {/* Mobile mini-player — sits above bottom nav (52px + safe area) */}
+    {/* Mobile mini-player — always rendered, sits above bottom nav */}
     <div className="fixed left-0 right-0 z-40 md:hidden" style={{ bottom: 'calc(52px + env(safe-area-inset-bottom, 0px))' }}>
       <div className="flex flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
         {/* Thin red progress bar at top */}
@@ -280,15 +271,15 @@ export default function Player() {
             <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
             <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
           </div>
-          <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`p-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+          <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
             <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
           </button>
-          <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="p-2 text-white">
+          <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-10 h-10 flex items-center justify-center text-white">
             {isBuffering
               ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : player.isPlaying
                 ? <Pause size={24} fill="white" />
-                : <Play size={24} fill="white" className="ml-0.5" />
+                : <Play size={24} fill="white" />
             }
           </button>
         </div>
@@ -326,7 +317,7 @@ export default function Player() {
             <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
             <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
             <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
-              {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black ml-0.5" fill="black" />}
+              {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black" fill="black" />}
             </button>
             <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
             <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
