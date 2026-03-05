@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, MoreHorizontal } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
@@ -17,10 +17,15 @@ interface Album {
 export default function ArtistPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
-  const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike } = useStore();
+  const location = useLocation();
+  const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike, toggleLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
+
+  // Check if we came from context menu "Go to album" — should open album overlay immediately
+  const openAlbumFromNav = !!(location.state as any)?.openAlbum;
+  const albumParam = searchParams.get('album');
 
   const artist = artists.find(a => a.slug === slug);
 
@@ -96,16 +101,22 @@ export default function ArtistPage() {
 
   // Auto-open album from URL param (?album=Name)
   useEffect(() => {
-    const albumParam = searchParams.get('album');
     if (albumParam && albums.length > 0 && !mobileAlbum) {
       const found = albums.find(a => a.name === albumParam);
       if (found) setMobileAlbum(found);
     }
-  }, [searchParams, albums]);
+  }, [albumParam, albums]);
 
   if (!artist) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
-      <p className="text-zinc-500">Артист не найден</p>
+      {openAlbumFromNav && albumParam ? (
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-red-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-zinc-500">Загрузка альбома...</p>
+        </div>
+      ) : (
+        <p className="text-zinc-500">Артист не найден</p>
+      )}
     </div>
   );
 
@@ -341,24 +352,40 @@ export default function ArtistPage() {
             <p className="text-zinc-600 text-xs mt-4 text-center w-full">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
           </div>
 
-          {/* Mini player bar inside album overlay */}
+          {/* Mini player bar inside album overlay — matches main mini player */}
           {player.currentTrack && (
-            <div className="fixed bottom-0 left-0 right-0 z-[61] bg-zinc-900/95 backdrop-blur-xl border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-              <div className="flex items-center gap-3 px-4 py-2.5 max-w-2xl mx-auto">
-                <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-10 h-10 rounded-lg object-cover" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{player.currentTrack.title}</p>
-                  <p className="text-zinc-400 text-xs truncate">{player.currentTrack.artist}</p>
+            <div className="fixed bottom-0 left-0 right-0 z-[61] bg-zinc-950 border-t border-white/5" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+              <div className="flex flex-col">
+                {/* Thin red progress bar at top */}
+                <div className="h-[2px] bg-zinc-800 w-full">
+                  <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${player.progress * 100}%` }} />
                 </div>
-                <button
-                  onClick={togglePlay}
-                  className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center"
-                >
-                  {player.isPlaying
-                    ? <Pause size={16} fill="white" className="text-white" />
-                    : <Play size={16} fill="white" className="text-white ml-0.5" />
-                  }
-                </button>
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                    <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-full h-full object-cover" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate leading-snug">{player.currentTrack.title}</p>
+                    <p className="text-zinc-400 text-xs truncate leading-snug">{player.currentTrack.artist}</p>
+                  </div>
+                  {(() => {
+                    const isTrackLiked = currentUser?.likedTracks?.includes(player.currentTrack!.id) ?? false;
+                    return (
+                      <button onClick={() => toggleLike(player.currentTrack!.id)} className={`p-2 transition-colors ${isTrackLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+                        <Heart size={22} fill={isTrackLiked ? 'currentColor' : 'none'} />
+                      </button>
+                    );
+                  })()}
+                  <button
+                    onClick={togglePlay}
+                    className="p-2 text-white"
+                  >
+                    {player.isPlaying
+                      ? <Pause size={24} fill="white" />
+                      : <Play size={24} fill="white" className="ml-0.5" />
+                    }
+                  </button>
+                </div>
               </div>
             </div>
           )}

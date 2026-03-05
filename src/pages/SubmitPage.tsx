@@ -124,58 +124,102 @@ export default function SubmitPage() {
     setErrorMsg('');
 
     try {
-      const formData = new FormData();
       if (releaseType === 'single') {
+        const formData = new FormData();
         formData.append('audio', audioFile!);
         formData.append('title', form.title);
-      } else {
-        albumTracks.forEach((t, i) => {
-          formData.append(`audio_${i}`, t.audioFile!);
-          formData.append(`track_title_${i}`, t.title);
-        });
-        formData.append('trackCount', albumTracks.length.toString());
-        formData.append('title', form.albumName);
-        formData.append('albumName', form.albumName);
-        formData.append('releaseType', 'album');
-      }
-      if (coverFile) formData.append('cover', coverFile);
-      formData.append('artist', form.artist);
-      formData.append('genre', form.genre);
-      formData.append('year', form.year.toString());
-      if (form.comment) formData.append('comment', form.comment);
+        if (coverFile) formData.append('cover', coverFile);
+        formData.append('artist', form.artist);
+        formData.append('genre', form.genre);
+        formData.append('year', form.year.toString());
+        if (form.comment) formData.append('comment', form.comment);
 
-      const endpoint = isAdmin ? apiUrl('/tracks/upload') : apiUrl('/submissions');
+        const endpoint = isAdmin ? apiUrl('/tracks/upload') : apiUrl('/submissions');
 
-      const xhr = new XMLHttpRequest();
-      const token = localStorage.getItem('gromko_token');
+        const xhr = new XMLHttpRequest();
+        const token = localStorage.getItem('gromko_token');
 
-      await new Promise<void>((resolve, reject) => {
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
-        });
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const resp = JSON.parse(xhr.responseText);
-              if (isAdmin && resp.trackId) {
-                setStatus('processing');
-                pollProcessingStatus(resp.trackId);
-              } else {
+        await new Promise<void>((resolve, reject) => {
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+          });
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const resp = JSON.parse(xhr.responseText);
+                if (isAdmin && resp.trackId) {
+                  setStatus('processing');
+                  pollProcessingStatus(resp.trackId);
+                } else {
+                  setStatus('done');
+                }
+              } catch {
                 setStatus('done');
               }
-            } catch { setStatus('done'); }
-            resolve();
-          } else {
-            let msg = 'Ошибка загрузки';
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-            reject(new Error(msg));
-          }
+              resolve();
+            } else {
+              let msg = 'Ошибка загрузки';
+              try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+              reject(new Error(msg));
+            }
+          });
+          xhr.addEventListener('error', () => reject(new Error('Ошибка сети')));
+          xhr.addEventListener('abort', () => reject(new Error('Загрузка отменена')));
+          xhr.addEventListener('timeout', () => reject(new Error('Превышено время ожидания')));
+          xhr.open('POST', endpoint);
+          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          xhr.send(formData);
         });
-        xhr.addEventListener('error', () => reject(new Error('Ошибка сети')));
-        xhr.open('POST', endpoint);
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        xhr.send(formData);
-      });
+      } else {
+        // Album mode: upload each track one by one
+        const endpoint = isAdmin ? apiUrl('/tracks/upload') : apiUrl('/submissions');
+        const token = localStorage.getItem('gromko_token');
+        const total = albumTracks.length;
+
+        for (let i = 0; i < total; i++) {
+          const t = albumTracks[i];
+          const formData = new FormData();
+          formData.append('audio', t.audioFile!);
+          formData.append('title', t.title);
+          formData.append('artist', form.artist);
+          formData.append('genre', form.genre);
+          formData.append('year', form.year.toString());
+          if (coverFile) formData.append('cover', coverFile);
+          if (form.comment && i === 0) formData.append('comment', `Альбом: ${form.albumName}. ${form.comment}`);
+          else if (i === 0) formData.append('comment', `Альбом: ${form.albumName}`);
+
+          // For admin uploads, include the album name in meta
+          if (isAdmin) {
+            formData.append('albumName', form.albumName);
+          }
+
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.upload.addEventListener('progress', (e) => {
+              if (e.lengthComputable) {
+                const trackProgress = (e.loaded / e.total);
+                const overallProgress = Math.round(((i + trackProgress) / total) * 100);
+                setUploadProgress(overallProgress);
+              }
+            });
+            xhr.addEventListener('load', () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+              } else {
+                let msg = `Ошибка загрузки трека "${t.title}"`;
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+                reject(new Error(msg));
+              }
+            });
+            xhr.addEventListener('error', () => reject(new Error(`Ошибка сети при загрузке "${t.title}"`)));
+            xhr.open('POST', endpoint);
+            if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.send(formData);
+          });
+        }
+
+        setStatus('done');
+      }
     } catch (err) {
       setStatus('error');
       setErrorMsg(err instanceof Error ? err.message : 'Неизвестная ошибка');

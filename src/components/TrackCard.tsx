@@ -152,7 +152,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
               {/* Go to album */}
               {track.meta?.album && (
                 <button
-                  onClick={() => { setShowMenu(false); navigate(`/artist/${track.artistSlug}?album=${encodeURIComponent(track.meta!.album!)}`); }}
+                  onClick={() => { setShowMenu(false); navigate(`/artist/${track.artistSlug}?album=${encodeURIComponent(track.meta!.album!)}`, { state: { openAlbum: true } }); }}
                   className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
                 >
                   <Disc3 size={18} className="text-zinc-400" />

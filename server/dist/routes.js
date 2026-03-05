@@ -325,7 +325,7 @@ router.post('/tracks/upload', adminRequired, (req, res) => {
         try {
             const meta = await extractMetadata(audioFile.path);
             const trackId = uuid();
-            const { title = meta.title || path.parse(audioFile.originalname).name, artist = meta.artist || 'Неизвестный артист', genre = meta.genre || 'Другое', year = meta.year || new Date().getFullYear(), explicit = 'false', } = req.body;
+            const { title = meta.title || path.parse(audioFile.originalname).name, artist = meta.artist || 'Неизвестный артист', genre = meta.genre || 'Другое', year = meta.year || new Date().getFullYear(), explicit = 'false', albumName, } = req.body;
             // Multi-artist: split by ", " / "feat." / "ft." / "&" and ensure each artist exists
             const artistNames = parseArtistNames(artist);
             const primaryName = artistNames[0] || artist;
@@ -333,12 +333,13 @@ router.post('/tracks/upload', adminRequired, (req, res) => {
             await execute(`
         INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
                            original_filename, original_format, original_size, original_bitrate,
-                           original_sample_rate, original_channels, explicit, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
+                           original_sample_rate, original_channels, explicit, status, meta_album)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15)
       `, [
                 trackId, title, artist, slug, genre, Number(year), meta.duration,
                 audioFile.originalname, meta.format, audioFile.size, meta.bitrate,
                 meta.sampleRate, meta.channels, explicit === 'true',
+                albumName || meta.album || null,
             ]);
             // Create artists and link via junction table
             for (let i = 0; i < artistNames.length; i++) {
