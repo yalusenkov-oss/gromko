@@ -23,11 +23,33 @@ export default function Player() {
   const [fsVisible, setFsVisible] = useState(false);
   const [fsAnimating, setFsAnimating] = useState(false);
   const prevFullscreen = useRef(player.isFullscreen);
-  const lockScrollY = useRef(0);
+  // Swipe-down to close fullscreen
+  const swipeStartY = useRef<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
 
   useEffect(() => {
     return audioEngine.subscribe(setEngineState);
   }, []);
+
+  // Lock body scroll when fullscreen is open
+  useEffect(() => {
+    if (player.isFullscreen || fsVisible) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [player.isFullscreen, fsVisible]);
 
   // Animate fullscreen open/close
   useEffect(() => {
@@ -46,33 +68,6 @@ export default function Player() {
     }
     prevFullscreen.current = player.isFullscreen;
   }, [player.isFullscreen]);
-
-  // Prevent page scrolling behind fullscreen player overlay.
-  useEffect(() => {
-    if (!fsVisible) return;
-
-    lockScrollY.current = window.scrollY;
-    const { body } = document;
-    const prevBodyStyle = {
-      overflow: body.style.overflow,
-      position: body.style.position,
-      top: body.style.top,
-      width: body.style.width,
-    };
-
-    body.style.overflow = 'hidden';
-    body.style.position = 'fixed';
-    body.style.top = `-${lockScrollY.current}px`;
-    body.style.width = '100%';
-
-    return () => {
-      body.style.overflow = prevBodyStyle.overflow;
-      body.style.position = prevBodyStyle.position;
-      body.style.top = prevBodyStyle.top;
-      body.style.width = prevBodyStyle.width;
-      window.scrollTo(0, lockScrollY.current);
-    };
-  }, [fsVisible]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const bar = e.currentTarget;
@@ -132,18 +127,62 @@ export default function Player() {
   const qualityLabel = engineState?.actualBitrate || '';
 
   if (player.isFullscreen || fsVisible) {
+    // Swipe-down handlers for the fullscreen header area
+    const handleSwipeStart = (e: React.TouchEvent) => {
+      // Only track vertical swipes from the header/cover area
+      swipeStartY.current = e.touches[0].clientY;
+      setSwipeOffset(0);
+    };
+    const handleSwipeMove = (e: React.TouchEvent) => {
+      if (swipeStartY.current === null) return;
+      const dy = e.touches[0].clientY - swipeStartY.current;
+      if (dy > 0) {
+        setSwipeOffset(dy);
+      }
+    };
+    const handleSwipeEnd = () => {
+      if (swipeOffset > 120) {
+        toggleFullscreen(); // close
+      }
+      swipeStartY.current = null;
+      setSwipeOffset(0);
+    };
+
+    const translateY = swipeOffset > 0 ? Math.min(swipeOffset * 0.5, 80) : 0;
+    const overlayOpacity = swipeOffset > 0 ? Math.max(0.3, 1 - swipeOffset / 400) : 1;
+
     return (
       <>
       {/* Fullscreen overlay */}
       <div
         className={`fixed inset-0 z-50 transition-all duration-350 ease-out ${fsAnimating ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        style={{ backgroundImage: `url(${t.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+        style={{
+          backgroundImage: `url(${t.cover})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          touchAction: 'none',
+          overscrollBehavior: 'contain',
+        }}
+        onTouchStart={handleSwipeStart}
+        onTouchMove={handleSwipeMove}
+        onTouchEnd={handleSwipeEnd}
       >
-        <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-3xl" />
-        <div className={`relative z-10 flex flex-col h-full transition-transform duration-350 ease-out ${fsAnimating ? 'translate-y-0' : 'translate-y-full'}`}
-             style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-3xl" style={{ opacity: overlayOpacity }} />
+        <div
+          className={`relative z-10 flex flex-col h-full transition-transform duration-350 ease-out ${fsAnimating && swipeOffset === 0 ? 'translate-y-0' : !fsAnimating ? 'translate-y-full' : ''}`}
+          style={{
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            transform: swipeOffset > 0 ? `translateY(${translateY}px)` : undefined,
+            transition: swipeOffset > 0 ? 'none' : undefined,
+          }}
+        >
+          {/* Swipe indicator pill */}
+          <div className="flex justify-center pt-2 pb-0 md:hidden">
+            <div className="w-9 h-1 rounded-full bg-white/20" />
+          </div>
+
           {/* Header */}
-          <div className="flex justify-between items-center px-5 pt-3 pb-1 md:px-8 md:pt-6 shrink-0">
+          <div className="flex justify-between items-center px-5 pt-1 pb-1 md:px-8 md:pt-6 shrink-0">
             <button onClick={toggleFullscreen} className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white transition-colors -ml-2">
               <ChevronDown size={28} />
             </button>
@@ -156,11 +195,11 @@ export default function Player() {
 
           {/* Main content */}
           <div className="flex-1 flex flex-col items-center justify-center px-7 md:px-12 min-h-0 overflow-hidden"
-               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)', paddingTop: '3vh' }}>
+               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)', paddingTop: '2vh' }}>
 
             {/* Cover */}
             <div className={`w-full max-w-[72vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
-              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" draggable={false} />
             </div>
 
             {/* Title + Artist */}
@@ -175,7 +214,12 @@ export default function Player() {
 
             {/* Progress waveform */}
             <div className="w-full max-w-lg mt-5">
-              <div className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8" style={{ touchAction: 'none' }} onMouseDown={handleProgressMouseDown} onTouchStart={handleProgressTouchStart}>
+              <div
+                className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8"
+                style={{ touchAction: 'none' }}
+                onMouseDown={handleProgressMouseDown}
+                onTouchStart={(e) => { e.stopPropagation(); handleProgressTouchStart(e); }}
+              >
                 <div className="absolute inset-0 flex items-center gap-[2px] px-2.5">
                   {Array.from({ length: 60 }).map((_, i) => {
                     const h = 20 + Math.sin(i * 0.4) * 15 + Math.sin(i * 1.1) * 10 + ((i * 7) % 17) * 2;
