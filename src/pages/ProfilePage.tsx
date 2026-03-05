@@ -232,23 +232,6 @@ export default function ProfilePage() {
             )}
 
             {/* Account info */}
-            <div className="bg-white/5 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Аккаунт</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-zinc-500 text-sm">Email</span>
-                  <span className="text-white text-sm font-medium">{currentUser.email}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-zinc-500 text-sm">Роль</span>
-                  <span className="text-white text-sm font-medium">{currentUser.role === 'admin' ? 'Администратор' : 'Пользователь'}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-zinc-500 text-sm">Дата регистрации</span>
-                  <span className="text-white text-sm font-medium">{currentUser.joinedAt}</span>
-                </div>
-              </div>
-            </div>
 
             <button
               onClick={() => { logout(); navigate('/'); }}

@@ -93,7 +93,7 @@ export default function AuthModal() {
             <Music2 size={24} className="text-white" />
           </div>
           <h2 className="text-xl font-black text-white">
-            {mode === 'login' ? 'Вход в GROMKO' : 'Регистрация'}
+            {mode === 'login' ? 'Вход в GROMQ' : 'Регистрация'}
           </h2>
           <p className="text-zinc-500 text-sm mt-1">
             {mode === 'login'

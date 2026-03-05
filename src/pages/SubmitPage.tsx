@@ -198,7 +198,7 @@ export default function SubmitPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16">
-      <div className="max-w-2xl mx-auto px-4 md:px-6 py-8">
+      <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8 overflow-x-hidden">
         {/* Page header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center">
@@ -207,7 +207,7 @@ export default function SubmitPage() {
           <div>
             <h1 className="text-2xl font-black">{isAdmin ? 'Загрузить трек' : 'Предложить трек'}</h1>
             <p className="text-zinc-500 text-sm">
-              {isAdmin ? 'Прямая загрузка с обработкой' : 'Предложите музыку для GROMKO'}
+              {isAdmin ? 'Прямая загрузка с обработкой' : 'Предложите музыку для GROMQ'}
             </p>
           </div>
         </div>
@@ -283,7 +283,7 @@ export default function SubmitPage() {
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2">Аудиофайл *</label>
                 <div
-                  className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
+                  className={`relative border-2 border-dashed rounded-xl p-5 md:p-8 text-center transition-all cursor-pointer ${
                     audioFile ? 'border-green-500/50 bg-green-500/5' : 'border-white/10 hover:border-red-500/50'
                   }`}
                   onClick={() => audioInputRef.current?.click()}
@@ -334,7 +334,7 @@ export default function SubmitPage() {
                 <label className="block text-sm font-medium text-zinc-300 mb-3">Треки *</label>
                 <div className="space-y-2">
                   {albumTracks.map((track, i) => (
-                    <div key={track.id} className="flex items-center gap-2 bg-white/5 rounded-xl p-3">
+                    <div key={track.id} className="flex items-center gap-2 bg-white/5 rounded-xl p-2.5 md:p-3 overflow-hidden">
                       <span className="text-zinc-500 text-sm font-bold w-6 text-center shrink-0">{i + 1}</span>
                       <input
                         value={track.title}

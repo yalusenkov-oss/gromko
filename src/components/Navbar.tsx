@@ -57,7 +57,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-3 md:px-4 flex items-center gap-3 md:gap-4 h-14 md:h-16">
         {/* Logo */}
         <Link to="/" className="flex items-center shrink-0">
-          <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMKO</span>
+          <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMQ</span>
         </Link>
 
         {/* Desktop nav */}

@@ -79,7 +79,7 @@ export default function AdminPanel() {
       <div className="bg-zinc-900/90 backdrop-blur-xl border-b border-zinc-800 sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center gap-4">
           <Shield className="w-6 h-6 text-purple-500" />
-          <h1 className="text-lg font-bold text-white">GROMKO Admin</h1>
+          <h1 className="text-lg font-bold text-white">GROMQ Admin</h1>
           <div className="flex-1" />
           <Link to="/" className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white transition">
             <Home className="w-3.5 h-3.5" /> На сайт

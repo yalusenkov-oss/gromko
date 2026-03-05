@@ -113,7 +113,7 @@ export default function TrackPage() {
                 onClick={() => {
                   const url = `${window.location.origin}/track/${track.id}`;
                   if (navigator.share) {
-                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url });
+                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMQ 🎵`, url });
                   } else {
                     navigator.clipboard.writeText(url);
                   }

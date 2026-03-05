@@ -262,7 +262,7 @@ export default function ArtistPage() {
           <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
-          <div className="relative z-10 flex flex-col items-center pt-12 pb-32 px-4 max-w-2xl mx-auto">
+          <div className="relative z-10 flex flex-col items-center pt-12 px-4 max-w-2xl mx-auto" style={{ paddingBottom: player.currentTrack ? '100px' : '32px' }}>
             {/* Close button */}
             <button
               onClick={() => setMobileAlbum(null)}
@@ -340,6 +340,28 @@ export default function ArtistPage() {
             {/* Album stats */}
             <p className="text-zinc-600 text-xs mt-4 text-center w-full">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
           </div>
+
+          {/* Mini player bar inside album overlay */}
+          {player.currentTrack && (
+            <div className="fixed bottom-0 left-0 right-0 z-[61] bg-zinc-900/95 backdrop-blur-xl border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+              <div className="flex items-center gap-3 px-4 py-2.5 max-w-2xl mx-auto">
+                <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-10 h-10 rounded-lg object-cover" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{player.currentTrack.title}</p>
+                  <p className="text-zinc-400 text-xs truncate">{player.currentTrack.artist}</p>
+                </div>
+                <button
+                  onClick={togglePlay}
+                  className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center"
+                >
+                  {player.isPlaying
+                    ? <Pause size={16} fill="white" className="text-white" />
+                    : <Play size={16} fill="white" className="text-white ml-0.5" />
+                  }
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

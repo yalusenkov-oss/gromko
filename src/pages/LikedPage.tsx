@@ -69,8 +69,8 @@ export default function LikedPage() {
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}/liked`;
     const shareData = {
-      title: 'GROMKO — Любимое',
-      text: `🎵 Моё любимое на GROMKO (${likedTracks.length} ${pluralizeTracks(likedTracks.length)})`,
+      title: 'GROMQ — Любимое',
+      text: `🎵 Моё любимое на GROMQ (${likedTracks.length} ${pluralizeTracks(likedTracks.length)})`,
       url: shareUrl,
     };
     if (navigator.share) {
@@ -83,8 +83,8 @@ export default function LikedPage() {
   };
 
   const tabs: { key: TabKey; label: string; icon: typeof Music; count: number }[] = [
-    { key: 'tracks', label: 'Треки', icon: Music, count: likedTracks.length },
     { key: 'albums', label: 'Альбомы', icon: Disc3, count: likedAlbums.length },
+    { key: 'tracks', label: 'Треки', icon: Music, count: likedTracks.length },
     { key: 'artists', label: 'Исполнители', icon: Mic2, count: likedArtists.length },
   ];
 
@@ -122,7 +122,7 @@ export default function LikedPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex items-center justify-center gap-1 mb-6 border-b border-white/5 overflow-x-auto">
+        <div className="flex items-center gap-0 mb-6 border-b border-white/5">
           {tabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.key;
@@ -130,7 +130,7 @@ export default function LikedPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 shrink-0 ${
+                className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors border-b-2 ${
                   isActive
                     ? 'text-white border-red-500'
                     : 'text-zinc-500 border-transparent hover:text-zinc-300'

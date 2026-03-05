@@ -149,32 +149,6 @@ export default function TrackCard({ track, queue, showRank }: Props) {
                 <span className="text-white text-sm">Играть следующим</span>
               </button>
 
-              {/* Share */}
-              <button
-                onClick={() => {
-                  const url = `${window.location.origin}/track/${track.id}`;
-                  if (navigator.share) {
-                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url });
-                  } else {
-                    navigator.clipboard.writeText(url);
-                  }
-                  setShowMenu(false);
-                }}
-                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
-              >
-                <Share2 size={18} className="text-zinc-400" />
-                <span className="text-white text-sm">Поделиться</span>
-              </button>
-
-              {/* Track details */}
-              <button
-                onClick={() => { setShowMenu(false); navigate(`/track/${track.id}`); }}
-                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
-              >
-                <Info size={18} className="text-zinc-400" />
-                <span className="text-white text-sm">Подробнее</span>
-              </button>
-
               {/* Go to album */}
               {track.meta?.album && (
                 <button
@@ -182,7 +156,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
                   className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
                 >
                   <Disc3 size={18} className="text-zinc-400" />
-                  <span className="text-white text-sm">Перейти к альбому «{track.meta.album}»</span>
+                  <span className="text-white text-sm">Перейти к альбому</span>
                 </button>
               )}
 
@@ -207,6 +181,32 @@ export default function TrackCard({ track, queue, showRank }: Props) {
                   </button>
                 ))
               )}
+
+              {/* Share */}
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/track/${track.id}`;
+                  if (navigator.share) {
+                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMQ 🎵`, url });
+                  } else {
+                    navigator.clipboard.writeText(url);
+                  }
+                  setShowMenu(false);
+                }}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+              >
+                <Share2 size={18} className="text-zinc-400" />
+                <span className="text-white text-sm">Поделиться</span>
+              </button>
+
+              {/* Track details */}
+              <button
+                onClick={() => { setShowMenu(false); navigate(`/track/${track.id}`); }}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+              >
+                <Info size={18} className="text-zinc-400" />
+                <span className="text-white text-sm">Подробнее</span>
+              </button>
             </div>
           </div>
         </div>

@@ -28,7 +28,7 @@ export default function LoginPage() {
           <div className="w-14 h-14 bg-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Music2 size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-black">GROMKO</h1>
+          <h1 className="text-2xl font-black">GROMQ</h1>
           <p className="text-zinc-500 text-sm mt-1">Войдите в свой аккаунт</p>
         </div>
 
