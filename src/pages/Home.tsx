@@ -1,4 +1,4 @@
-import { useStore, GENRES, Track } from '../store';
+import { useStore, Track } from '../store';
 import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3 } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
@@ -6,15 +6,12 @@ import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 
 export default function Home() {
-  const { tracks, artists, heroTrackId, activeGenre, setActiveGenre, player, playTrack, togglePlay } = useStore();
+  const { tracks, artists, heroTrackId, player, playTrack, togglePlay } = useStore();
 
   const heroTrack = tracks.find(t => t.id === heroTrackId) || tracks[0];
   const isHeroPlaying = player.currentTrack?.id === heroTrack?.id && player.isPlaying;
 
-  const allGenres = ['Все', ...GENRES];
-
-  const filteredTracks = activeGenre === 'Все' ? tracks : tracks.filter(t => t.genre === activeGenre);
-  const popularTracks = [...filteredTracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
+  const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
 
   // Build popular albums from tracks
   const popularAlbums = useMemo(() => {
@@ -115,19 +112,6 @@ export default function Home() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-12">
-        {/* Genre filter */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {allGenres.map(g => (
-            <button
-              key={g}
-              onClick={() => setActiveGenre(g)}
-              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all ${activeGenre === g ? 'bg-red-500 text-white' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'}`}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-
         {/* Popular tracks */}
         <section>
           <div className="flex items-center justify-between mb-5">
@@ -144,7 +128,7 @@ export default function Home() {
           <div className="space-y-1 mb-8">
             {popularTracks.length > 0 ? (
               popularTracks.slice(0, 5).map((track, i) => (
-                <TrackCard key={track.id} track={track} queue={filteredTracks} showRank={i + 1} />
+                <TrackCard key={track.id} track={track} queue={tracks} showRank={i + 1} />
               ))
             ) : (
               <div className="text-center py-8">

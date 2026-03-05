@@ -10,7 +10,6 @@ import TracksPage from './pages/TracksPage';
 import TrackPage from './pages/TrackPage';
 import ArtistPage from './pages/ArtistPage';
 import ArtistsPage from './pages/ArtistsPage';
-import GenresPage from './pages/GenresPage';
 import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
 import SubmitPage from './pages/SubmitPage';
@@ -88,7 +87,6 @@ export function App() {
         <Route path="/track/:id" element={<PublicLayout><TrackPage /></PublicLayout>} />
         <Route path="/artist/:slug" element={<PublicLayout><ArtistPage /></PublicLayout>} />
         <Route path="/artists" element={<PublicLayout><ArtistsPage /></PublicLayout>} />
-        <Route path="/genres" element={<PublicLayout><GenresPage /></PublicLayout>} />
         <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
         <Route path="/profile" element={<PublicLayout><ProfilePage /></PublicLayout>} />
         <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />
