@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, MoreHorizontal } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
@@ -16,7 +16,8 @@ interface Album {
 
 export default function ArtistPage() {
   const { slug } = useParams();
-  const { artists, player, playTrack, togglePlay } = useStore();
+  const [searchParams] = useSearchParams();
+  const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
@@ -93,6 +94,15 @@ export default function ArtistPage() {
     return { albums: realAlbums, singles: singlesList.sort((a, b) => b.plays - a.plays) };
   }, [artistTracks]);
 
+  // Auto-open album from URL param (?album=Name)
+  useEffect(() => {
+    const albumParam = searchParams.get('album');
+    if (albumParam && albums.length > 0 && !mobileAlbum) {
+      const found = albums.find(a => a.name === albumParam);
+      if (found) setMobileAlbum(found);
+    }
+  }, [searchParams, albums]);
+
   if (!artist) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
       <p className="text-zinc-500">Артист не найден</p>
@@ -122,7 +132,7 @@ export default function ArtistPage() {
   const displayedTracks = showAllTracks ? [...artistTracks].sort((a, b) => b.plays - a.plays) : popularTracks;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
       {/* Banner */}
       <div className="relative h-72 md:h-96 overflow-hidden">
         {/* Blurred background — light on mobile, stronger on desktop */}
@@ -289,9 +299,17 @@ export default function ArtistPage() {
                   : <Play size={24} fill="white" className="text-white ml-1" />
                 }
               </button>
-              <button className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-                <Heart size={20} className="text-white" />
-              </button>
+              {(() => {
+                const isAlbumLiked = currentUser?.likedAlbums?.includes(mobileAlbum.name) ?? false;
+                return (
+                  <button
+                    onClick={() => toggleAlbumLike(mobileAlbum.name)}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAlbumLiked ? 'bg-red-500/20' : 'bg-white/10'}`}
+                  >
+                    <Heart size={20} className={isAlbumLiked ? 'text-red-500' : 'text-white'} fill={isAlbumLiked ? 'currentColor' : 'none'} />
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Track list */}

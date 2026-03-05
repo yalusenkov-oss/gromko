@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useStore, Track } from '../store';
-import { Play, Pause, Heart, Plus, Share2, Maximize2, Minimize2 } from 'lucide-react';
+import { Play, Pause, Heart, Share2, Maximize2, Minimize2 } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect } from 'react';
@@ -42,8 +42,8 @@ export default function TrackPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
-      {/* Full viz mode */}
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
+      {/* Full viz mode — only when this track is actually playing */}
       {isFullViz && (
         <div className="fixed inset-0 z-45 bg-black flex flex-col items-center justify-center gap-8 p-8"
           style={{ backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
@@ -57,7 +57,9 @@ export default function TrackPage() {
               <h2 className="text-3xl font-black">{track.title}</h2>
               <p className="text-zinc-400 text-lg mt-1">{track.artist}</p>
             </div>
-            <WaveformViz progress={player.progress} />
+            {isActive && (
+              <WaveformViz progress={player.progress} />
+            )}
           </div>
         </div>
       )}
@@ -107,10 +109,16 @@ export default function TrackPage() {
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isLiked ? 'bg-red-500/20 text-red-500' : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
               </button>
-              <button className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
-                <Plus size={18} />
-              </button>
-              <button className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/track/${track.id}`;
+                  if (navigator.share) {
+                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url });
+                  } else {
+                    navigator.clipboard.writeText(url);
+                  }
+                }}
+                className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
                 <Share2 size={18} />
               </button>
               <button onClick={() => setIsFullViz(true)}

@@ -502,9 +502,12 @@ class AudioEngine {
     if (!('mediaSession' in navigator) || !this.currentTrack) return;
 
     const track = this.currentTrack;
-    const coverUrl = track.cover.startsWith('http')
-      ? track.cover
-      : `${API_BASE}${track.cover}`;
+    // Build absolute cover URL — required for iOS lock screen
+    let coverUrl = track.cover;
+    if (coverUrl && !coverUrl.startsWith('http')) {
+      const base = API_BASE || window.location.origin;
+      coverUrl = `${base}${coverUrl.startsWith('/') ? '' : '/'}${coverUrl}`;
+    }
 
     // Always update metadata — ensures iOS lock screen stays in sync after track change
     navigator.mediaSession.metadata = new MediaMetadata({

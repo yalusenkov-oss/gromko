@@ -193,6 +193,7 @@ interface AppStore {
 
   player: PlayerState;
   playTrack: (track: Track, queue?: Track[]) => void;
+  queueNext: (track: Track) => void;
   togglePlay: () => void;
   nextTrack: () => void;
   prevTrack: () => void;
@@ -360,6 +361,22 @@ export const useStore = create<AppStore>((set, get) => ({
     }));
   },
   togglePlay: () => set(s => ({ player: { ...s.player, isPlaying: !s.player.isPlaying } })),
+  queueNext: (track) => {
+    const { player } = get();
+    if (!player.currentTrack) {
+      // Nothing playing — just play it
+      set(s => ({ player: { ...s.player, currentTrack: track, queue: [track], isPlaying: true, progress: 0 } }));
+      return;
+    }
+    const newQueue = [...player.queue];
+    // Remove if already in queue to avoid duplicates
+    const existIdx = newQueue.findIndex(t => t.id === track.id);
+    if (existIdx > -1) newQueue.splice(existIdx, 1);
+    // Insert right after current track
+    const insertIdx = newQueue.findIndex(t => t.id === player.currentTrack!.id);
+    newQueue.splice(insertIdx + 1, 0, track);
+    set(s => ({ player: { ...s.player, queue: newQueue } }));
+  },
   nextTrack: () => {
     const { player } = get();
     if (!player.currentTrack) return;

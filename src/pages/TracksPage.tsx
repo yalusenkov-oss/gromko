@@ -19,7 +19,7 @@ type Sort = 'new' | 'popular' | 'alpha';
 type View = 'tracks' | 'albums';
 
 export default function TracksPage() {
-  const { tracks, player, playTrack } = useStore();
+  const { tracks, player, playTrack, currentUser, toggleAlbumLike } = useStore();
   const [searchParams] = useSearchParams();
   const [sort, setSort] = useState<Sort>('popular');
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
@@ -101,7 +101,7 @@ export default function TracksPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-32">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-black">Музыка</h1>
@@ -146,10 +146,10 @@ export default function TracksPage() {
             {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
 
-          <div className="flex gap-1 bg-white/5 rounded-xl p-1">
+          <div className="flex gap-1 bg-white/5 rounded-xl p-1 w-full md:w-auto">
             {(['popular', 'new', 'alpha'] as Sort[]).map(s => (
               <button key={s} onClick={() => { setSort(s); setPage(1); }}
-                className={`px-3 py-1.5 rounded-lg text-sm transition-all ${sort === s ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}>
+                className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg text-sm transition-all ${sort === s ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}>
                 {s === 'popular' ? 'Популярные' : s === 'new' ? 'Новые' : 'А-Я'}
               </button>
             ))}
@@ -260,9 +260,17 @@ export default function TracksPage() {
                   : <Play size={24} fill="white" className="text-white ml-1" />
                 }
               </button>
-              <button className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-                <Heart size={20} className="text-white" />
-              </button>
+              {(() => {
+                const isAlbumLiked = currentUser?.likedAlbums?.includes(mobileAlbum.name) ?? false;
+                return (
+                  <button
+                    onClick={() => toggleAlbumLike(mobileAlbum.name)}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAlbumLiked ? 'bg-red-500/20' : 'bg-white/10'}`}
+                  >
+                    <Heart size={20} className={isAlbumLiked ? 'text-red-500' : 'text-white'} fill={isAlbumLiked ? 'currentColor' : 'none'} />
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Track list */}

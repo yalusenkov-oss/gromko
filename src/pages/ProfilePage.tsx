@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Send, Clock, CheckCircle, XCircle, Heart, LogOut,
   Settings, ChevronRight, Shield, Edit3, Camera, Save, X,
-  Headphones, ListMusic, BarChart3
+  ListMusic, BarChart3
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 
@@ -38,14 +38,6 @@ export default function ProfilePage() {
 
   // Listening stats
   const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id));
-  const genreMap = new Map<string, number>();
-  likedTracks.forEach(t => {
-    if (t.genre) genreMap.set(t.genre, (genreMap.get(t.genre) || 0) + 1);
-  });
-  const topGenres = [...genreMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([g]) => g);
 
   const artistMap = new Map<string, number>();
   likedTracks.forEach(t => {
@@ -99,7 +91,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-32">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
       <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
         {/* Profile header */}
         <div className="relative bg-gradient-to-br from-red-500/20 via-zinc-900 to-zinc-950 rounded-2xl p-6 md:p-8 mb-6 overflow-hidden">
@@ -157,17 +149,12 @@ export default function ProfilePage() {
         </div>
 
         {/* Listening stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-2 gap-3 mb-6">
           <Link to="/liked" className="bg-white/5 hover:bg-white/8 rounded-xl p-4 text-center transition-colors">
             <Heart size={22} className="text-red-400 mx-auto mb-2" fill="currentColor" />
             <p className="text-2xl font-bold text-white">{likedCount}</p>
             <p className="text-zinc-500 text-xs mt-0.5">Любимое</p>
           </Link>
-          <div className="bg-white/5 rounded-xl p-4 text-center">
-            <Headphones size={22} className="text-purple-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-white">{topGenres.length > 0 ? topGenres.length : '—'}</p>
-            <p className="text-zinc-500 text-xs mt-0.5">Жанров</p>
-          </div>
           <div className="bg-white/5 rounded-xl p-4 text-center">
             <ListMusic size={22} className="text-cyan-400 mx-auto mb-2" />
             <p className="text-2xl font-bold text-white">{artistMap.size > 0 ? artistMap.size : '—'}</p>
@@ -228,18 +215,6 @@ export default function ProfilePage() {
         {/* Tab content */}
         {tab === 'overview' && (
           <div className="space-y-4">
-            {/* Top genres */}
-            {topGenres.length > 0 && (
-              <div className="bg-white/5 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Любимые жанры</h3>
-                <div className="flex flex-wrap gap-2">
-                  {topGenres.map(g => (
-                    <span key={g} className="px-3 py-1.5 bg-red-500/15 text-red-300 rounded-lg text-sm font-medium">{g}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Top artists */}
             {topArtists.length > 0 && (
               <div className="bg-white/5 rounded-xl p-5">

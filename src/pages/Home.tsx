@@ -144,7 +144,7 @@ export default function Home() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {popularAlbums.map(album => (
-                  <Link key={album.name} to={`/artist/${album.artistSlug}`} className="group relative block rounded-xl overflow-hidden">
+                  <Link key={album.name} to={`/artist/${album.artistSlug}?album=${encodeURIComponent(album.name)}`} className="group relative block rounded-xl overflow-hidden">
                     <div className="aspect-square">
                       <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                     </div>
@@ -190,8 +190,6 @@ export default function Home() {
           </div>
         </section>
       </div>
-
-      <div className="pb-24" />
     </div>
   );
 }

@@ -89,7 +89,7 @@ export default function LikedPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-32">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
       <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
         {/* Header */}
         <div className="flex flex-col items-center md:flex-row md:items-end gap-5 md:gap-6 mb-8">
@@ -122,24 +122,27 @@ export default function LikedPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 mb-6 border-b border-white/5 overflow-x-auto">
+        <div className="flex items-center justify-center gap-1 mb-6 border-b border-white/5 overflow-x-auto">
           {tabs.map(tab => {
             const Icon = tab.icon;
+            const isActive = activeTab === tab.key;
             return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 shrink-0 ${
-                  activeTab === tab.key
+                  isActive
                     ? 'text-white border-red-500'
                     : 'text-zinc-500 border-transparent hover:text-zinc-300'
                 }`}
               >
                 <Icon size={16} />
-                {tab.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === tab.key ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-zinc-500'}`}>
-                  {tab.count}
-                </span>
+                {isActive && tab.label}
+                {isActive && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">
+                    {tab.count}
+                  </span>
+                )}
               </button>
             );
           })}

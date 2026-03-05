@@ -197,7 +197,7 @@ export default function SubmitPage() {
   const isUploading = status === 'uploading' || status === 'processing';
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-16 pb-24">
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
       <div className="max-w-2xl mx-auto px-4 md:px-6 py-8">
         {/* Page header */}
         <div className="flex items-center gap-3 mb-6">
@@ -224,8 +224,7 @@ export default function SubmitPage() {
                   Загрузите аудиофайл, укажите информацию об артисте и треке — заявка будет отправлена на модерацию.
                 </p>
                 <p className="text-blue-300/70">
-                  После одобрения администратором трек пройдёт обработку (транскодирование, создание HLS-потока, 
-                  генерация вейвформы) и появится на платформе.
+                  После одобрения администратором трек пройдёт обработку и появится на платформе.
                 </p>
               </div>
             </div>
