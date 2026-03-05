@@ -53,7 +53,7 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-xl border-b border-white/5">
+    <nav className="fixed top-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-xl border-b border-white/5" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       <div className="max-w-7xl mx-auto px-3 md:px-4 flex items-center gap-3 md:gap-4 h-14 md:h-16">
         {/* Logo */}
         <Link to="/" className="flex items-center shrink-0">

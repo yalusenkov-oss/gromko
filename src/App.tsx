@@ -43,7 +43,13 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Navbar />
-      <div style={{ paddingBottom: hasTrack ? 'calc(120px + env(safe-area-inset-bottom, 0px))' : 'calc(56px + env(safe-area-inset-bottom, 0px))' }} className="md:!pb-20">
+      <div
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: hasTrack ? 'calc(120px + env(safe-area-inset-bottom, 0px))' : 'calc(56px + env(safe-area-inset-bottom, 0px))',
+        }}
+        className="md:!pb-20"
+      >
         {children}
       </div>
       <Player />
