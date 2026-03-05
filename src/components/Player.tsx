@@ -194,8 +194,8 @@ export default function Player() {
           </div>
 
           {/* Main content */}
-          <div className="flex-1 flex flex-col items-center justify-center px-7 md:px-12 min-h-0 overflow-hidden"
-               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 12px) + 8px)', paddingTop: '2vh' }}>
+          <div className="flex-1 flex flex-col items-center justify-evenly px-7 md:px-12 min-h-0 overflow-hidden"
+               style={{ paddingBottom: 'env(safe-area-inset-bottom, 12px)' }}>
 
             {/* Cover */}
             <div className={`w-full max-w-[72vw] md:max-w-sm aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 transition-all duration-500 ${player.isPlaying ? 'scale-100' : 'scale-[0.92] opacity-75'}`}>
@@ -203,7 +203,7 @@ export default function Player() {
             </div>
 
             {/* Title + Artist */}
-            <div className="text-center w-full max-w-lg mt-5 mb-1">
+            <div className="text-center w-full max-w-lg mt-3 mb-0">
               <h2 className="text-[22px] md:text-3xl font-bold text-white leading-tight truncate">{t.title}</h2>
               <p className="text-white/50 text-[15px] md:text-lg mt-1 truncate">
                 {t.artists && t.artists.length > 0
@@ -213,7 +213,7 @@ export default function Player() {
             </div>
 
             {/* Progress waveform */}
-            <div className="w-full max-w-lg mt-5">
+            <div className="w-full max-w-lg mt-3">
               <div
                 className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8"
                 style={{ touchAction: 'none' }}
@@ -239,7 +239,7 @@ export default function Player() {
             </div>
 
             {/* Playback controls */}
-            <div className="flex items-center justify-center gap-8 mt-5">
+            <div className="flex items-center justify-center gap-8 mt-3">
               <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
               <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
               <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
@@ -250,7 +250,7 @@ export default function Player() {
             </div>
 
             {/* Like button */}
-            <div className="flex items-center justify-center mt-7">
+            <div className="flex items-center justify-center mt-4">
               <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
                 <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
