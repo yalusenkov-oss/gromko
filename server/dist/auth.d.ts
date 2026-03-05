@@ -14,8 +14,11 @@ export interface AuthUser {
     email: string;
     role: string;
     avatar: string | null;
+    country: string | null;
     isBlocked: boolean;
     likedTracks: string[];
+    likedAlbums: string[];
+    likedArtists: string[];
     createdAt: string;
 }
 declare global {
@@ -25,7 +28,7 @@ declare global {
         }
     }
 }
-export declare function registerUser(name: string, email: string, password: string): Promise<{
+export declare function registerUser(name: string, email: string, password: string, country?: string): Promise<{
     user: AuthUser;
     token: string;
 }>;

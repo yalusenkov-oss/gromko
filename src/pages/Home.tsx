@@ -56,13 +56,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-14">
-      {/* RF Warning Banner — fixed below navbar */}
-      <div className="bg-red-950/90 backdrop-blur-md px-4 py-1.5 flex items-center justify-center text-center">
-        <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase tracking-widest leading-tight">
-          ⚠️ САЙТ НЕ РАБОТАЕТ НА ТЕРРИТОРИИ РОССИЙСКОЙ ФЕДЕРАЦИИ
-        </span>
-      </div>
-
       {/* Hero */}
       {heroTrack && (
         <div

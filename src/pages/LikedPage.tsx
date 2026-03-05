@@ -1,4 +1,4 @@
-import { useStore, Track } from '../store';
+import { useStore } from '../store';
 import { Link } from 'react-router-dom';
 import { useEffect, useState, useMemo } from 'react';
 import TrackCard from '../components/TrackCard';
@@ -16,7 +16,7 @@ function pluralizeTracks(n: number): string {
 }
 
 export default function LikedPage() {
-  const { currentUser, tracks, artists, playTrack, fetchTracks } = useStore();
+  const { currentUser, tracks, artists, playTrack, fetchTracks, toggleAlbumLike, toggleArtistLike } = useStore();
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('tracks');
 
@@ -37,45 +37,28 @@ export default function LikedPage() {
 
   const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id));
 
-  // Build liked albums: albums where at least 1 track is liked
+  // Build album data for liked album names
   const likedAlbums = useMemo(() => {
-    const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; likedCount: number; totalTracks: number; tracks: Track[] }>();
+    if (!currentUser.likedAlbums.length) return [];
+    const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; trackCount: number; totalPlays: number }>();
     for (const t of tracks) {
       const albumName = t.meta?.album;
-      if (!albumName) continue;
+      if (!albumName || !currentUser.likedAlbums.includes(albumName)) continue;
       if (!albumMap.has(albumName)) {
-        albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, likedCount: 0, totalTracks: 0, tracks: [] });
+        albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, trackCount: 0, totalPlays: 0 });
       }
       const a = albumMap.get(albumName)!;
-      a.totalTracks++;
-      a.tracks.push(t);
-      if (currentUser.likedTracks.includes(t.id)) {
-        a.likedCount++;
-      }
+      a.trackCount++;
+      a.totalPlays += t.plays;
     }
-    return [...albumMap.values()]
-      .filter(a => a.likedCount > 0 && a.totalTracks > 1)
-      .sort((a, b) => b.likedCount - a.likedCount);
-  }, [tracks, currentUser.likedTracks]);
+    return [...albumMap.values()];
+  }, [tracks, currentUser.likedAlbums]);
 
-  // Build liked artists: artists that have at least 1 liked track
+  // Get artist objects for liked artist slugs
   const likedArtists = useMemo(() => {
-    const artistSlugs = new Set<string>();
-    for (const t of likedTracks) {
-      if (t.artists && t.artists.length > 0) {
-        t.artists.forEach(a => artistSlugs.add(a.slug));
-      } else if (t.artistSlug) {
-        artistSlugs.add(t.artistSlug);
-      }
-    }
-    return artists
-      .filter(a => artistSlugs.has(a.slug))
-      .sort((a, b) => {
-        const countA = likedTracks.filter(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug).length;
-        const countB = likedTracks.filter(t => t.artists?.some(ar => ar.slug === b.slug) || t.artistSlug === b.slug).length;
-        return countB - countA;
-      });
-  }, [likedTracks, artists]);
+    if (!currentUser.likedArtists.length) return [];
+    return artists.filter(a => currentUser.likedArtists.includes(a.slug));
+  }, [artists, currentUser.likedArtists]);
 
   const playAll = (shuffle = false) => {
     if (likedTracks.length === 0) return;
@@ -193,19 +176,24 @@ export default function LikedPage() {
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {likedAlbums.map(album => (
-                  <Link key={album.name} to={`/artist/${album.artistSlug}`} className="group relative block rounded-xl overflow-hidden">
-                    <div className="aspect-square">
-                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                    </div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                      <p className="text-white text-sm font-semibold truncate">{album.name}</p>
-                      <p className="text-zinc-400 text-xs truncate">{album.artist}</p>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">
-                        ❤️ {album.likedCount} из {album.totalTracks} {pluralizeTracks(album.totalTracks)}
-                      </p>
-                    </div>
-                  </Link>
+                  <div key={album.name} className="group relative block rounded-xl overflow-hidden">
+                    <Link to={`/artist/${album.artistSlug}`}>
+                      <div className="aspect-square">
+                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                      <div className="absolute bottom-0 left-0 right-0 p-3">
+                        <p className="text-white text-sm font-semibold truncate">{album.name}</p>
+                        <p className="text-zinc-400 text-xs truncate">{album.artist} · {album.trackCount} {pluralizeTracks(album.trackCount)}</p>
+                      </div>
+                    </Link>
+                    <button
+                      onClick={() => toggleAlbumLike(album.name)}
+                      className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-full text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      <Heart size={16} fill="currentColor" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -223,19 +211,26 @@ export default function LikedPage() {
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {likedArtists.map(artist => {
-                  const likedFromArtist = likedTracks.filter(t => t.artists?.some(a => a.slug === artist.slug) || t.artistSlug === artist.slug).length;
                   const needsFallback = !artist.photo || artist.photo.includes('default') || artist.photo.includes('placeholder');
                   const fallbackPhoto = needsFallback
                     ? tracks.find(t => t.artists?.some(a => a.slug === artist.slug) || t.artistSlug === artist.slug)?.cover
                     : null;
                   return (
-                    <Link key={artist.id} to={`/artist/${artist.slug}`} className="group flex flex-col items-center">
-                      <div className="w-28 h-28 md:w-32 md:h-32 rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
-                        <img src={fallbackPhoto || artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      </div>
-                      <p className="text-white text-sm font-medium truncate max-w-full">{artist.name}</p>
-                      <p className="text-zinc-500 text-xs">❤️ {likedFromArtist} {pluralizeTracks(likedFromArtist)} · {formatPlays(artist.totalPlays)}</p>
-                    </Link>
+                    <div key={artist.id} className="group flex flex-col items-center relative">
+                      <Link to={`/artist/${artist.slug}`} className="flex flex-col items-center">
+                        <div className="w-28 h-28 md:w-32 md:h-32 rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
+                          <img src={fallbackPhoto || artist.photo} alt={artist.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        </div>
+                        <p className="text-white text-sm font-medium truncate max-w-full">{artist.name}</p>
+                        <p className="text-zinc-500 text-xs">{formatPlays(artist.totalPlays)} прослушиваний</p>
+                      </Link>
+                      <button
+                        onClick={() => toggleArtistLike(artist.slug)}
+                        className="mt-2 flex items-center gap-1 px-3 py-1 bg-red-500/15 rounded-full text-red-400 text-xs hover:bg-red-500/25 transition-colors"
+                      >
+                        <Heart size={12} fill="currentColor" /> Убрать
+                      </button>
+                    </div>
                   );
                 })}
               </div>

@@ -30,8 +30,11 @@ export interface AuthUser {
   email: string;
   role: string;
   avatar: string | null;
+  country: string | null;
   isBlocked: boolean;
   likedTracks: string[];
+  likedAlbums: string[];
+  likedArtists: string[];
   createdAt: string;
 }
 
@@ -65,15 +68,18 @@ function formatUser(row: any): AuthUser {
     email: row.email,
     role: row.role,
     avatar: row.avatar,
+    country: row.country || null,
     isBlocked: row.is_blocked,
     likedTracks: row.liked_tracks || [],
+    likedAlbums: row.liked_albums || [],
+    likedArtists: row.liked_artists || [],
     createdAt: row.created_at,
   };
 }
 
 // ─── Auth functions ───
 
-export async function registerUser(name: string, email: string, password: string): Promise<{ user: AuthUser; token: string }> {
+export async function registerUser(name: string, email: string, password: string, country?: string): Promise<{ user: AuthUser; token: string }> {
   // Check if email taken
   const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
@@ -89,9 +95,9 @@ export async function registerUser(name: string, email: string, password: string
   const avatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=ef4444`;
 
   await execute(
-    `INSERT INTO users (id, name, email, password_hash, role, avatar)
-     VALUES ($1, $2, $3, $4, 'user', $5)`,
-    [id, name, email, passwordHash, avatar]
+    `INSERT INTO users (id, name, email, password_hash, role, avatar, country)
+     VALUES ($1, $2, $3, $4, 'user', $5, $6)`,
+    [id, name, email, passwordHash, avatar, country || null]
   );
 
   const user = await queryOne('SELECT * FROM users WHERE id = $1', [id]);

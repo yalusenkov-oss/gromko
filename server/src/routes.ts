@@ -46,11 +46,11 @@ const uploadFields = multer({
 /** POST /api/auth/register */
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, country } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Имя, email и пароль обязательны' });
     }
-    const result = await registerUser(name, email, password);
+    const result = await registerUser(name, email, password, country);
     res.status(201).json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -434,6 +434,44 @@ router.post('/tracks/:id/like', authRequired, async (req: Request, res: Response
   } else {
     await execute('UPDATE users SET liked_tracks = array_append(liked_tracks, $1) WHERE id = $2', [trackId, userId]);
     await execute('UPDATE tracks SET likes = likes + 1 WHERE id = $1', [trackId]);
+  }
+
+  res.json({ liked: !isLiked });
+});
+
+/** POST /api/albums/:name/like — toggle album like */
+router.post('/albums/:name/like', authRequired, async (req: Request, res: Response) => {
+  const albumName = decodeURIComponent(req.params.name as string);
+  const userId = req.user!.id;
+  const user = await queryOne('SELECT liked_albums FROM users WHERE id = $1', [userId]);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+  const liked: string[] = Array.isArray(user.liked_albums) ? user.liked_albums : [];
+  const isLiked = liked.includes(albumName);
+
+  if (isLiked) {
+    await execute('UPDATE users SET liked_albums = array_remove(liked_albums, $1) WHERE id = $2', [albumName, userId]);
+  } else {
+    await execute('UPDATE users SET liked_albums = array_append(liked_albums, $1) WHERE id = $2', [albumName, userId]);
+  }
+
+  res.json({ liked: !isLiked });
+});
+
+/** POST /api/artists/:slug/like — toggle artist like */
+router.post('/artists/:slug/like', authRequired, async (req: Request, res: Response) => {
+  const artistSlug = req.params.slug as string;
+  const userId = req.user!.id;
+  const user = await queryOne('SELECT liked_artists FROM users WHERE id = $1', [userId]);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+  const liked: string[] = Array.isArray(user.liked_artists) ? user.liked_artists : [];
+  const isLiked = liked.includes(artistSlug);
+
+  if (isLiked) {
+    await execute('UPDATE users SET liked_artists = array_remove(liked_artists, $1) WHERE id = $2', [artistSlug, userId]);
+  } else {
+    await execute('UPDATE users SET liked_artists = array_append(liked_artists, $1) WHERE id = $2', [artistSlug, userId]);
   }
 
   res.json({ liked: !isLiked });

@@ -68,6 +68,8 @@ export interface User {
   joinedAt: string;
   isBlocked: boolean;
   likedTracks: string[];
+  likedAlbums: string[];
+  likedArtists: string[];
 }
 
 export interface PlayerState {
@@ -110,6 +112,8 @@ function mapUser(u: any): User {
     joinedAt: u.createdAt || u.created_at || '',
     isBlocked: u.isBlocked ?? u.is_blocked ?? false,
     likedTracks: u.likedTracks || u.liked_tracks || [],
+    likedAlbums: u.likedAlbums || u.liked_albums || [],
+    likedArtists: u.likedArtists || u.liked_artists || [],
   };
 }
 
@@ -165,7 +169,7 @@ interface AppStore {
   authLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string, country?: string) => Promise<boolean>;
   restoreSession: () => Promise<void>;
   updateProfile: (data: { name?: string; avatar?: string }) => Promise<boolean>;
 
@@ -199,6 +203,8 @@ interface AppStore {
   toggleFullscreen: () => void;
 
   toggleLike: (trackId: string) => void;
+  toggleAlbumLike: (albumName: string) => void;
+  toggleArtistLike: (artistSlug: string) => void;
   addPlaylist: (title: string, trackIds: string[]) => void;
   submitTrack: (sub: Omit<Submission, 'id' | 'status' | 'createdAt'>) => void;
 
@@ -248,9 +254,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
   logout: () => { setToken(null); set({ currentUser: null }); },
 
-  register: async (name, email, password) => {
+  register: async (name, email, password, country) => {
     try {
-      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, country }) });
       setToken(data.token);
       set({ currentUser: mapUser(data.user) });
       return true;
@@ -391,6 +397,38 @@ export const useStore = create<AppStore>((set, get) => ({
         tracks: s.tracks.map(t => t.id === trackId ? { ...t, likes: t.likes + (data.liked ? 1 : -1) } : t),
       }));
     } catch (e) { console.error('toggleLike:', e); }
+  },
+
+  toggleAlbumLike: async (albumName) => {
+    const { currentUser } = get();
+    if (!currentUser) return;
+    try {
+      const data = await apiFetch(`/albums/${encodeURIComponent(albumName)}/like`, { method: 'POST' });
+      set(s => ({
+        currentUser: s.currentUser ? {
+          ...s.currentUser,
+          likedAlbums: data.liked
+            ? [...s.currentUser.likedAlbums, albumName]
+            : s.currentUser.likedAlbums.filter((n: string) => n !== albumName),
+        } : null,
+      }));
+    } catch (e) { console.error('toggleAlbumLike:', e); }
+  },
+
+  toggleArtistLike: async (artistSlug) => {
+    const { currentUser } = get();
+    if (!currentUser) return;
+    try {
+      const data = await apiFetch(`/artists/${artistSlug}/like`, { method: 'POST' });
+      set(s => ({
+        currentUser: s.currentUser ? {
+          ...s.currentUser,
+          likedArtists: data.liked
+            ? [...s.currentUser.likedArtists, artistSlug]
+            : s.currentUser.likedArtists.filter((sl: string) => sl !== artistSlug),
+        } : null,
+      }));
+    } catch (e) { console.error('toggleArtistLike:', e); }
   },
 
   addPlaylist: (title, trackIds) => {

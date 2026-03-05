@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { X, Music2 } from 'lucide-react';
+import { X, Music2, AlertTriangle } from 'lucide-react';
+
+const COUNTRIES = [
+  'Украина', 'Казахстан', 'Беларусь', 'Узбекистан', 'Кыргызстан',
+  'Грузия', 'Армения', 'Азербайджан', 'Молдова', 'Таджикистан', 'Туркменистан',
+  'Латвия', 'Литва', 'Эстония', 'Польша', 'Германия', 'Чехия', 'Турция',
+  'США', 'Великобритания', 'Канада', 'Франция', 'Другое',
+];
 
 export default function AuthModal() {
   const { authModal, closeAuthModal, login, register } = useStore();
@@ -8,6 +15,7 @@ export default function AuthModal() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [country, setCountry] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -18,6 +26,7 @@ export default function AuthModal() {
       setName('');
       setEmail('');
       setPassword('');
+      setCountry('');
     }
   }, [authModal]);
 
@@ -43,7 +52,12 @@ export default function AuthModal() {
       ok = await login(email, password);
       if (!ok) setError('Неверный email или пароль');
     } else {
-      ok = await register(name, email, password);
+      if (!country) {
+        setError('Выберите страну');
+        setLoading(false);
+        return;
+      }
+      ok = await register(name, email, password, country);
       if (!ok) setError('Ошибка регистрации. Возможно, email уже занят.');
     }
 
@@ -91,13 +105,35 @@ export default function AuthModal() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3">
           {mode === 'register' && (
-            <input
-              required
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-              placeholder="Ваше имя"
-            />
+            <>
+              <input
+                required
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                placeholder="Ваше имя"
+              />
+              <div className="relative">
+                <select
+                  required
+                  value={country}
+                  onChange={e => setCountry(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500/50 transition-colors appearance-none"
+                >
+                  <option value="" disabled className="bg-zinc-900 text-zinc-500">Страна</option>
+                  {COUNTRIES.map(c => (
+                    <option key={c} value={c} className="bg-zinc-900 text-white">{c}</option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500 text-xs">▼</div>
+              </div>
+              <div className="flex items-start gap-2 bg-red-950/40 border border-red-500/20 rounded-xl px-3 py-2">
+                <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                <p className="text-red-400/80 text-[11px] leading-tight">
+                  Сервис не работает на территории Российской Федерации. Регистрация из РФ недоступна.
+                </p>
+              </div>
+            </>
           )}
           <input
             type="email"

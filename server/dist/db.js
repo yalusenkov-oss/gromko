@@ -153,8 +153,11 @@ export async function initSchema() {
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
         avatar TEXT,
+        country TEXT,
         is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
         liked_tracks TEXT[] NOT NULL DEFAULT '{}',
+        liked_albums TEXT[] NOT NULL DEFAULT '{}',
+        liked_artists TEXT[] NOT NULL DEFAULT '{}',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE TABLE IF NOT EXISTS submissions (
@@ -204,6 +207,10 @@ export async function initSchema() {
     `);
         // Migration: add banner column if missing
         await client.query(`ALTER TABLE artists ADD COLUMN IF NOT EXISTS banner TEXT`);
+        // Migration: add liked_albums, liked_artists, country columns
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_albums TEXT[] NOT NULL DEFAULT '{}'`);
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_artists TEXT[] NOT NULL DEFAULT '{}'`);
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
         console.log('  ✅ Database schema initialized');
     }
     finally {
