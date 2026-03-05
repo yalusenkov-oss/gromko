@@ -215,7 +215,7 @@ export default function Player() {
             {/* Progress waveform */}
             <div className="w-full max-w-lg mt-3">
               <div
-                className="relative h-12 rounded-xl overflow-hidden cursor-pointer bg-white/8"
+                className="relative h-16 rounded-xl overflow-hidden cursor-pointer bg-white/8"
                 style={{ touchAction: 'none' }}
                 onMouseDown={handleProgressMouseDown}
                 onTouchStart={(e) => { e.stopPropagation(); handleProgressTouchStart(e); }}
