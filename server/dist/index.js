@@ -17,6 +17,7 @@ import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
 import routes from './routes.js';
+import { slugify } from './slugify.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -159,6 +160,10 @@ if (IS_PROD && fs.existsSync(FRONTEND_DIR)) {
     });
 }
 else {
+    // Dev mode: redirect root to Vite dev server, return hint for other routes
+    app.get('/', (_req, res) => {
+        res.redirect('http://localhost:5173');
+    });
     app.use((_req, res) => {
         res.status(404).json({ error: 'Not found', hint: 'This is the GROMKO API server. Frontend is served by Vite on port 5173.' });
     });
@@ -205,6 +210,23 @@ async function recalcArtistStats() {
             }
         }
         console.log('  ✅ Genres normalized');
+        // Step 0.5: Fix broken slugs (re-transliterate from artist name)
+        const allArtists = await query('SELECT id, name, slug FROM artists');
+        let slugsFixed = 0;
+        for (const a of allArtists) {
+            const correctSlug = slugify(a.name);
+            if (correctSlug && correctSlug !== a.slug) {
+                // Check no collision
+                const collision = await queryOne('SELECT id FROM artists WHERE slug = $1 AND id != $2', [correctSlug, a.id]);
+                if (!collision) {
+                    await execute('UPDATE artists SET slug = $1 WHERE id = $2', [correctSlug, a.id]);
+                    await execute('UPDATE tracks SET artist_slug = $1 WHERE artist_slug = $2', [correctSlug, a.slug]);
+                    slugsFixed++;
+                }
+            }
+        }
+        if (slugsFixed > 0)
+            console.log(`  🔧 Fixed ${slugsFixed} artist slugs`);
         // Step 1: Clean up combined-name artists (feat/ft/&/comma)
         const combinedArtists = await query(`SELECT id, name, slug, genre FROM artists WHERE name ~* '\\s+(feat\\.?|ft\\.?)\\s+' OR name LIKE '%,%' OR name ~ '\\s+&\\s+'`);
         let cleaned = 0;
@@ -218,7 +240,7 @@ async function recalcArtistStats() {
             for (const link of links) {
                 for (let i = 0; i < names.length; i++) {
                     const aName = names[i];
-                    const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                    const aSlug = slugify(aName);
                     let existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
                     let artistId;
                     if (existing) {
@@ -232,7 +254,7 @@ async function recalcArtistStats() {
                 }
             }
             // Update tracks that reference the combined artist_slug
-            const primarySlug = names[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            const primarySlug = slugify(names[0]);
             await execute('UPDATE tracks SET artist_slug = $1 WHERE artist_slug = $2', [primarySlug, ca.slug]);
             // Delete old links and the combined artist
             await execute('DELETE FROM track_artists WHERE artist_id = $1', [ca.id]);

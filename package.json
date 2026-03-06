@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build && cd server && npm ci && npx tsc",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server/dist/index.js",
     "start:server": "NODE_ENV=production node server/dist/index.js"

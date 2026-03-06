@@ -45,6 +45,7 @@ import { query, queryOne, execute, initSchema, closeDb } from './db.js';
 import { ensureDirs, PATHS } from './config.js';
 import { processTrack, extractMetadata } from './audio-processor.js';
 import { parseArtistNames } from './parse-artists.js';
+import { slugify } from './slugify.js';
 // ─── S3 Config ───
 const S3_ENDPOINT = (process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net').trim();
 const S3_REGION = (process.env.S3_REGION || 'ru-central1').trim();
@@ -95,26 +96,6 @@ const stats = {
     startTime: Date.now(),
 };
 // ─── Helpers ───
-function slugify(str) {
-    return str
-        .toLowerCase()
-        .replace(/[ёе]/g, 'e')
-        .replace(/[а-яА-Я]/g, (ch) => {
-        const map = {
-            'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh',
-            'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
-            'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
-            'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh',
-            'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu',
-            'я': 'ya',
-        };
-        return map[ch] || ch;
-    })
-        .replace(/\s+/g, '-')
-        .replace(/[^\w-]/g, '')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-}
 function formatBytes(bytes) {
     if (bytes < 1024)
         return bytes + ' B';

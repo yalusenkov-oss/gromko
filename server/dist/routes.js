@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { v4 as uuid } from 'uuid';
+import { slugify } from './slugify.js';
 import { query, queryOne, execute } from './db.js';
 import { CONFIG, PATHS, trackHlsDir } from './config.js';
 import { enqueueTrack, extractMetadata, getQueueStatus } from './audio-processor.js';
@@ -329,7 +330,7 @@ router.post('/tracks/upload', adminRequired, (req, res) => {
             // Multi-artist: split by ", " / "feat." / "ft." / "&" and ensure each artist exists
             const artistNames = parseArtistNames(artist);
             const primaryName = artistNames[0] || artist;
-            const slug = primaryName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            const slug = slugify(primaryName);
             await execute(`
         INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
                            original_filename, original_format, original_size, original_bitrate,
@@ -344,7 +345,7 @@ router.post('/tracks/upload', adminRequired, (req, res) => {
             // Create artists and link via junction table
             for (let i = 0; i < artistNames.length; i++) {
                 const aName = artistNames[i];
-                const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                const aSlug = slugify(aName);
                 const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
                 let artistId;
                 if (existing) {
@@ -541,6 +542,38 @@ router.get('/admin/stats', adminRequired, async (_req, res) => {
         queue: getQueueStatus(),
     });
 });
+/** GET /api/admin/settings — get site settings */
+router.get('/admin/settings', adminRequired, async (_req, res) => {
+    const rows = await query('SELECT key, value FROM site_settings');
+    const settings = {};
+    for (const r of rows)
+        settings[r.key] = r.value;
+    res.json(settings);
+});
+/** PUT /api/admin/settings — update site settings */
+router.put('/admin/settings', adminRequired, async (req, res) => {
+    const entries = Object.entries(req.body);
+    for (const [key, value] of entries) {
+        await execute(`INSERT INTO site_settings (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = $2`, [key, String(value)]);
+    }
+    // If hero_mode changed to "auto", apply auto-hero immediately
+    if (req.body.hero_mode === 'auto') {
+        const top = await queryOne(`
+      SELECT track_id, COUNT(*) as cnt
+      FROM play_history
+      WHERE played_at > NOW() - INTERVAL '24 hours'
+      GROUP BY track_id
+      ORDER BY cnt DESC
+      LIMIT 1
+    `);
+        if (top) {
+            await execute('UPDATE tracks SET featured = FALSE WHERE featured = TRUE');
+            await execute('UPDATE tracks SET featured = TRUE WHERE id = $1', [top.track_id]);
+        }
+    }
+    res.json({ ok: true });
+});
 /** GET /api/admin/users */
 router.get('/admin/users', adminRequired, async (_req, res) => {
     const users = await query(`
@@ -569,6 +602,20 @@ router.put('/admin/users/:id/role', adminRequired, async (req, res) => {
         return res.status(400).json({ error: 'Недопустимая роль' });
     await execute('UPDATE users SET role = $1 WHERE id = $2', [role, req.params.id]);
     res.json({ ok: true });
+});
+router.delete('/admin/users/:id', adminRequired, async (req, res) => {
+    const userId = req.params.id;
+    try {
+        await execute('DELETE FROM play_history WHERE user_id = $1', [userId]);
+        await execute('DELETE FROM submissions WHERE user_id = $1', [userId]);
+        await execute('DELETE FROM playlists WHERE user_id = $1', [userId]);
+        await execute('DELETE FROM users WHERE id = $1', [userId]);
+        res.json({ ok: true });
+    }
+    catch (e) {
+        console.error('deleteUser:', e);
+        res.status(500).json({ error: 'Не удалось удалить пользователя' });
+    }
 });
 /** PUT /api/admin/tracks/:id — edit track metadata */
 router.put('/admin/tracks/:id', adminRequired, async (req, res) => {
@@ -902,7 +949,7 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
         const trackId = uuid();
         const artist = sub.artist;
         const artistNames = parseArtistNames(artist);
-        const primarySlug = artistNames[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+        const primarySlug = slugify(artistNames[0]);
         const albumName = sub.album_name || null;
         await execute(`
       INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
@@ -917,7 +964,7 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
         // Create artists & link
         for (let i = 0; i < artistNames.length; i++) {
             const aName = artistNames[i];
-            const aSlug = aName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            const aSlug = slugify(aName);
             const existing = await queryOne('SELECT id FROM artists WHERE slug = $1', [aSlug]);
             let artistId;
             if (existing) {

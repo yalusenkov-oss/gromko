@@ -205,6 +205,13 @@ export async function initSchema() {
       CREATE INDEX IF NOT EXISTS idx_play_history_user ON play_history(user_id);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `);
+        // Migration: site_settings table
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
         // Migration: add banner column if missing
         await client.query(`ALTER TABLE artists ADD COLUMN IF NOT EXISTS banner TEXT`);
         // Migration: add liked_albums, liked_artists, country columns
