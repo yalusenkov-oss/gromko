@@ -182,7 +182,7 @@ function printProgress() {
 
   process.stdout.write(
     `\r  [${bar}] ${percent}%  ${done}/${total}  ` +
-    `✅ ${stats.processed}  ❌ ${stats.errors}  ` +
+    `✅ ${stats.processed}  ⏭ ${stats.skipped}  ❌ ${stats.errors}  ` +
     `📥 ${formatBytes(stats.totalBytes)}  ` +
     `⏱ ${formatTime(elapsed)}  ` +
     (done > 0 && done < total ? `≈ ${formatTime(remaining)} осталось  ` : '') +
@@ -539,9 +539,15 @@ async function importSingleTrack(
 
 async function processPool(tracks: S3Track[], existingFiles: Set<string>) {
   let cursor = 0;
+  let limitReached = false;
 
   async function worker(workerId: number) {
-    while (cursor < tracks.length) {
+    while (cursor < tracks.length && !limitReached) {
+      // Check if we've reached the import limit (successful imports only)
+      if (IMPORT_LIMIT > 0 && stats.processed >= IMPORT_LIMIT) {
+        limitReached = true;
+        break;
+      }
       const idx = cursor++;
       if (idx >= tracks.length) break;
       await importSingleTrack(tracks[idx], existingFiles);
@@ -553,6 +559,10 @@ async function processPool(tracks: S3Track[], existingFiles: Set<string>) {
     workers.push(worker(i));
   }
   await Promise.all(workers);
+
+  if (limitReached) {
+    console.log(`\n  ✅ Достигнут лимит: ${stats.processed} треков успешно импортировано`);
+  }
 }
 
 // ─── Main ───
@@ -659,10 +669,10 @@ async function main() {
     console.log(`  🔀 Порядок перемешан (${tracksToImport.length} треков)`);
   }
 
-  // Apply limit
-  if (IMPORT_LIMIT > 0 && tracksToImport.length > IMPORT_LIMIT) {
-    console.log(`  ✂️  Лимит: берём ${IMPORT_LIMIT} из ${tracksToImport.length}`);
-    tracksToImport = tracksToImport.slice(0, IMPORT_LIMIT);
+  // Apply limit — don't slice, let processPool stop when enough tracks are processed
+  // This way skipped tracks don't count against the limit
+  if (IMPORT_LIMIT > 0) {
+    console.log(`  📊 Лимит: ${IMPORT_LIMIT} успешно обработанных треков`);
   }
 
   if (tracksToImport.length === 0) {
@@ -671,9 +681,9 @@ async function main() {
   }
 
   const importSize = tracksToImport.reduce((sum, t) => sum + t.size, 0);
-  console.log(`  🚀 Импорт: ${tracksToImport.length} треков (${formatBytes(importSize)}, ${MAX_WORKERS} потоков)\n`);
+  console.log(`  🚀 Импорт: до ${IMPORT_LIMIT > 0 ? IMPORT_LIMIT : tracksToImport.length} треков из ${tracksToImport.length} доступных (${formatBytes(importSize)}, ${MAX_WORKERS} потоков)\n`);
 
-  stats.queued = 0; // will be incremented as tracks are queued
+  stats.queued = IMPORT_LIMIT > 0 ? IMPORT_LIMIT : tracksToImport.length;
   stats.startTime = Date.now();
 
   // ── Step 4: Process in parallel ──

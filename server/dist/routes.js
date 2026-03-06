@@ -444,7 +444,15 @@ router.post('/artists/:slug/like', authRequired, async (req, res) => {
 // ARTISTS
 // ═══════════════════════════════════════════════
 router.get('/artists', async (_req, res) => {
-    const artists = await query('SELECT * FROM artists ORDER BY total_plays DESC');
+    const artists = await query(`
+    SELECT a.*,
+      (SELECT COUNT(DISTINCT t.id) FROM tracks t
+       LEFT JOIN track_artists ta ON ta.track_id = t.id
+       WHERE (ta.artist_id = a.id OR t.artist_slug = a.slug)
+         AND t.status = 'ready'
+      ) AS tracks_count
+    FROM artists a ORDER BY a.total_plays DESC
+  `);
     res.json(artists.map(formatArtistRow));
 });
 router.get('/artists/:slug', async (req, res) => {
