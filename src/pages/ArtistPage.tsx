@@ -3,7 +3,7 @@ import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, Share2 } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
 import TrackCard from '../components/TrackCard';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { apiUrl } from '../lib/api';
 
 interface Album {
@@ -22,7 +22,13 @@ export default function ArtistPage() {
   const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
+
+  // Check if we came from context menu "Go to album" — should open album overlay immediately
+  const openAlbumFromNavRef = useRef(!!(location.state as any)?.openAlbum);
+  const albumParam = searchParams.get('album');
+  const passedAlbumData = (location.state as any)?.albumData as Album | undefined;
+
+  const [mobileAlbum, setMobileAlbum] = useState<Album | null>(passedAlbumData ?? null);
 
   // Lock body scroll when album overlay is open
   useEffect(() => {
@@ -44,20 +50,14 @@ export default function ArtistPage() {
     }
   }, [mobileAlbum]);
 
-  // Check if we came from context menu "Go to album" — should open album overlay immediately
-  const openAlbumFromNav = !!(location.state as any)?.openAlbum;
-  const albumParam = searchParams.get('album');
-  const passedAlbumData = (location.state as any)?.albumData as Album | undefined;
-
   const artist = artists.find(a => a.slug === slug);
 
-  // If album data was passed via navigation state, open overlay immediately
+  // Clear location.state after consuming albumData so back-navigation won't flash it
   useEffect(() => {
-    if (passedAlbumData && !mobileAlbum) {
-      setMobileAlbum(passedAlbumData);
-      setAlbumLoading(false);
+    if (passedAlbumData) {
+      window.history.replaceState({}, '');
     }
-  }, [passedAlbumData]);
+  }, []);
 
   // Fetch tracks directly from API for this artist (includes meta.album)
   useEffect(() => {
@@ -324,7 +324,7 @@ export default function ArtistPage() {
             {/* Close button — go back if navigated from context menu, else just close overlay */}
             <button
               onClick={() => {
-                if (openAlbumFromNav) {
+                if (openAlbumFromNavRef.current) {
                   navigate(-1);
                 } else {
                   setMobileAlbum(null);
