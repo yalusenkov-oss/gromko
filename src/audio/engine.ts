@@ -79,6 +79,8 @@ class AudioEngine {
   private listeners: Set<EngineListener> = new Set();
   private animFrameId: number | null = null;
   private networkMonitorId: ReturnType<typeof setInterval> | null = null;
+  private _lastMediaSessionTrackId: string | null = null; // track metadata dedup
+  private _positionSyncInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.audio = new Audio();
@@ -108,7 +110,7 @@ class AudioEngine {
     this.currentTrack = track;
     this._state = 'loading';
     this.notify();
-    this.updateMediaSession();
+    this.updateMediaSessionMetadata(); // update track info for lock screen
 
     const url = this.getStreamUrl(track);
     this.setCrossOrigin(this.audio, url);
@@ -138,14 +140,14 @@ class AudioEngine {
   /** Pause */
   pause(): void {
     this.audio.pause();
-    this.updateMediaSession();
+    // playbackState sync happens via audio 'pause' event
   }
 
   /** Resume */
   resume(): void {
     if (this.currentTrack) {
       this.audio.play().catch(() => {});
-      this.updateMediaSession();
+      // playbackState sync happens via audio 'play' event
     }
   }
 
@@ -307,6 +309,7 @@ class AudioEngine {
     this.audio.src = '';
     if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
     if (this.networkMonitorId) clearInterval(this.networkMonitorId);
+    if (this._positionSyncInterval) clearInterval(this._positionSyncInterval);
     this.audioContext?.close();
     this.listeners.clear();
   }
@@ -401,7 +404,9 @@ class AudioEngine {
       this._state = 'playing';
       this.startProgressLoop();
       this.notify();
-      this.updateMediaSession();
+      // Media Session: sync playback state from real audio event
+      this.syncPlaybackState();
+      this.syncPositionState();
     });
 
     this.audio.addEventListener('pause', () => {
@@ -410,7 +415,9 @@ class AudioEngine {
       }
       this.stopProgressLoop();
       this.notify();
-      this.updateMediaSession();
+      // Media Session: sync playback state from real audio event
+      this.syncPlaybackState();
+      this.syncPositionState();
     });
 
     this.audio.addEventListener('waiting', () => {
@@ -427,6 +434,8 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('ended', () => {
+      // Media Session: explicitly set paused before advancing
+      this.syncPlaybackState();
       if (this.repeat === 'one') {
         this.audio.currentTime = 0;
         this.audio.play().catch(() => {});
@@ -479,6 +488,13 @@ class AudioEngine {
 
     this.audio.addEventListener('loadedmetadata', () => {
       this.notify();
+      // Media Session: sync position once duration is known
+      this.syncPositionState();
+    });
+
+    this.audio.addEventListener('seeked', () => {
+      // Media Session: sync position after user seeks
+      this.syncPositionState();
     });
 
     this.audio.addEventListener('timeupdate', () => {
@@ -492,21 +508,23 @@ class AudioEngine {
   private setupMediaSession(): void {
     if (!('mediaSession' in navigator)) return;
 
+    // Register action handlers
     navigator.mediaSession.setActionHandler('play', () => this.resume());
     navigator.mediaSession.setActionHandler('pause', () => this.pause());
     navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
     navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
 
-    // IMPORTANT: Do NOT set seekbackward/seekforward handlers.
-    // On iOS/Safari, when these handlers are set, the lock screen replaces
-    // the skip track buttons (⏮ ⏭) with seek buttons (↻10 ↺10).
-    // By leaving them unset, iOS shows the default prev/next track buttons.
+    // Explicitly remove seek±10s handlers so iOS shows ⏮/⏭ instead of ↻10/↺10
+    try { navigator.mediaSession.setActionHandler('seekbackward', null); } catch { /* unsupported */ }
+    try { navigator.mediaSession.setActionHandler('seekforward', null); } catch { /* unsupported */ }
 
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime !== undefined) {
         this.seekTo(details.seekTime);
+        this.syncPositionState();
       }
     });
+
     // Stop handler for iOS
     try {
       navigator.mediaSession.setActionHandler('stop', () => {
@@ -514,14 +532,30 @@ class AudioEngine {
         this.audio.currentTime = 0;
         this._state = 'idle';
         this.notify();
+        this.syncPlaybackState();
       });
     } catch {
       // Not supported everywhere
     }
+
+    // Periodic position sync (once per second, not on every frame)
+    this._positionSyncInterval = setInterval(() => {
+      if (!this.audio.paused && this.currentTrack) {
+        this.syncPositionState();
+      }
+    }, 1000);
   }
 
-  private updateMediaSession(): void {
+  /**
+   * Update Media Session metadata — only when track changes.
+   * Called from play() when a new track starts.
+   */
+  private updateMediaSessionMetadata(): void {
     if (!('mediaSession' in navigator) || !this.currentTrack) return;
+
+    // Skip if same track (avoid re-creating MediaMetadata constantly)
+    if (this._lastMediaSessionTrackId === this.currentTrack.id) return;
+    this._lastMediaSessionTrackId = this.currentTrack.id;
 
     const track = this.currentTrack;
     // Build absolute cover URL — required for iOS lock screen
@@ -531,31 +565,43 @@ class AudioEngine {
       coverUrl = `${base}${coverUrl.startsWith('/') ? '' : '/'}${coverUrl}`;
     }
 
-    // Always update metadata — ensures iOS lock screen stays in sync after track change
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist,
-      artwork: [
+      artwork: coverUrl ? [
         { src: coverUrl, sizes: '96x96', type: 'image/webp' },
         { src: coverUrl, sizes: '256x256', type: 'image/webp' },
         { src: coverUrl, sizes: '512x512', type: 'image/webp' },
-      ],
+      ] : [],
     });
+  }
 
-    // Set playback state explicitly for iOS
-    navigator.mediaSession.playbackState = this._state === 'playing' ? 'playing' : 'paused';
+  /**
+   * Sync playbackState with real audio element — source of truth is audio.paused.
+   * Called from audio 'play', 'pause', 'ended' events.
+   */
+  private syncPlaybackState(): void {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = this.audio.paused ? 'paused' : 'playing';
+  }
 
-    // Update position state for OS scrubber
-    if (this.audio.duration && !isNaN(this.audio.duration) && this.audio.duration > 0) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: this.audio.duration,
-          playbackRate: this.audio.playbackRate,
-          position: Math.min(this.audio.currentTime, this.audio.duration),
-        });
-      } catch {
-        // position > duration can throw on some browsers
-      }
+  /**
+   * Sync position state for OS scrubber / lock screen progress bar.
+   * Called from audio events + periodic interval.
+   */
+  private syncPositionState(): void {
+    if (!('mediaSession' in navigator)) return;
+    if (typeof navigator.mediaSession.setPositionState !== 'function') return;
+    if (!this.audio.duration || !Number.isFinite(this.audio.duration) || this.audio.duration <= 0) return;
+
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: this.audio.duration,
+        playbackRate: this.audio.playbackRate || 1,
+        position: Math.min(Math.max(0, this.audio.currentTime), this.audio.duration),
+      });
+    } catch {
+      // position > duration can throw on some browsers
     }
   }
 
@@ -603,7 +649,6 @@ class AudioEngine {
     this.stopProgressLoop();
     const tick = () => {
       this.notify();
-      this.updateMediaSession();
       this.animFrameId = requestAnimationFrame(tick);
     };
     this.animFrameId = requestAnimationFrame(tick);
