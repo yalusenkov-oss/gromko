@@ -1,6 +1,6 @@
 /**
  * Utility to split an artist string into individual artist names.
- * Handles: commas, "feat.", "feat", "ft.", "ft", "&", "and"
+ * Handles: commas, "feat.", "feat", "ft.", "ft", "&", "and", "x"
  *
  * Examples:
  *   "Artist1, Artist2"           → ["Artist1", "Artist2"]
@@ -9,6 +9,7 @@
  *   "Artist1 ft. Artist2"        → ["Artist1", "Artist2"]
  *   "Artist1 ft Artist2"         → ["Artist1", "Artist2"]
  *   "Artist1 & Artist2"          → ["Artist1", "Artist2"]
+ *   "Artist1 x Artist2"          → ["Artist1", "Artist2"]
  *   "Artist1 feat. Artist2, Artist3" → ["Artist1", "Artist2", "Artist3"]
  */
 export declare function parseArtistNames(artistString: string): string[];

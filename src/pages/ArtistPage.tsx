@@ -22,6 +22,7 @@ export default function ArtistPage() {
   const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
+  const [tracksLoaded, setTracksLoaded] = useState(false);
 
   // Check if we came from context menu "Go to album" — should open album overlay immediately
   const openAlbumFromNavRef = useRef(!!(location.state as any)?.openAlbum);
@@ -62,12 +63,15 @@ export default function ArtistPage() {
   // Fetch tracks directly from API for this artist (includes meta.album)
   useEffect(() => {
     if (!slug) return;
+    setTracksLoaded(false);
+    setArtistTracks([]);
     fetch(apiUrl(`/artists/${slug}`))
       .then(r => r.json())
       .then(data => {
         if (data.tracks) setArtistTracks(data.tracks);
+        setTracksLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => setTracksLoaded(true));
   }, [slug]);
 
   // Top 5 popular tracks (sorted by plays)
@@ -146,15 +150,34 @@ export default function ArtistPage() {
   }, [albumParam, albums, artistTracks]);
 
   if (!artist) return (
-    <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
-      {albumParam ? (
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-red-500 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-zinc-500">Загрузка...</p>
+    <div className="min-h-screen bg-zinc-950 text-white pt-16">
+      {/* Skeleton loading */}
+      <div className="relative h-72 md:h-96 overflow-hidden">
+        <div className="absolute inset-0 bg-zinc-900 animate-pulse" />
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/50 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 max-w-5xl mx-auto flex items-end gap-6">
+          <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-zinc-800 animate-pulse border-4 border-zinc-950" />
+          <div className="space-y-2">
+            <div className="h-3 w-16 bg-zinc-800 rounded animate-pulse" />
+            <div className="h-8 w-48 bg-zinc-800 rounded animate-pulse" />
+            <div className="h-3 w-32 bg-zinc-800 rounded animate-pulse" />
+          </div>
         </div>
-      ) : (
-        <p className="text-zinc-500">Артист не найден</p>
-      )}
+      </div>
+      <div className="max-w-5xl mx-auto px-4 md:px-6 py-8 space-y-6">
+        <div className="h-12 w-40 bg-zinc-800/50 rounded-full animate-pulse" />
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+              <div className="w-12 h-12 rounded-lg bg-zinc-800 animate-pulse" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-40 bg-zinc-800 rounded animate-pulse" />
+                <div className="h-3 w-24 bg-zinc-800/60 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -231,7 +254,20 @@ export default function ArtistPage() {
               <h2 className="text-lg font-bold">{showAllTracks ? `Все треки (${artistTracks.length})` : 'Популярные треки'}</h2>
             </div>
           </div>
-          {artistTracks.length === 0 ? (
+          {!tracksLoaded ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
+                  <span className="text-zinc-800 text-sm w-5 text-center shrink-0">{i}</span>
+                  <div className="w-12 h-12 rounded-lg bg-zinc-800/50 animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-40 bg-zinc-800/50 rounded animate-pulse" />
+                    <div className="h-3 w-24 bg-zinc-800/30 rounded animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : artistTracks.length === 0 ? (
             <p className="text-zinc-600">У артиста пока нет треков</p>
           ) : (
             <>
@@ -255,7 +291,23 @@ export default function ArtistPage() {
         </section>
 
         {/* Albums */}
-        {albums.length > 0 && (
+        {!tracksLoaded ? (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Disc3 size={18} className="text-zinc-700" />
+              <div className="h-5 w-32 bg-zinc-800/50 rounded animate-pulse" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i}>
+                  <div className="aspect-square rounded-xl bg-zinc-800/50 animate-pulse mb-2" />
+                  <div className="h-4 w-24 bg-zinc-800/50 rounded animate-pulse mb-1" />
+                  <div className="h-3 w-16 bg-zinc-800/30 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : albums.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Disc3 size={18} className="text-red-400" />
