@@ -111,6 +111,8 @@ class AudioEngine {
     this._state = 'loading';
     this.notify();
     this.updateMediaSessionMetadata(); // update track info for lock screen
+    // NOTE: don't call syncPlaybackState() here — audio.paused is still true.
+    // The 'play' audio event will sync it once playback actually starts.
 
     const url = this.getStreamUrl(track);
     this.setCrossOrigin(this.audio, url);
@@ -120,6 +122,7 @@ class AudioEngine {
       // Autoplay blocked by browser — expected, user needs to click
       this._state = 'paused';
       this.notify();
+      this.syncPlaybackState();
     });
 
     // Preload next track
@@ -342,8 +345,10 @@ class AudioEngine {
 
   /**
    * Set crossOrigin only for cross-origin (S3/CDN) URLs.
-   * For same-origin audio files, crossOrigin must be null to avoid
+   * For same-origin audio files, crossOrigin must be removed entirely to avoid
    * unnecessary CORS preflight which can break some proxy/CDN setups.
+   * CRITICAL: On iOS Safari, crossOrigin='' is interpreted as 'anonymous',
+   * so we must use removeAttribute() for same-origin.
    */
   private setCrossOrigin(audio: HTMLAudioElement, url: string): void {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -358,8 +363,8 @@ class AudioEngine {
         // invalid URL — treat as same-origin
       }
     }
-    // Same-origin — remove crossOrigin to avoid CORS issues
-    audio.crossOrigin = '';
+    // Same-origin — fully remove crossOrigin attribute
+    audio.removeAttribute('crossorigin');
   }
 
   private autoSelectQuality(): 'low' | 'medium' | 'high' {
@@ -508,24 +513,36 @@ class AudioEngine {
   private setupMediaSession(): void {
     if (!('mediaSession' in navigator)) return;
 
-    // Register action handlers
-    navigator.mediaSession.setActionHandler('play', () => this.resume());
-    navigator.mediaSession.setActionHandler('pause', () => this.pause());
-    navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
-    navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
+    // ─── Action handlers ───
+    // CRITICAL for iOS Safari: register ONLY the handlers you need.
+    // Safari shows prev/next track buttons ONLY when previoustrack/nexttrack are registered
+    // and seekbackward/seekforward are NOT registered.
+    // Do NOT call setActionHandler('seekbackward', null) — Safari may throw or behave unexpectedly.
 
-    // Explicitly remove seek±10s handlers so iOS shows ⏮/⏭ instead of ↻10/↺10
-    try { navigator.mediaSession.setActionHandler('seekbackward', null); } catch { /* unsupported */ }
-    try { navigator.mediaSession.setActionHandler('seekforward', null); } catch { /* unsupported */ }
+    navigator.mediaSession.setActionHandler('play', () => {
+      this.resume();
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      this.pause();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      this.prev();
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      this.next();
+    });
 
     navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime !== undefined) {
+      if (details.seekTime !== undefined && details.seekTime !== null) {
         this.seekTo(details.seekTime);
         this.syncPositionState();
       }
     });
 
-    // Stop handler for iOS
+    // Stop handler — not critical, wrap in try/catch
     try {
       navigator.mediaSession.setActionHandler('stop', () => {
         this.pause();
@@ -535,10 +552,10 @@ class AudioEngine {
         this.syncPlaybackState();
       });
     } catch {
-      // Not supported everywhere
+      // Not supported in all browsers
     }
 
-    // Periodic position sync (once per second, not on every frame)
+    // Periodic position sync (once per second)
     this._positionSyncInterval = setInterval(() => {
       if (!this.audio.paused && this.currentTrack) {
         this.syncPositionState();
@@ -547,13 +564,13 @@ class AudioEngine {
   }
 
   /**
-   * Update Media Session metadata — only when track changes.
-   * Called from play() when a new track starts.
+   * Update Media Session metadata — called from play() when a new track starts.
+   * Sets title, artist, and artwork for lock screen / control center.
    */
   private updateMediaSessionMetadata(): void {
     if (!('mediaSession' in navigator) || !this.currentTrack) return;
 
-    // Skip if same track (avoid re-creating MediaMetadata constantly)
+    // Skip if same track (avoid re-creating MediaMetadata on retry/quality-switch)
     if (this._lastMediaSessionTrackId === this.currentTrack.id) return;
     this._lastMediaSessionTrackId = this.currentTrack.id;
 
@@ -565,13 +582,15 @@ class AudioEngine {
       coverUrl = `${base}${coverUrl.startsWith('/') ? '' : '/'}${coverUrl}`;
     }
 
+    // IMPORTANT: Use image/jpeg (not image/webp) — iOS Safari doesn't reliably
+    // display webp artwork in the lock screen / Control Center.
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist,
       artwork: coverUrl ? [
-        { src: coverUrl, sizes: '96x96', type: 'image/webp' },
-        { src: coverUrl, sizes: '256x256', type: 'image/webp' },
-        { src: coverUrl, sizes: '512x512', type: 'image/webp' },
+        { src: coverUrl, sizes: '96x96', type: 'image/jpeg' },
+        { src: coverUrl, sizes: '256x256', type: 'image/jpeg' },
+        { src: coverUrl, sizes: '512x512', type: 'image/jpeg' },
       ] : [],
     });
   }
@@ -630,6 +649,12 @@ class AudioEngine {
     if (this.queue.length === 0) return;
     const nextIndex = this.queueIndex + 1;
     if (nextIndex >= this.queue.length) return;
+
+    // Skip preloading on iOS — a second Audio element can steal the Media Session
+    // and cause lock screen controls to stop working.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOS) return;
 
     const nextTrack = this.queue[nextIndex];
     const url = this.getStreamUrl(nextTrack);
