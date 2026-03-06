@@ -28,8 +28,11 @@ export default function ProfilePage() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) navigate('/login');
+  }, [currentUser, navigate]);
+
   if (!currentUser) {
-    navigate('/login');
     return null;
   }
 

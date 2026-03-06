@@ -45,7 +45,7 @@ export default function TrackPage() {
     <div className="min-h-screen bg-zinc-950 text-white pt-16">
       {/* Full viz mode — only when this track is actually playing */}
       {isFullViz && (
-        <div className="fixed inset-0 z-45 bg-black flex flex-col items-center justify-center gap-8 p-8"
+        <div className="fixed inset-0 z-[45] bg-black flex flex-col items-center justify-center gap-8 p-8"
           style={{ backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
           <div className="absolute inset-0 bg-black/80 backdrop-blur-3xl" />
           <button onClick={() => setIsFullViz(false)} className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center text-white/70 hover:text-white transition-colors backdrop-blur-sm">

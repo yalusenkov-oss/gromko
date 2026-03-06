@@ -283,6 +283,7 @@ export default function Player() {
 
             {/* Like + More buttons */}
             <div className="flex items-center justify-center gap-3 mt-4">
+              <div className="w-10" />
               <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
                 <span className="text-sm">Нравится</span>
