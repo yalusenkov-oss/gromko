@@ -34,6 +34,7 @@ import { query, queryOne, execute, initSchema } from './db.js';
 import { ensureDirs } from './config.js';
 import { processTrack, extractMetadata } from './audio-processor.js';
 import { parseArtistNames } from './parse-artists.js';
+import { slugify } from './slugify.js';
 
 // ─── Config ───
 const MAX_WORKERS = Math.max(1, Math.min(
@@ -94,27 +95,6 @@ function findMp3Files(dir: string): string[] {
 
   walk(dir);
   return results.sort();
-}
-
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[ёе]/g, 'e')
-    .replace(/[а-яА-Я]/g, (ch) => {
-      const map: Record<string, string> = {
-        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh',
-        'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
-        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
-        'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh',
-        'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu',
-        'я': 'ya',
-      };
-      return map[ch] || ch;
-    })
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
 }
 
 function formatBytes(bytes: number): string {

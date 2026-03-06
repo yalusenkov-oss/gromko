@@ -76,7 +76,6 @@ export default function TrackPage() {
           <div className="flex flex-col justify-end gap-4 w-full md:w-auto">
             <div className="text-center md:text-left">
               <div className="flex items-center gap-2 mb-2 justify-center md:justify-start">
-                <span className="text-zinc-500 text-sm uppercase tracking-wider">{track.genre}</span>
                 {track.explicit && <span className="text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded">EXPLICIT</span>}
               </div>
               <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2">{track.title}</h1>
@@ -99,12 +98,7 @@ export default function TrackPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 justify-center md:justify-start">
-              <button onClick={handlePlay}
-                className="flex items-center gap-2.5 px-6 py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
-                {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" />}
-                {isPlaying ? 'Пауза' : 'Слушать'}
-              </button>
+            <div className="flex items-center gap-2.5 justify-center md:justify-start">
               <button onClick={() => toggleLike(track.id)}
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isLiked ? 'bg-red-500/20 text-red-500' : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
@@ -112,17 +106,21 @@ export default function TrackPage() {
               <button
                 onClick={() => {
                   const url = `${window.location.origin}/track/${track.id}`;
-                  if (navigator.share) {
-                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMQ 🎵`, url });
-                  } else {
-                    navigator.clipboard.writeText(url);
-                  }
+                  try {
+                    if (navigator.share) navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url }).catch(() => {});
+                    else navigator.clipboard.writeText(url).catch(() => {});
+                  } catch { navigator.clipboard.writeText(url).catch(() => {}); }
                 }}
                 className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
                 <Share2 size={18} />
               </button>
+              <button onClick={handlePlay}
+                className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
+                {isPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
+                {isPlaying ? 'Пауза' : 'Слушать'}
+              </button>
               <button onClick={() => setIsFullViz(true)}
-                className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all ml-auto"
+                className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
                 title="Полноэкранный режим">
                 <Maximize2 size={18} />
               </button>

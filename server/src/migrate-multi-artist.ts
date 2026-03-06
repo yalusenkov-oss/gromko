@@ -19,27 +19,7 @@ import 'dotenv/config';
 import { query, queryOne, execute, initSchema, closeDb } from './db.js';
 import { v4 as uuid } from 'uuid';
 import { parseArtistNames } from './parse-artists.js';
-
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[ёе]/g, 'e')
-    .replace(/[а-яА-Я]/g, (ch) => {
-      const map: Record<string, string> = {
-        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh',
-        'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
-        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
-        'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh',
-        'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu',
-        'я': 'ya',
-      };
-      return map[ch] || ch;
-    })
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-}
+import { slugify } from './slugify.js';
 
 async function ensureArtist(name: string, genre: string): Promise<{ id: string; slug: string }> {
   const slug = slugify(name);

@@ -5,6 +5,7 @@ import Navbar from './components/Navbar';
 import Player from './components/Player';
 import BottomNav from './components/BottomNav';
 import AuthModal from './components/AuthModal';
+import PwaPrompt from './components/PwaPrompt';
 import Home from './pages/Home';
 import TracksPage from './pages/TracksPage';
 import TrackPage from './pages/TrackPage';
@@ -16,10 +17,18 @@ import SubmitPage from './pages/SubmitPage';
 import LikedPage from './pages/LikedPage';
 import AdminPanel from './pages/AdminPanel';
 
-/** Scroll to top on every route change */
+/** Scroll to top on every route change & reset body scroll lock */
 function ScrollToTop() {
   const { pathname } = useLocation();
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => {
+    // Ensure body scroll is unlocked after navigation
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.overflow = '';
+    window.scrollTo(0, 0);
+  }, [pathname]);
   return null;
 }
 
@@ -55,6 +64,7 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
       <Player />
       <BottomNav />
       <AuthModal />
+      <PwaPrompt />
     </>
   );
 }

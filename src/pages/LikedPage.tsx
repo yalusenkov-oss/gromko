@@ -35,7 +35,13 @@ export default function LikedPage() {
     );
   }
 
-  const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id));
+  const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id))
+    .sort((a, b) => {
+      // Newer likes first: likedTracks array has newest last, so reverse order
+      const idxA = currentUser.likedTracks.indexOf(a.id);
+      const idxB = currentUser.likedTracks.indexOf(b.id);
+      return idxB - idxA;
+    });
 
   // Build album data for liked album names
   const likedAlbums = useMemo(() => {

@@ -224,6 +224,7 @@ interface AppStore {
   updateSubmission: (id: string, data: Partial<Submission>) => void;
   blockUser: (id: string) => void;
   promoteUser: (id: string) => void;
+  deleteUser: (id: string) => Promise<void>;
 
   heroTrackId: string;
   setHeroTrack: (id: string) => void;
@@ -531,6 +532,13 @@ export const useStore = create<AppStore>((set, get) => ({
       await apiFetch(`/admin/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role: newRole }) });
       set(s => ({ adminUsers: s.adminUsers.map(u => u.id === id ? { ...u, role: newRole } : u) }));
     } catch (e) { console.error('promoteUser:', e); }
+  },
+
+  deleteUser: async (id) => {
+    try {
+      await apiFetch(`/admin/users/${id}`, { method: 'DELETE' });
+      set(s => ({ adminUsers: s.adminUsers.filter(u => u.id !== id) }));
+    } catch (e) { console.error('deleteUser:', e); }
   },
 
   setHeroTrack: (id) => set({ heroTrackId: id }),

@@ -1,6 +1,6 @@
 import { Track } from '../store';
 import { useStore } from '../store';
-import { Play, Pause, Heart, Info, Disc3, Mic2, X, ListPlus, Share2 } from 'lucide-react';
+import { Play, Pause, Heart, Info, Disc3, Mic2, X, ListPlus, Share2, MoreHorizontal } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useRef, useCallback } from 'react';
@@ -64,15 +64,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
           <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
             {isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white" />}
           </div>
-          {isActive && !isPlaying && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-              <div className="flex gap-0.5 items-end h-4">
-                {[1,2,3].map(i => (
-                  <div key={i} className="w-1 bg-red-500 rounded-full animate-pulse" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />
-                ))}
-              </div>
-            </div>
-          )}
+
         </div>
 
         <div className="flex-1 min-w-0" onClick={handlePlay}>
@@ -95,9 +87,14 @@ export default function TrackCard({ track, queue, showRank }: Props) {
         </div>
 
         <div className="hidden md:flex items-center gap-4 shrink-0">
-          <span className="text-zinc-600 text-xs">{track.genre}</span>
           <span className="text-zinc-600 text-xs">{formatPlays(track.plays)}</span>
           <span className="text-zinc-600 text-xs">{formatDuration(track.duration)}</span>
+          <button
+            onClick={e => { e.stopPropagation(); setShowMenu(true); }}
+            className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+          >
+            <MoreHorizontal size={16} />
+          </button>
         </div>
 
         <button
@@ -186,11 +183,10 @@ export default function TrackCard({ track, queue, showRank }: Props) {
               <button
                 onClick={() => {
                   const url = `${window.location.origin}/track/${track.id}`;
-                  if (navigator.share) {
-                    navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMQ 🎵`, url });
-                  } else {
-                    navigator.clipboard.writeText(url);
-                  }
+                  try {
+                    if (navigator.share) navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url }).catch(() => {});
+                    else navigator.clipboard.writeText(url).catch(() => {});
+                  } catch { navigator.clipboard.writeText(url).catch(() => {}); }
                   setShowMenu(false);
                 }}
                 className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"

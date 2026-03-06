@@ -54,14 +54,14 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-xl border-b border-white/5" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
-      <div className="max-w-7xl mx-auto px-3 md:px-4 flex items-center gap-3 md:gap-4 h-14 md:h-16">
+      <div className="max-w-7xl mx-auto px-3 md:px-6 flex items-center gap-3 md:gap-4 h-14 md:h-16">
         {/* Logo */}
-        <Link to="/" className="flex items-center shrink-0">
+        <Link to="/" className="flex items-center shrink-0 ml-3 md:ml-0">
           <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMQ</span>
         </Link>
 
         {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-1 ml-4">
+        <div className="hidden md:flex items-center gap-1 ml-6">
           {navLinks.map(l => (
             <Link key={l.to} to={l.to}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${location.pathname === l.to ? 'text-white bg-white/10' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>

@@ -1,6 +1,6 @@
 import { useParams, useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useStore, Track } from '../store';
-import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, MoreHorizontal } from 'lucide-react';
+import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, Share2 } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo } from 'react';
@@ -19,10 +19,30 @@ export default function ArtistPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { artists, player, playTrack, togglePlay, toggleFullscreen, currentUser, toggleAlbumLike, toggleLike } = useStore();
+  const { artists, player, playTrack, togglePlay, currentUser, toggleAlbumLike } = useStore();
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
+
+  // Lock body scroll when album overlay is open
+  useEffect(() => {
+    if (mobileAlbum) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.overflow = '';
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [mobileAlbum]);
 
   // Check if we came from context menu "Go to album" — should open album overlay immediately
   const openAlbumFromNav = !!(location.state as any)?.openAlbum;
@@ -101,12 +121,20 @@ export default function ArtistPage() {
   }, [artistTracks]);
 
   // Auto-open album from URL param (?album=Name)
+  const [albumLoading, setAlbumLoading] = useState(!!albumParam);
   useEffect(() => {
     if (albumParam && albums.length > 0 && !mobileAlbum) {
       const found = albums.find(a => a.name === albumParam);
-      if (found) setMobileAlbum(found);
+      if (found) {
+        setMobileAlbum(found);
+        setAlbumLoading(false);
+      }
     }
-  }, [albumParam, albums]);
+    // If tracks loaded but album not found, stop loading
+    if (albumParam && artistTracks.length > 0 && albums.length === 0) {
+      setAlbumLoading(false);
+    }
+  }, [albumParam, albums, artistTracks]);
 
   if (!artist) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
@@ -145,6 +173,15 @@ export default function ArtistPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16">
+      {/* Loading overlay when navigating directly to album */}
+      {albumLoading && (
+        <div className="fixed inset-0 z-[60] bg-zinc-950 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-white/20 border-t-red-500 rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-zinc-500 text-sm">Загрузка альбома...</p>
+          </div>
+        </div>
+      )}
       {/* Banner */}
       <div className="relative h-72 md:h-96 overflow-hidden">
         {/* Blurred background — light on mobile, stronger on desktop */}
@@ -269,10 +306,10 @@ export default function ArtistPage() {
 
       {/* Fullscreen album overlay */}
       {mobileAlbum && (
-        <div className="fixed inset-0 z-[60] bg-zinc-950 overflow-y-auto">
+        <div className="fixed inset-0 z-[60] bg-zinc-950 overflow-y-auto" style={{ overscrollBehavior: 'contain' }}>
           {/* Blurred background from album cover */}
-          <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
+          <div className="fixed inset-0 opacity-30" style={{ backgroundImage: `url(${mobileAlbum.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(1.5)' }} />
+          <div className="fixed inset-0 bg-gradient-to-b from-transparent via-zinc-950/80 to-zinc-950" />
 
           <div className="relative z-10 flex flex-col items-center pt-12 px-4 max-w-2xl mx-auto" style={{ paddingBottom: player.currentTrack ? '140px' : '80px' }}>
             {/* Close button — go back if navigated from context menu, else just close overlay */}
@@ -284,7 +321,7 @@ export default function ArtistPage() {
                   setMobileAlbum(null);
                 }
               }}
-              className="absolute top-4 left-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition"
+              className="absolute top-4 left-4 md:left-auto md:right-4 w-9 h-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition"
             >
               <X size={18} className="text-white" />
             </button>
@@ -305,8 +342,17 @@ export default function ArtistPage() {
 
             {/* Action buttons: more, play, heart */}
             <div className="flex items-center gap-5 mt-5">
-              <button className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-                <MoreHorizontal size={20} className="text-white" />
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/artist/${artist?.slug}?album=${encodeURIComponent(mobileAlbum.name)}`;
+                  try {
+                    if (navigator.share) navigator.share({ title: `${mobileAlbum.name} — ${artist?.name}`, url }).catch(() => {});
+                    else navigator.clipboard.writeText(url).catch(() => {});
+                  } catch { navigator.clipboard.writeText(url).catch(() => {}); }
+                }}
+                className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center"
+              >
+                <Share2 size={20} className="text-white" />
               </button>
               <button
                 onClick={() => handlePlayAlbum(mobileAlbum)}
@@ -342,7 +388,11 @@ export default function ArtistPage() {
                     className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'active:bg-white/5'}`}
                   >
                     <span className={`w-6 text-center text-sm tabular-nums ${isCurrent ? 'text-red-400 font-bold' : 'text-zinc-600'}`}>
-                      {isPlaying ? '▸' : i + 1}
+                      {isCurrent
+                        ? (isPlaying
+                            ? <span className="inline-flex items-end gap-[2px] h-3 justify-center w-full"><span className="w-[2.5px] bg-red-400 rounded-full" style={{height:'40%',animation:'eqBar 0.5s ease-in-out infinite alternate'}}/><span className="w-[2.5px] bg-red-400 rounded-full" style={{height:'70%',animation:'eqBar 0.5s ease-in-out 0.2s infinite alternate'}}/><span className="w-[2.5px] bg-red-400 rounded-full" style={{height:'50%',animation:'eqBar 0.5s ease-in-out 0.4s infinite alternate'}}/></span>
+                            : '‖')
+                        : i + 1}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
@@ -356,66 +406,7 @@ export default function ArtistPage() {
             </div>
 
             {/* Album stats */}
-            <p className="text-zinc-600 text-xs mt-4 text-center w-full">{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
-          </div>
-
-          {/* Bottom bar: mini player + nav inside album overlay */}
-          <div className="fixed bottom-0 left-0 right-0 z-[61] md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-            {/* Mini player — tap opens fullscreen (only when track playing) */}
-            {player.currentTrack && (
-              <div className="bg-zinc-950 border-t border-white/5">
-                <div className="flex flex-col" onClick={toggleFullscreen}>
-                  {/* Thin red progress bar at top */}
-                  <div className="h-[2px] bg-zinc-800 w-full">
-                    <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${player.progress * 100}%` }} />
-                  </div>
-                  <div className="flex items-center gap-3 px-3 py-2">
-                    <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                      <img src={player.currentTrack.cover} alt={player.currentTrack.title} className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate leading-snug">{player.currentTrack.title}</p>
-                      <p className="text-zinc-400 text-xs truncate leading-snug">{player.currentTrack.artist}</p>
-                    </div>
-                    {(() => {
-                      const isTrackLiked = currentUser?.likedTracks?.includes(player.currentTrack!.id) ?? false;
-                      return (
-                        <button onClick={(e) => { e.stopPropagation(); toggleLike(player.currentTrack!.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isTrackLiked ? 'text-red-500' : 'text-zinc-500'}`}>
-                          <Heart size={22} fill={isTrackLiked ? 'currentColor' : 'none'} />
-                        </button>
-                      );
-                    })()}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                      className="w-10 h-10 flex items-center justify-center text-white"
-                    >
-                      {player.isPlaying
-                        ? <Pause size={24} fill="white" />
-                        : <Play size={24} fill="white" />
-                      }
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            {/* Bottom nav — always visible */}
-            <div className="bg-zinc-950/95 backdrop-blur-xl border-t border-white/5" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-              <div className="flex items-center justify-around px-4 py-2">
-                {[
-                  { to: '/', icon: 'home' },
-                  { to: '/tracks', icon: 'music' },
-                  { to: '/artists', icon: 'mic' },
-                  ...(currentUser ? [{ to: '/liked', icon: 'heart' }] : []),
-                ].map(({ to, icon }) => (
-                  <a key={to} href={to} className="flex items-center justify-center w-12 h-10 rounded-xl text-zinc-500 active:text-zinc-300 transition-colors">
-                    {icon === 'home' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}
-                    {icon === 'music' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>}
-                    {icon === 'mic' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 8-9.04 9.06a2.82 2.82 0 1 0 3.98 3.98L16 12"/><circle cx="17" cy="7" r="5"/></svg>}
-                    {icon === 'heart' && <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>}
-                  </a>
-                ))}
-              </div>
-            </div>
+            <p className="text-zinc-600 text-xs mt-4 text-center w-full" style={{ paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))' }}>{formatPlays(mobileAlbum.totalPlays)} прослушиваний</p>
           </div>
         </div>
       )}

@@ -1023,7 +1023,7 @@ function ArtistCard({ artist, allTracks, isExpanded, isEditing, confirmingDelete
 /* ═══════════════════════════════════════════════ */
 
 function UsersTab() {
-  const { adminUsers, fetchAdminUsers, blockUser, promoteUser, adminStats, fetchAdminStats } = useStore();
+  const { adminUsers, fetchAdminUsers, blockUser, promoteUser, deleteUser, adminStats, fetchAdminStats } = useStore();
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -1110,6 +1110,7 @@ function UsersTab() {
                     <button onClick={() => blockUser(u.id)} title={u.isBlocked ? 'Разблокировать' : 'Заблокировать'} className={`p-1.5 rounded-lg transition ${u.isBlocked ? 'hover:bg-emerald-900/50 text-emerald-400' : 'hover:bg-red-900/50 text-zinc-400 hover:text-red-400'}`}>
                       {u.isBlocked ? <ShieldOff className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
                     </button>
+                    <button onClick={() => { if (confirm(`Удалить пользователя ${u.name}?`)) deleteUser(u.id); }} title="Удалить пользователя" className="p-1.5 rounded-lg hover:bg-red-900/50 text-zinc-400 hover:text-red-400 transition"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </td>
               </tr>
@@ -1241,7 +1242,16 @@ function SettingsTab() {
   const [heroId, setHeroId] = useState('');
   const [heroArtistSlug, setHeroArtistSlug] = useState('');
   const [heroSearch, setHeroSearch] = useState('');
+  const [heroMode, setHeroMode] = useState<'manual' | 'auto'>('manual');
   const currentFeatured = tracks.find(t => t.featured);
+
+  // Load settings from server
+  useEffect(() => {
+    adminFetch('/admin/settings').then(data => {
+      if (data.hero_mode === 'auto') setHeroMode('auto');
+      else setHeroMode('manual');
+    }).catch(() => {});
+  }, []);
 
   /* ── S3 Import state ── */
   const [importArtist, setImportArtist] = useState('');
@@ -1314,8 +1324,19 @@ function SettingsTab() {
     if (!heroId) return;
     if (currentFeatured) await updateTrack(currentFeatured.id, { featured: false });
     await updateTrack(heroId, { featured: true });
+    // Also save hero_mode = manual
+    setHeroMode('manual');
+    await adminFetch('/admin/settings', { method: 'PUT', body: JSON.stringify({ hero_mode: 'manual' }) }).catch(() => {});
     await fetchTracks();
     setHeroId('');
+  };
+
+  const toggleHeroMode = async (mode: 'manual' | 'auto') => {
+    setHeroMode(mode);
+    await adminFetch('/admin/settings', { method: 'PUT', body: JSON.stringify({ hero_mode: mode }) }).catch(() => {});
+    if (mode === 'auto') {
+      await fetchTracks();
+    }
   };
 
   return (
@@ -1438,6 +1459,30 @@ function SettingsTab() {
           {currentFeatured && <span className="block mt-1 text-purple-400">Сейчас: «{currentFeatured.title}» — {currentFeatured.artist}</span>}
         </p>
 
+        {/* Hero mode toggle */}
+        <div className="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
+          <button
+            onClick={() => toggleHeroMode('manual')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${heroMode === 'manual' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Вручную
+          </button>
+          <button
+            onClick={() => toggleHeroMode('auto')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${heroMode === 'auto' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Авто (макс. прослушиваний за 24ч)
+          </button>
+        </div>
+
+        {heroMode === 'auto' && (
+          <div className="bg-zinc-800/50 rounded-lg p-4 text-sm text-zinc-400">
+            <p>В режиме «Авто» hero-трек обновляется автоматически — выбирается трек с наибольшим количеством прослушиваний за последние 24 часа.</p>
+          </div>
+        )}
+
+        {heroMode === 'manual' && (
+          <>
         {/* Search filter */}
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -1577,6 +1622,8 @@ function SettingsTab() {
             ) : null; })()}
             <button onClick={setFeatured} className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition shrink-0">Установить</button>
           </div>
+        )}
+          </>
         )}
       </div>
 

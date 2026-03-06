@@ -3,8 +3,10 @@ import { useAudioEngine } from '../audio/useAudioEngine';
 import { formatDuration } from '../utils/format';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  Volume2, VolumeX, Heart, Maximize2, ChevronDown, WifiOff
+  Volume2, VolumeX, Heart, Maximize2, ChevronDown, MoreHorizontal,
+  Disc3, Mic2, Share2, ListPlus, Info, X as XIcon
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { audioEngine, EngineState } from '../audio/engine';
 
@@ -19,6 +21,8 @@ export default function Player() {
   const [engineState, setEngineState] = useState<EngineState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
+  const [showMenu, setShowMenu] = useState(false);
+  const navigate = useNavigate();
   // Animation state for fullscreen
   const [fsVisible, setFsVisible] = useState(false);
   const [fsAnimating, setFsAnimating] = useState(false);
@@ -26,6 +30,14 @@ export default function Player() {
   // Swipe-down to close fullscreen
   const swipeStartY = useRef<number | null>(null);
   const [swipeOffset, setSwipeOffset] = useState(0);
+  // Swipe left/right on mini-player to skip tracks (carousel approach)
+  const miniSwipeStartX = useRef<number | null>(null);
+  const miniSwipeStartY = useRef<number | null>(null);
+  const [miniSwipeX, setMiniSwipeX] = useState(0);
+  const miniSwipeLocked = useRef(false);
+  const [miniSwipeAnim, setMiniSwipeAnim] = useState<'left' | 'right' | null>(null);
+  const miniCarouselRef = useRef<HTMLDivElement>(null);
+  const [miniSnapBack, setMiniSnapBack] = useState(false);
 
   useEffect(() => {
     return audioEngine.subscribe(setEngineState);
@@ -123,8 +135,11 @@ export default function Player() {
     : (engineState?.currentTime || Math.floor(t.duration * player.progress));
   const progress = isDragging ? dragProgress : (engineState?.progress ?? player.progress);
   const buffered = engineState?.buffered ?? 0;
-  const isBuffering = engineState?.state === 'buffering';
-  const qualityLabel = engineState?.actualBitrate || '';
+
+  // Compute prev/next tracks for mini-player carousel
+  const queueIdx = player.queue.findIndex(q => q.id === t.id);
+  const prevTrackData = queueIdx > 0 ? player.queue[queueIdx - 1] : player.queue[player.queue.length - 1];
+  const nextTrackData = queueIdx < player.queue.length - 1 ? player.queue[queueIdx + 1] : player.queue[0];
 
   // Swipe-down handlers for the fullscreen header area
   const handleSwipeStart = (e: React.TouchEvent) => {
@@ -150,11 +165,8 @@ export default function Player() {
     {/* Fullscreen overlay — always in DOM, animated via opacity/transform */}
     {fsVisible && (
       <div
-        className={`fixed inset-0 z-50 transition-all duration-350 ease-out ${fsAnimating ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 z-[80] ${fsAnimating ? 'pointer-events-auto' : 'pointer-events-none'}`}
         style={{
-          backgroundImage: `url(${t.cover})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
           touchAction: 'none',
           overscrollBehavior: 'contain',
         }}
@@ -162,13 +174,42 @@ export default function Player() {
         onTouchMove={handleSwipeMove}
         onTouchEnd={handleSwipeEnd}
       >
-        <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-3xl" style={{ opacity: overlayOpacity }} />
+        {/* Solid black base to prevent transparency */}
+        <div className="absolute inset-0 bg-zinc-950" style={{
+          opacity: fsAnimating ? 1 : 0,
+          transition: 'opacity 300ms ease-out',
+        }} />
+        {/* Blurred cover background */}
         <div
-          className={`relative z-10 flex flex-col h-full transition-transform duration-350 ease-out ${fsAnimating && swipeOffset === 0 ? 'translate-y-0' : !fsAnimating ? 'translate-y-full' : ''}`}
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url(${t.cover})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: 'blur(40px) saturate(1.5) brightness(0.3)',
+            transform: 'scale(1.2)',
+            opacity: fsAnimating ? 1 : 0,
+            transition: 'opacity 300ms ease-out',
+            willChange: 'opacity',
+          }}
+        />
+        {/* Dark overlay for readability */}
+        <div className="absolute inset-0 bg-black/40" style={{
+          opacity: fsAnimating ? overlayOpacity : 0,
+          transition: swipeOffset > 0 ? 'none' : 'opacity 300ms ease-out',
+        }} />
+        <div
+          className="relative z-10 flex flex-col h-full"
           style={{
             paddingTop: 'env(safe-area-inset-top, 0px)',
-            transform: swipeOffset > 0 ? `translateY(${translateY}px)` : undefined,
-            transition: swipeOffset > 0 ? 'none' : undefined,
+            opacity: fsAnimating ? 1 : 0,
+            transform: swipeOffset > 0
+              ? `translateY(${translateY}px)`
+              : fsAnimating
+                ? 'translateY(0)'
+                : 'translateY(40px)',
+            transition: swipeOffset > 0 ? 'none' : 'opacity 300ms ease-out, transform 300ms ease-out',
+            willChange: 'opacity, transform',
           }}
         >
           {/* Swipe indicator pill */}
@@ -183,7 +224,6 @@ export default function Player() {
             </button>
             <div className="text-center">
               <span className="text-white/40 text-[10px] uppercase tracking-[0.2em]">Сейчас играет</span>
-              {qualityLabel && <span className="text-white/25 text-[9px] block mt-0.5">{qualityLabel}</span>}
             </div>
             <div className="w-10" />
           </div>
@@ -226,10 +266,7 @@ export default function Player() {
               </div>
               <div className="flex justify-between text-white/40 text-xs mt-1.5 px-0.5">
                 <span>{formatDuration(Math.floor(currentTime))}</span>
-                <div className="flex items-center gap-2">
-                  {isBuffering && <span className="text-yellow-400 text-[10px] flex items-center gap-1 animate-pulse"><WifiOff size={10} /> Буферизация</span>}
-                  <span>{formatDuration(Math.floor(duration))}</span>
-                </div>
+                <span>{formatDuration(Math.floor(duration))}</span>
               </div>
             </div>
 
@@ -237,18 +274,21 @@ export default function Player() {
             <div className="flex items-center justify-center gap-8 mt-3">
               <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
               <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
-              <button onClick={togglePlay} className={`w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95 ${isBuffering ? 'animate-pulse' : ''}`}>
-                {isBuffering ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white" />}
+              <button onClick={togglePlay} className="w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95">
+                {player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white" />}
               </button>
               <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
               <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
             </div>
 
-            {/* Like button */}
-            <div className="flex items-center justify-center mt-4">
+            {/* Like + More buttons */}
+            <div className="flex items-center justify-center gap-3 mt-4">
               <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
-                <span className="text-sm">{isLiked ? 'Нравится' : 'Нравится'}</span>
+                <span className="text-sm">Нравится</span>
+              </button>
+              <button onClick={() => setShowMenu(true)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors">
+                <MoreHorizontal size={20} />
               </button>
             </div>
           </div>{/* end main content */}
@@ -256,32 +296,214 @@ export default function Player() {
       </div>
     )}
 
-    {/* Mobile mini-player — always rendered, sits above bottom nav */}
-    <div className="fixed left-0 right-0 z-40 md:hidden" style={{ bottom: 'calc(52px + env(safe-area-inset-bottom, 0px))' }}>
-      <div className="flex flex-col bg-zinc-950 border-t border-white/5" onClick={toggleFullscreen}>
+    {/* 3-dots context menu for player */}
+    {showMenu && (
+      <div className="fixed inset-0 z-[85] flex items-end justify-center" onClick={() => setShowMenu(false)}>
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div
+          className="relative z-10 w-full max-w-lg bg-zinc-900 rounded-t-2xl p-4 pb-8"
+          onClick={e => e.stopPropagation()}
+          style={{ animation: 'slideUp 0.25s ease-out' }}
+        >
+          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
+            <img src={t.cover} alt={t.title} className="w-14 h-14 rounded-lg object-cover" />
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-semibold truncate">{t.title}</p>
+              <p className="text-zinc-400 text-xs truncate">{t.artist}</p>
+            </div>
+            <button onClick={() => setShowMenu(false)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+              <XIcon size={16} className="text-zinc-400" />
+            </button>
+          </div>
+          <div className="space-y-1">
+            <button
+              onClick={() => { toggleLike(t.id); setShowMenu(false); }}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+            >
+              <Heart size={18} className={isLiked ? 'text-red-500' : 'text-zinc-400'} fill={isLiked ? 'currentColor' : 'none'} />
+              <span className="text-white text-sm">{isLiked ? 'Убрать из любимого' : 'Нравится'}</span>
+            </button>
+            <button
+              onClick={() => { useStore.getState().queueNext(t); setShowMenu(false); }}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+            >
+              <ListPlus size={18} className="text-zinc-400" />
+              <span className="text-white text-sm">Играть следующим</span>
+            </button>
+            {t.meta?.album && (
+              <button
+                onClick={() => { setShowMenu(false); toggleFullscreen(); navigate(`/artist/${t.artistSlug}?album=${encodeURIComponent(t.meta!.album!)}`, { state: { openAlbum: true } }); }}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+              >
+                <Disc3 size={18} className="text-zinc-400" />
+                <span className="text-white text-sm">Перейти к альбому</span>
+              </button>
+            )}
+            {t.artists && t.artists.length > 0
+              ? t.artists.map(a => (
+                  <button
+                    key={a.slug}
+                    onClick={() => { setShowMenu(false); toggleFullscreen(); navigate(`/artist/${a.slug}`); }}
+                    className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                  >
+                    <Mic2 size={18} className="text-zinc-400" />
+                    <span className="text-white text-sm">Перейти к {a.name}</span>
+                  </button>
+                ))
+              : (
+                <button
+                  onClick={() => { setShowMenu(false); toggleFullscreen(); navigate(`/artist/${t.artistSlug}`); }}
+                  className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                >
+                  <Mic2 size={18} className="text-zinc-400" />
+                  <span className="text-white text-sm">Перейти к {t.artist}</span>
+                </button>
+              )
+            }
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/track/${t.id}`;
+                try {
+                  if (navigator.share) navigator.share({ title: `${t.title} — ${t.artist}`, text: `Послушай "${t.title}" на GROMKO 🎵`, url }).catch(() => {});
+                  else navigator.clipboard.writeText(url).catch(() => {});
+                } catch { navigator.clipboard.writeText(url).catch(() => {}); }
+                setShowMenu(false);
+              }}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+            >
+              <Share2 size={18} className="text-zinc-400" />
+              <span className="text-white text-sm">Поделиться</span>
+            </button>
+            <button
+              onClick={() => { setShowMenu(false); toggleFullscreen(); navigate(`/track/${t.id}`); }}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+            >
+              <Info size={18} className="text-zinc-400" />
+              <span className="text-white text-sm">Подробнее</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Mobile mini-player — carousel with prev/current/next */}
+    <div className="fixed left-0 right-0 z-[65] md:hidden overflow-hidden" style={{ bottom: 'calc(52px + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="flex flex-col bg-zinc-950 border-t border-white/5">
         {/* Thin red progress bar at top */}
         <div className="h-[2px] bg-zinc-800 w-full">
           <div className="h-full bg-red-500 transition-all duration-200" style={{ width: `${progress * 100}%` }} />
         </div>
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-            <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
-            <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
-          </div>
-          <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
-            <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-10 h-10 flex items-center justify-center text-white">
-            {isBuffering
-              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : player.isPlaying
-                ? <Pause size={24} fill="white" />
-                : <Play size={24} fill="white" />
+        {/* Carousel container */}
+        <div
+          ref={miniCarouselRef}
+          className="flex"
+          style={{
+            width: '300%',
+            transform: miniSwipeAnim
+              ? `translateX(${miniSwipeAnim === 'left' ? '-66.666%' : '0%'})`
+              : `translateX(calc(-33.333% + ${miniSwipeX}px))`,
+            transition: miniSwipeAnim
+              ? 'transform 0.22s ease-out'
+              : miniSnapBack
+                ? 'transform 0.2s ease-out'
+                : 'none',
+          }}
+          onTransitionEnd={() => {
+            if (miniSnapBack) {
+              setMiniSnapBack(false);
+              return;
             }
-          </button>
+            if (miniSwipeAnim) {
+              const dir = miniSwipeAnim;
+              // Reset position instantly (no transition since miniSwipeAnim becomes null)
+              // and skip track in the same tick — React 18 batches both into one render
+              setMiniSwipeAnim(null);
+              if (dir === 'left') next();
+              else prev();
+            }
+          }}
+          onTouchStart={(e) => {
+            miniSwipeStartX.current = e.touches[0].clientX;
+            miniSwipeStartY.current = e.touches[0].clientY;
+            miniSwipeLocked.current = false;
+          }}
+          onTouchMove={(e) => {
+            if (miniSwipeStartX.current === null || miniSwipeStartY.current === null) return;
+            const dx = e.touches[0].clientX - miniSwipeStartX.current;
+            const dy = e.touches[0].clientY - miniSwipeStartY.current;
+            if (!miniSwipeLocked.current && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+              miniSwipeLocked.current = true;
+              if (Math.abs(dy) > Math.abs(dx)) {
+                miniSwipeStartX.current = null;
+                return;
+              }
+            }
+            if (miniSwipeLocked.current && miniSwipeStartX.current !== null) {
+              setMiniSwipeX(dx);
+            }
+          }}
+          onTouchEnd={() => {
+            if (Math.abs(miniSwipeX) > 70) {
+              const dir = miniSwipeX < 0 ? 'left' : 'right';
+              setMiniSwipeAnim(dir);
+              setMiniSwipeX(0);
+            } else if (miniSwipeX !== 0) {
+              setMiniSnapBack(true);
+              setMiniSwipeX(0);
+            }
+            miniSwipeStartX.current = null;
+            miniSwipeStartY.current = null;
+            miniSwipeLocked.current = false;
+          }}
+          onClick={() => { if (Math.abs(miniSwipeX) < 5 && !miniSwipeAnim) toggleFullscreen(); }}
+        >
+          {/* Previous track card */}
+          <div className="flex items-center gap-3 px-3 py-2" style={{ width: '33.333%', flexShrink: 0 }}>
+            {prevTrackData && (
+              <>
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                  <img src={prevTrackData.cover} alt={prevTrackData.title} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate leading-snug">{prevTrackData.title}</p>
+                  <p className="text-zinc-400 text-xs truncate leading-snug">{prevTrackData.artist}</p>
+                </div>
+              </>
+            )}
+          </div>
+          {/* Current track card */}
+          <div className="flex items-center gap-3 px-3 py-2" style={{ width: '33.333%', flexShrink: 0 }}>
+            <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+              <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium truncate leading-snug">{t.title}</p>
+              <p className="text-zinc-400 text-xs truncate leading-snug">{t.artist}</p>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); toggleLike(t.id); }} className={`w-10 h-10 flex items-center justify-center transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-500'}`}>
+              <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-10 h-10 flex items-center justify-center text-white">
+              {player.isPlaying
+                  ? <Pause size={24} fill="white" />
+                  : <Play size={24} fill="white" />
+              }
+            </button>
+          </div>
+          {/* Next track card */}
+          <div className="flex items-center gap-3 px-3 py-2" style={{ width: '33.333%', flexShrink: 0 }}>
+            {nextTrackData && (
+              <>
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                  <img src={nextTrackData.cover} alt={nextTrackData.title} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate leading-snug">{nextTrackData.title}</p>
+                  <p className="text-zinc-400 text-xs truncate leading-snug">{nextTrackData.artist}</p>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -300,11 +522,6 @@ export default function Player() {
           <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer group" onClick={toggleFullscreen}>
             <img src={t.cover} alt={t.title} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Maximize2 size={16} className="text-white" /></div>
-            {player.isPlaying && (
-              <div className="absolute bottom-1 right-1 flex gap-0.5 items-end h-3">
-                {[1, 2, 3].map((i) => (<div key={i} className="w-0.5 bg-red-500 rounded-full animate-bounce" style={{ height: `${40 + i * 20}%`, animationDelay: `${i * 0.1}s` }} />))}
-              </div>
-            )}
           </div>
           <div className="min-w-0">
             <p className="text-white text-sm font-medium truncate">{t.title}</p>
@@ -316,8 +533,8 @@ export default function Player() {
           <div className="flex items-center gap-5">
             <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
             <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
-            <button onClick={togglePlay} className={`w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors ${isBuffering ? 'animate-pulse' : ''}`}>
-              {isBuffering ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black" fill="black" />}
+            <button onClick={togglePlay} className="w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors">
+              {player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black" fill="black" />}
             </button>
             <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
             <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>
@@ -334,8 +551,6 @@ export default function Player() {
           </div>
         </div>
         <div className="flex items-center gap-3 w-56 justify-end">
-          {qualityLabel && <span className="text-zinc-600 text-[10px] bg-white/5 px-1.5 py-0.5 rounded">{qualityLabel}</span>}
-          {isBuffering && <WifiOff size={14} className="text-yellow-400 animate-pulse" />}
           <div className="relative">
             <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
             {showVolume && (
