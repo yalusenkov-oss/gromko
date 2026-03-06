@@ -97,7 +97,9 @@ const DRY_RUN       = process.env.DRY_RUN === '1';
 const FORCE_GENRE   = process.env.GENRE || '';
 const SKIP_EXISTING = process.env.SKIP_EXISTING !== '0'; // default: on
 const ARTIST_FILTER = process.env.ARTIST_FILTER || '';
+const ALBUM_FILTER  = process.env.ALBUM_FILTER || '';
 const IMPORT_LIMIT  = Number(process.env.LIMIT) || 0;
+const SHUFFLE       = process.env.SHUFFLE !== '0'; // default: on — shuffle for variety
 
 // ─── Audio extensions ───
 
@@ -314,6 +316,11 @@ function parseS3Objects(objects: S3Object[]): { tracks: S3Track[]; coverMap: Map
 
     // Artist filter
     if (ARTIST_FILTER && artist.toLowerCase() !== ARTIST_FILTER.toLowerCase()) {
+      continue;
+    }
+
+    // Album filter
+    if (ALBUM_FILTER && album.toLowerCase() !== ALBUM_FILTER.toLowerCase()) {
       continue;
     }
 
@@ -562,7 +569,9 @@ async function main() {
   console.log(`  🔧 Потоков:   ${MAX_WORKERS}`);
   if (FORCE_GENRE)   console.log(`  🎵 Жанр:      ${FORCE_GENRE}`);
   if (ARTIST_FILTER) console.log(`  🎤 Артист:    ${ARTIST_FILTER}`);
+  if (ALBUM_FILTER)  console.log(`  💿 Альбом:    ${ALBUM_FILTER}`);
   if (IMPORT_LIMIT)  console.log(`  📊 Лимит:     ${IMPORT_LIMIT} треков`);
+  if (SHUFFLE)       console.log(`  🔀 Порядок:   вразброс`);
   if (DRY_RUN)       console.log(`  🔍 Режим:     DRY RUN (без импорта)`);
   console.log('');
 
@@ -641,9 +650,18 @@ async function main() {
     console.log(`  ⏭  Пропуск: ${alreadyImported} треков уже импортировано`);
   }
 
+  // Shuffle for variety — mix tracks from different artists
+  if (SHUFFLE && tracksToImport.length > 1) {
+    for (let i = tracksToImport.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tracksToImport[i], tracksToImport[j]] = [tracksToImport[j], tracksToImport[i]];
+    }
+    console.log(`  🔀 Порядок перемешан (${tracksToImport.length} треков)`);
+  }
+
   // Apply limit
   if (IMPORT_LIMIT > 0 && tracksToImport.length > IMPORT_LIMIT) {
-    console.log(`  ✂️  Лимит: берём первые ${IMPORT_LIMIT} из ${tracksToImport.length}`);
+    console.log(`  ✂️  Лимит: берём ${IMPORT_LIMIT} из ${tracksToImport.length}`);
     tracksToImport = tracksToImport.slice(0, IMPORT_LIMIT);
   }
 

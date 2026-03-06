@@ -1255,6 +1255,7 @@ function SettingsTab() {
 
   /* ── S3 Import state ── */
   const [importArtist, setImportArtist] = useState('');
+  const [importAlbum, setImportAlbum] = useState('');
   const [importLimit, setImportLimit] = useState(30);
   const [importSkipExisting, setImportSkipExisting] = useState(true);
   const [importRunning, setImportRunning] = useState(false);
@@ -1301,6 +1302,7 @@ function SettingsTab() {
         body: JSON.stringify({
           limit: importLimit || 0,
           artist: importArtist.trim() || undefined,
+          album: importAlbum.trim() || undefined,
           skipExisting: importSkipExisting,
         }),
       });
@@ -1363,6 +1365,19 @@ function SettingsTab() {
             />
           </div>
 
+          {/* Album filter */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Альбом (имя папки в S3)</label>
+            <input
+              type="text"
+              value={importAlbum}
+              onChange={e => setImportAlbum(e.target.value)}
+              placeholder="Все альбомы"
+              disabled={importRunning}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+            />
+          </div>
+
           {/* Limit */}
           <div>
             <label className="text-xs text-zinc-400 mb-1 block">Лимит треков (0 = без лимита)</label>
@@ -1375,8 +1390,10 @@ function SettingsTab() {
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
             />
           </div>
+        </div>
 
-          {/* Skip existing + buttons */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          {/* Skip existing */}
           <div className="flex flex-col justify-end gap-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input

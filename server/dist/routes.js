@@ -5,7 +5,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { execFile } from 'child_process';
+import { spawn } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import { slugify } from './slugify.js';
 import { query, queryOne, execute } from './db.js';
@@ -1076,16 +1076,15 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
     if (s3ImportRunning) {
         return res.status(409).json({ error: 'Импорт уже запущен', log: s3ImportLog.slice(-50) });
     }
-    const { limit = 30, genre, artist, dryRun, skipExisting = true } = req.body;
+    const { limit = 30, genre, artist, album, dryRun, skipExisting = true } = req.body;
     s3ImportRunning = true;
-    s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit}${artist ? `, artist=${artist}` : ''})...`];
-    res.json({ ok: true, message: `S3 импорт запущен (limit=${limit}${artist ? `, artist=${artist}` : ''})` });
+    s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit}${artist ? `, artist=${artist}` : ''}${album ? `, album=${album}` : ''})...`];
+    res.json({ ok: true, message: `S3 импорт запущен (limit=${limit}${artist ? `, artist=${artist}` : ''}${album ? `, album=${album}` : ''})` });
     // Find the s3-import script path
     const __dir = path.dirname(new URL(import.meta.url).pathname);
     const scriptPath = path.join(__dir, 's3-import.js');
     const tsScriptPath = path.join(__dir, '..', 'src', 's3-import.ts');
     // Use compiled JS version (server/dist/s3-import.js)
-    const script = fs.existsSync(scriptPath) ? scriptPath : tsScriptPath;
     const runner = fs.existsSync(scriptPath) ? 'node' : 'npx';
     const args = fs.existsSync(scriptPath) ? [scriptPath] : ['tsx', tsScriptPath];
     const env = {
@@ -1097,31 +1096,14 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
         env.GENRE = genre;
     if (artist)
         env.ARTIST_FILTER = artist;
+    if (album)
+        env.ALBUM_FILTER = album;
     if (dryRun)
         env.DRY_RUN = '1';
     try {
-        const child = execFile(runner, args, {
+        const child = spawn(runner, args, {
             env,
-            maxBuffer: 10 * 1024 * 1024,
-            timeout: 30 * 60 * 1000, // 30 min max
-        }, (error, stdout, stderr) => {
-            if (stdout)
-                s3ImportLog.push(...stdout.split('\n').filter(Boolean));
-            if (stderr)
-                s3ImportLog.push(...stderr.split('\n').filter(Boolean));
-            if (error) {
-                if (error.killed || error.signal === 'SIGTERM') {
-                    s3ImportLog.push(`⛔ Импорт остановлен пользователем`);
-                }
-                else {
-                    s3ImportLog.push(`❌ Ошибка: ${error.message}`);
-                }
-            }
-            else {
-                s3ImportLog.push(`✅ Импорт завершён`);
-            }
-            s3ImportRunning = false;
-            s3ImportChild = null;
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
         s3ImportChild = child;
         child.stdout?.on('data', (data) => {
@@ -1133,6 +1115,24 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
         });
         child.stderr?.on('data', (data) => {
             s3ImportLog.push(...data.toString().split('\n').filter(Boolean));
+        });
+        child.on('close', (code, signal) => {
+            if (signal === 'SIGTERM') {
+                s3ImportLog.push(`⛔ Импорт остановлен пользователем`);
+            }
+            else if (code !== 0) {
+                s3ImportLog.push(`❌ Процесс завершился с кодом ${code}`);
+            }
+            else {
+                s3ImportLog.push(`✅ Импорт завершён`);
+            }
+            s3ImportRunning = false;
+            s3ImportChild = null;
+        });
+        child.on('error', (err) => {
+            s3ImportLog.push(`❌ Ошибка запуска: ${err.message}`);
+            s3ImportRunning = false;
+            s3ImportChild = null;
         });
     }
     catch (err) {
