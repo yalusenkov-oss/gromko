@@ -144,6 +144,15 @@ export function useAudioEngine() {
           }));
         }
       }
+
+      // Track buffering state
+      const isBuffering = state.state === 'buffering' || state.state === 'loading';
+      const storeIsBuffering = useStore.getState().player.isBuffering;
+      if (isBuffering !== storeIsBuffering) {
+        useStore.setState((s) => ({
+          player: { ...s.player, isBuffering }
+        }));
+      }
     });
 
     return unsubscribe;

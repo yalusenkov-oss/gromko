@@ -135,6 +135,8 @@ export default function Player() {
     : (engineState?.currentTime || Math.floor(t.duration * player.progress));
   const progress = isDragging ? dragProgress : (engineState?.progress ?? player.progress);
   const buffered = engineState?.buffered ?? 0;
+  const isBuffering = player.isBuffering;
+  const isError = engineState?.state === 'error';
 
   // Compute prev/next tracks for mini-player carousel
   const queueIdx = player.queue.findIndex(q => q.id === t.id);
@@ -268,6 +270,8 @@ export default function Player() {
               </div>
               <div className="flex justify-between text-white/40 text-xs mt-1.5 px-0.5">
                 <span>{formatDuration(Math.floor(currentTime))}</span>
+                {isBuffering && <span className="text-white/30 animate-pulse">Загрузка...</span>}
+                {isError && <span className="text-red-400/60">Ошибка воспроизведения</span>}
                 <span>{formatDuration(Math.floor(duration))}</span>
               </div>
             </div>
@@ -277,7 +281,10 @@ export default function Player() {
               <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-white/40 hover:text-white'}`}><Shuffle size={20} /></button>
               <button onClick={prev} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipBack size={28} /></button>
               <button onClick={togglePlay} className="w-16 h-16 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center transition-all shadow-lg shadow-red-500/30 active:scale-95">
-                {player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white" />}
+                {isBuffering
+                  ? <div className="w-7 h-7 border-3 border-white/30 border-t-white rounded-full animate-spin-slow" />
+                  : player.isPlaying ? <Pause size={28} fill="white" className="text-white" /> : <Play size={28} fill="white" className="text-white" />
+                }
               </button>
               <button onClick={next} className="text-white/80 hover:text-white transition-colors active:scale-90"><SkipForward size={28} /></button>
               <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
@@ -483,7 +490,9 @@ export default function Player() {
               <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
             </button>
             <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-10 h-10 flex items-center justify-center text-white">
-              {player.isPlaying
+              {isBuffering
+                ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin-slow" />
+                : player.isPlaying
                   ? <Pause size={24} fill="white" />
                   : <Play size={24} fill="white" />
               }
@@ -533,7 +542,10 @@ export default function Player() {
             <button onClick={toggleShuffle} className={`transition-colors ${player.shuffle ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}><Shuffle size={16} /></button>
             <button onClick={prev} className="text-zinc-300 hover:text-white transition-colors"><SkipBack size={20} /></button>
             <button onClick={togglePlay} className="w-9 h-9 bg-white hover:bg-zinc-200 rounded-full flex items-center justify-center transition-colors">
-              {player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black" fill="black" />}
+              {isBuffering
+                ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin-slow" />
+                : player.isPlaying ? <Pause size={18} className="text-black" fill="black" /> : <Play size={18} className="text-black" fill="black" />
+              }
             </button>
             <button onClick={next} className="text-zinc-300 hover:text-white transition-colors"><SkipForward size={20} /></button>
             <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-zinc-500 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}</button>

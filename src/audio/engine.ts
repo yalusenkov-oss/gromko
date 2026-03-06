@@ -445,10 +445,32 @@ class AudioEngine {
       this.notify();
 
       // Auto-retry up to _maxRetries times
+      // If error code 4 (src not supported), try fallback quality
       if (this.currentTrack && this._retryCount < this._maxRetries) {
         this._retryCount++;
         setTimeout(() => {
           if (this.currentTrack && this._state === 'error') {
+            // On error code 4 try a different quality (fallback chain: high → medium → low)
+            if (err && err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && this.currentTrack.streams) {
+              const fallbackOrder: Array<'high' | 'medium' | 'low'> = ['high', 'medium', 'low'];
+              const currentUrl = this.audio.src;
+              for (const q of fallbackOrder) {
+                const s = this.currentTrack.streams[q];
+                if (s && !currentUrl.includes(s)) {
+                  const url = s.startsWith('http') ? s : `${API_BASE}${s}`;
+                  this._state = 'loading';
+                  this.notify();
+                  this.setCrossOrigin(this.audio, url);
+                  this.audio.src = url;
+                  this.audio.load();
+                  this.audio.play().catch(() => {
+                    this._state = 'paused';
+                    this.notify();
+                  });
+                  return;
+                }
+              }
+            }
             this.play(this.currentTrack);
           }
         }, 2000 * this._retryCount);

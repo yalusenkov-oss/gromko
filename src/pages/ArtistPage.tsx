@@ -197,8 +197,15 @@ export default function ArtistPage() {
   };
 
   const handlePlayAlbum = (album: Album) => {
-    const firstTrack = album.tracks[0];
-    if (firstTrack) playTrack(firstTrack, album.tracks);
+    const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
+    if (isAlbumPlaying) {
+      togglePlay();
+    } else if (album.tracks.some(t => t.id === player.currentTrack?.id)) {
+      togglePlay();
+    } else {
+      const firstTrack = album.tracks[0];
+      if (firstTrack) playTrack(firstTrack, album.tracks);
+    }
   };
 
   const displayedTracks = showAllTracks ? [...artistTracks].sort((a, b) => b.plays - a.plays) : popularTracks;
@@ -270,7 +277,7 @@ export default function ArtistPage() {
           ) : artistTracks.length === 0 ? (
             <p className="text-zinc-600">У артиста пока нет треков</p>
           ) : (
-            <>
+            <div className="animate-fade-in">
               <div className="space-y-1">
                 {displayedTracks.map((t, i) => <TrackCard key={t.id} track={t} queue={showAllTracks ? artistTracks : popularTracks} showRank={i + 1} />)}
               </div>
@@ -286,7 +293,7 @@ export default function ArtistPage() {
                   )}
                 </button>
               )}
-            </>
+            </div>
           )}
         </section>
 
@@ -308,7 +315,7 @@ export default function ArtistPage() {
             </div>
           </section>
         ) : albums.length > 0 && (
-          <section>
+          <section className="animate-fade-in" style={{ animationDelay: '0.1s' }}>
             <div className="flex items-center gap-2 mb-5">
               <Disc3 size={18} className="text-red-400" />
               <h2 className="text-lg font-bold">Альбомы ({albums.length})</h2>
@@ -411,13 +418,13 @@ export default function ArtistPage() {
                     else navigator.clipboard.writeText(url).catch(() => {});
                   } catch { navigator.clipboard.writeText(url).catch(() => {}); }
                 }}
-                className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center"
+                className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center active:bg-white/20 active:scale-95 transition-all"
               >
                 <Share2 size={20} className="text-white" />
               </button>
               <button
                 onClick={() => handlePlayAlbum(mobileAlbum)}
-                className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30"
+                className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30 active:bg-red-400 active:scale-95 transition-all"
               >
                 {mobileAlbum.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying
                   ? <Pause size={24} fill="white" className="text-white" />
@@ -429,7 +436,7 @@ export default function ArtistPage() {
                 return (
                   <button
                     onClick={() => toggleAlbumLike(mobileAlbum.name)}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAlbumLiked ? 'bg-red-500/20' : 'bg-white/10'}`}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-all ${isAlbumLiked ? 'bg-red-500/20 active:bg-red-500/30' : 'bg-white/10 active:bg-white/20'}`}
                   >
                     <Heart size={20} className={isAlbumLiked ? 'text-red-500' : 'text-white'} fill={isAlbumLiked ? 'currentColor' : 'none'} />
                   </button>
@@ -445,8 +452,11 @@ export default function ArtistPage() {
                 return (
                   <button
                     key={t.id}
-                    onClick={() => playTrack(t, mobileAlbum.tracks)}
-                    className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'active:bg-white/5'}`}
+                    onClick={() => {
+                      if (isCurrent) togglePlay();
+                      else playTrack(t, mobileAlbum.tracks);
+                    }}
+                    className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'hover:bg-white/5 active:bg-white/10'}`}
                   >
                     <span className={`w-6 text-center text-sm tabular-nums ${isCurrent ? 'text-red-400 font-bold' : 'text-zinc-600'}`}>
                       {isCurrent

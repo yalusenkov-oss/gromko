@@ -79,6 +79,7 @@ export interface PlayerState {
   currentTrack: Track | null;
   queue: Track[];
   isPlaying: boolean;
+  isBuffering: boolean;
   volume: number;
   progress: number;
   shuffle: boolean;
@@ -356,7 +357,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   player: {
-    currentTrack: null, queue: [], isPlaying: false,
+    currentTrack: null, queue: [], isPlaying: false, isBuffering: false,
     volume: 0.8, progress: 0, shuffle: false,
     repeat: 'none', isFullscreen: false,
   },

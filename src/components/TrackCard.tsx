@@ -16,6 +16,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
   const navigate = useNavigate();
   const isPlaying = player.currentTrack?.id === track.id && player.isPlaying;
   const isActive = player.currentTrack?.id === track.id;
+  const isTrackBuffering = isActive && player.isBuffering;
   const isLiked = currentUser?.likedTracks.includes(track.id) ?? false;
   const [showMenu, setShowMenu] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,9 +63,11 @@ export default function TrackCard({ track, queue, showRank }: Props) {
         <div className="relative w-12 h-12 md:w-[52px] md:h-[52px] rounded-lg overflow-hidden flex-shrink-0" onClick={handlePlay}>
           <img src={track.cover} alt={track.title} className="w-full h-full object-cover" draggable={false} />
           <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-            {isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white" />}
+            {isTrackBuffering
+              ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin-slow" />
+              : isPlaying ? <Pause size={18} fill="white" className="text-white" /> : <Play size={18} fill="white" className="text-white" />
+            }
           </div>
-
         </div>
 
         <div className="flex-1 min-w-0" onClick={handlePlay}>
