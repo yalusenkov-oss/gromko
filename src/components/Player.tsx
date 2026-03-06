@@ -225,7 +225,9 @@ export default function Player() {
             <div className="text-center">
               <span className="text-white/40 text-[10px] uppercase tracking-[0.2em]">Сейчас играет</span>
             </div>
-            <div className="w-10" />
+            <button onClick={() => setShowMenu(true)} className="w-10 h-10 flex items-center justify-center text-white/40 hover:text-white transition-colors -mr-2">
+              <MoreHorizontal size={22} />
+            </button>
           </div>
 
           {/* Main content */}
@@ -281,15 +283,11 @@ export default function Player() {
               <button onClick={toggleRepeat} className={`transition-colors ${player.repeat !== 'none' ? 'text-red-400' : 'text-white/40 hover:text-white'}`}>{player.repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}</button>
             </div>
 
-            {/* Like + More buttons */}
-            <div className="flex items-center justify-center gap-3 mt-4">
-              <div className="w-10" />
+            {/* Like button */}
+            <div className="flex items-center justify-center mt-4">
               <button onClick={() => toggleLike(t.id)} className={`flex items-center gap-2 px-5 py-2.5 rounded-full transition-all ${isLiked ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
                 <span className="text-sm">Нравится</span>
-              </button>
-              <button onClick={() => setShowMenu(true)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors">
-                <MoreHorizontal size={20} />
               </button>
             </div>
           </div>{/* end main content */}
