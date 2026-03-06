@@ -22,6 +22,7 @@ export interface Track {
   hlsMaster?: string;
   waveform?: number[];
   meta?: { album?: string; bpm?: number; loudness?: number };
+  createdAt?: string;
 }
 
 export interface Artist {

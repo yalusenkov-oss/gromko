@@ -62,7 +62,7 @@ export default function TracksPage() {
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       if (sort === 'popular') return b.plays - a.plays;
-      if (sort === 'new') return b.year - a.year;
+      if (sort === 'new') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       return a.title.localeCompare(b.title);
     });
 
@@ -103,7 +103,17 @@ export default function TracksPage() {
 
     return result.sort((a, b) => {
       if (sort === 'popular') return b.totalPlays - a.totalPlays;
-      if (sort === 'new') return b.year - a.year;
+      if (sort === 'new') {
+        const aDate = a.tracks.reduce((latest, t) => {
+          const d = new Date(t.createdAt || 0).getTime();
+          return d > latest ? d : latest;
+        }, 0);
+        const bDate = b.tracks.reduce((latest, t) => {
+          const d = new Date(t.createdAt || 0).getTime();
+          return d > latest ? d : latest;
+        }, 0);
+        return bDate - aDate;
+      }
       return a.name.localeCompare(b.name);
     });
   }, [tracks, genre, search, sort]);
@@ -159,12 +169,6 @@ export default function TracksPage() {
             <input type="text" placeholder={view === 'tracks' ? 'Поиск треков...' : 'Поиск альбомов...'} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50" />
           </div>
-
-          <select value={genre} onChange={e => { setGenre(e.target.value); setPage(1); }}
-            className="hidden md:block bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
-            <option value="Все">Все жанры</option>
-            {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
 
           <div className="flex gap-1 bg-white/5 rounded-xl p-1 w-full md:w-auto">
             {(['popular', 'new', 'alpha'] as Sort[]).map(s => (

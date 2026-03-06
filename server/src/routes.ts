@@ -567,9 +567,12 @@ router.get('/admin/stats', adminRequired, async (_req: Request, res: Response) =
   ]);
 
   // Active listeners (played something in last 15 minutes)
-  const activeListeners = await queryOne(
-    `SELECT COUNT(DISTINCT user_id) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NOT NULL`
-  );
+  // Count distinct logged-in users + number of anonymous plays as separate "listeners"
+  const [loggedListeners, anonPlays] = await Promise.all([
+    queryOne(`SELECT COUNT(DISTINCT user_id) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NOT NULL`),
+    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NULL`),
+  ]);
+  const activeListenersCount = Number(loggedListeners?.c || 0) + Number(anonPlays?.c || 0);
 
   // Plays today / this week / this month
   const [playsToday, playsWeek, playsMonth] = await Promise.all([
@@ -595,7 +598,7 @@ router.get('/admin/stats', adminRequired, async (_req: Request, res: Response) =
     ready: Number(readyTracks?.c || 0),
     pendingSubmissions: Number(pendingSubmissions?.c || 0),
     recentUsers: Number(recentUsers?.c || 0),
-    activeListeners: Number(activeListeners?.c || 0),
+    activeListeners: activeListenersCount,
     playsToday: Number(playsToday?.c || 0),
     playsWeek: Number(playsWeek?.c || 0),
     playsMonth: Number(playsMonth?.c || 0),
