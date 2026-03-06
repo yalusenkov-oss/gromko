@@ -1,12 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useStore, GENRES } from '../store';
+import { useStore } from '../store';
 import { Search, Users } from 'lucide-react';
 
 export default function ArtistsPage() {
   const { artists, tracks } = useStore();
   const [search, setSearch] = useState('');
-  const [genre, setGenre] = useState('Все');
 
   // Build a fallback photo map: artist slug -> cover of their most popular track
   const artistPhotoMap = useMemo(() => {
@@ -24,7 +23,6 @@ export default function ArtistsPage() {
   }, [artists, tracks]);
 
   const filtered = artists
-    .filter(a => genre === 'Все' || a.genre === genre)
     .filter(a => !search || a.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -32,17 +30,12 @@ export default function ArtistsPage() {
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         <h1 className="text-3xl font-black mb-6">Артисты</h1>
 
-        <div className="flex flex-col md:flex-row gap-3 mb-8">
-          <div className="relative flex-1">
+        <div className="mb-8">
+          <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input type="text" placeholder="Поиск артистов..." value={search} onChange={e => setSearch(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50" />
           </div>
-          <select value={genre} onChange={e => setGenre(e.target.value)}
-            className="hidden md:block bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
-            <option value="Все">Все жанры</option>
-            {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
