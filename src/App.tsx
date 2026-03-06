@@ -82,13 +82,24 @@ function RegisterRedirect() {
 }
 
 export function App() {
-  const { restoreSession, fetchTracks, fetchArtists } = useStore();
+  const { restoreSession, fetchTracks, fetchArtists, dataReady } = useStore();
 
   useEffect(() => {
     restoreSession();
     fetchTracks();
     fetchArtists();
   }, []);
+
+  if (!dataReady) {
+    return (
+      <div className="fixed inset-0 bg-zinc-950 flex items-center justify-center z-[999]">
+        <div className="flex flex-col items-center gap-4">
+          <span className="text-white font-black text-2xl tracking-tight">GROMQ</span>
+          <div className="w-8 h-8 border-2 border-white/10 border-t-red-500 rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <BrowserRouter>

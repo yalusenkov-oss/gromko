@@ -172,6 +172,7 @@ export interface AdminSubmission {
 interface AppStore {
   currentUser: User | null;
   authLoading: boolean;
+  dataReady: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, password: string, country?: string) => Promise<boolean>;
@@ -239,6 +240,7 @@ interface AppStore {
 export const useStore = create<AppStore>((set, get) => ({
   currentUser: null,
   authLoading: true,
+  dataReady: false,
   tracks: [],
   artists: [],
   users: [],
@@ -296,11 +298,11 @@ export const useStore = create<AppStore>((set, get) => ({
       const qs = new URLSearchParams(params).toString();
       const data = await apiFetch(`/tracks${qs ? '?' + qs : ''}`);
       const tracks: Track[] = data.tracks || [];
-      set({ tracks });
+      set({ tracks, dataReady: true });
       const featured = tracks.find(t => t.featured);
       if (featured) set({ heroTrackId: featured.id });
       else if (tracks.length) set({ heroTrackId: tracks[0].id });
-    } catch (e) { console.error('fetchTracks:', e); }
+    } catch (e) { console.error('fetchTracks:', e); set({ dataReady: true }); }
   },
 
   fetchArtists: async () => {
