@@ -70,9 +70,12 @@ export default function TrackPage() {
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
         {/* Track hero */}
         <div className="flex flex-col md:flex-row gap-8 mb-12 items-center md:items-start">
-          <div className="relative group shrink-0">
+          <div className="relative group shrink-0 cursor-pointer" onClick={() => setIsFullViz(true)}>
             <div className="w-56 h-56 md:w-72 md:h-72 rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
               <img src={track.cover} alt={track.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <Maximize2 size={28} className="text-white" />
+              </div>
             </div>
           </div>
 
@@ -106,6 +109,11 @@ export default function TrackPage() {
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isLiked ? 'bg-red-500/20 text-red-500' : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
               </button>
+              <button onClick={handlePlay}
+                className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
+                {isPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
+                {isPlaying ? 'Пауза' : 'Слушать'}
+              </button>
               <button
                 onClick={() => {
                   const url = `${window.location.origin}/track/${track.id}`;
@@ -117,18 +125,6 @@ export default function TrackPage() {
                 className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
                 <Share2 size={18} />
               </button>
-              <button onClick={handlePlay}
-                className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30">
-                {isPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
-                {isPlaying ? 'Пауза' : 'Слушать'}
-              </button>
-              <button onClick={() => setIsFullViz(true)}
-                className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
-                title="Полноэкранный режим">
-                <Maximize2 size={18} />
-              </button>
-              {/* Invisible spacer to balance the 2 left buttons vs 1 right button */}
-              <div className="w-10 md:hidden" />
             </div>
           </div>
         </div>
