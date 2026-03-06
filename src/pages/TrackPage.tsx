@@ -46,7 +46,10 @@ export default function TrackPage() {
       {/* Full viz mode — only when this track is actually playing */}
       {isFullViz && (
         <div className="fixed inset-0 z-[45] bg-black flex flex-col items-center justify-center gap-8 p-8"
-          style={{ backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+          style={{
+            backgroundImage: `url(${track.cover})`, backgroundSize: 'cover', backgroundPosition: 'center',
+            paddingBottom: player.currentTrack ? 'calc(120px + env(safe-area-inset-bottom, 0px))' : 'calc(60px + env(safe-area-inset-bottom, 0px))',
+          }}>
           <div className="absolute inset-0 bg-black/80 backdrop-blur-3xl" />
           <button onClick={() => setIsFullViz(false)} className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center text-white/70 hover:text-white transition-colors backdrop-blur-sm">
             <Minimize2 size={20} />
@@ -98,7 +101,7 @@ export default function TrackPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 justify-center md:justify-start">
+            <div className="flex items-center justify-center md:justify-start gap-2.5">
               <button onClick={() => toggleLike(track.id)}
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isLiked ? 'bg-red-500/20 text-red-500' : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'}`}>
                 <Heart size={18} fill={isLiked ? 'currentColor' : 'none'} />
@@ -124,6 +127,8 @@ export default function TrackPage() {
                 title="Полноэкранный режим">
                 <Maximize2 size={18} />
               </button>
+              {/* Invisible spacer to balance the 2 left buttons vs 1 right button */}
+              <div className="w-10 md:hidden" />
             </div>
           </div>
         </div>
