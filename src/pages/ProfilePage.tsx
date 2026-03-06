@@ -256,19 +256,33 @@ export default function ProfilePage() {
               </div>
             ) : userSubmissions.map(sub => (
               <div key={sub.id} className="p-4 bg-white/5 rounded-xl">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-white font-medium truncate">{sub.title}</p>
-                    <p className="text-zinc-500 text-sm">{sub.artist} · {sub.genre} · {sub.year}</p>
-                    <p className="text-zinc-600 text-xs mt-1">{sub.createdAt}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {statusIcon(sub.status)}
-                    <span className={`text-sm font-medium ${
-                      sub.status === 'pending' ? 'text-yellow-400' :
-                      sub.status === 'approved' ? 'text-green-400' :
-                      sub.status === 'rejected' ? 'text-red-400' : 'text-zinc-400'
-                    }`}>{statusLabel(sub.status)}</span>
+                <div className="flex items-start gap-3">
+                  {sub.coverUrl ? (
+                    <img src={apiUrl(sub.coverUrl)} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                      <Send size={18} className="text-zinc-600" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-white font-medium truncate">{sub.title}</p>
+                          {sub.albumName && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-medium">💿 {sub.albumName}</span>}
+                        </div>
+                        <p className="text-zinc-500 text-sm">{sub.artist} · {sub.genre} · {sub.year}</p>
+                        <p className="text-zinc-600 text-xs mt-1">{new Date(sub.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {statusIcon(sub.status)}
+                        <span className={`text-sm font-medium ${
+                          sub.status === 'pending' ? 'text-yellow-400' :
+                          sub.status === 'approved' ? 'text-green-400' :
+                          sub.status === 'rejected' ? 'text-red-400' : 'text-zinc-400'
+                        }`}>{statusLabel(sub.status)}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 {sub.status === 'rejected' && sub.rejectReason && (

@@ -56,6 +56,8 @@ export interface Submission {
   comment: string;
   status: 'pending' | 'approved' | 'rejected' | 'deferred';
   rejectReason?: string;
+  albumName?: string;
+  coverUrl?: string;
   createdAt: string;
 }
 
@@ -160,6 +162,9 @@ export interface AdminSubmission {
   status: 'pending' | 'approved' | 'rejected' | 'deferred';
   rejectReason: string | null;
   originalFilename: string;
+  coverUrl: string | null;
+  audioUrl: string | null;
+  albumName: string | null;
   createdAt: string;
   user: { name: string; email: string; avatar: string };
 }
@@ -338,6 +343,8 @@ export const useStore = create<AppStore>((set, get) => ({
         comment: s.comment || '',
         status: s.status,
         rejectReason: s.rejectReason,
+        albumName: s.albumName || undefined,
+        coverUrl: s.coverUrl || undefined,
         createdAt: s.createdAt,
       }));
       set({ submissions: subs });

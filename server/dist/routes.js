@@ -827,14 +827,21 @@ router.get('/admin/submissions', adminRequired, async (_req, res) => {
     LEFT JOIN users u ON u.id = s.user_id
     ORDER BY s.created_at DESC
   `);
-    res.json(subs.map((s) => ({
-        id: s.id, userId: s.user_id, title: s.title, artist: s.artist,
-        genre: s.genre, year: s.year, comment: s.comment,
-        status: s.status, rejectReason: s.reject_reason,
-        originalFilename: s.original_filename, filePath: s.file_path,
-        createdAt: s.created_at,
-        user: { name: s.user_name, email: s.user_email, avatar: s.user_avatar },
-    })));
+    res.json(subs.map((s) => {
+        // Convert absolute file paths to relative URLs for admin preview
+        const audioUrl = s.file_path ? `/uploads/${path.basename(s.file_path)}` : null;
+        const coverUrl = s.cover_path ? `/uploads/${path.basename(s.cover_path)}` : null;
+        return {
+            id: s.id, userId: s.user_id, title: s.title, artist: s.artist,
+            genre: s.genre, year: s.year, comment: s.comment,
+            status: s.status, rejectReason: s.reject_reason,
+            originalFilename: s.original_filename, filePath: s.file_path,
+            coverUrl, audioUrl,
+            albumName: s.album_name || null,
+            createdAt: s.created_at,
+            user: { name: s.user_name, email: s.user_email, avatar: s.user_avatar },
+        };
+    }));
 });
 /** POST /api/submissions — user submits a track for review */
 router.post('/submissions', authRequired, (req, res) => {
@@ -843,20 +850,22 @@ router.post('/submissions', authRequired, (req, res) => {
             return res.status(400).json({ error: err.message });
         const files = req.files;
         const audioFile = files?.audio?.[0];
+        const coverFile = files?.cover?.[0];
         if (!audioFile)
             return res.status(400).json({ error: 'Аудиофайл обязателен' });
         try {
-            const { title, artist, genre, year, comment } = req.body;
+            const { title, artist, genre, year, comment, albumName } = req.body;
             if (!title || !artist)
                 return res.status(400).json({ error: 'Название и артист обязательны' });
             const subId = uuid();
             await execute(`
-        INSERT INTO submissions (id, user_id, title, artist, genre, year, comment, status, original_filename, file_path)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
+        INSERT INTO submissions (id, user_id, title, artist, genre, year, comment, status, original_filename, file_path, cover_path, album_name)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, $11)
       `, [
                 subId, req.user.id, title, artist,
                 genre || 'Другое', Number(year) || new Date().getFullYear(),
                 comment || null, audioFile.originalname, audioFile.path,
+                coverFile?.path || null, albumName || null,
             ]);
             res.status(201).json({ id: subId, status: 'pending', message: 'Трек отправлен на модерацию' });
         }
@@ -871,6 +880,8 @@ router.get('/submissions/my', authRequired, async (req, res) => {
     res.json(subs.map((s) => ({
         id: s.id, title: s.title, artist: s.artist, genre: s.genre, year: s.year,
         comment: s.comment, status: s.status, rejectReason: s.reject_reason,
+        albumName: s.album_name || null,
+        coverUrl: s.cover_path ? `/uploads/${path.basename(s.cover_path)}` : null,
         createdAt: s.created_at,
     })));
 });
@@ -892,15 +903,16 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
         const artist = sub.artist;
         const artistNames = parseArtistNames(artist);
         const primarySlug = artistNames[0].toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+        const albumName = sub.album_name || null;
         await execute(`
       INSERT INTO tracks (id, title, artist, artist_slug, genre, year, duration,
                          original_filename, original_format, original_size, original_bitrate,
-                         original_sample_rate, original_channels, explicit, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
+                         original_sample_rate, original_channels, explicit, status, meta_album)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15)
     `, [
             trackId, sub.title, artist, primarySlug, sub.genre, sub.year, meta.duration,
             sub.original_filename, meta.format, 0, meta.bitrate,
-            meta.sampleRate, meta.channels, false,
+            meta.sampleRate, meta.channels, false, albumName,
         ]);
         // Create artists & link
         for (let i = 0; i < artistNames.length; i++) {
@@ -917,8 +929,9 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
             }
             await execute(`INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [trackId, artistId, i]);
         }
-        // Enqueue for audio processing
-        enqueueTrack(trackId, sub.file_path);
+        // Enqueue for audio processing (with cover if available)
+        const coverPath = sub.cover_path && fs.existsSync(sub.cover_path) ? sub.cover_path : undefined;
+        enqueueTrack(trackId, sub.file_path, coverPath);
         // Update submission status
         await execute("UPDATE submissions SET status = 'approved' WHERE id = $1", [sub.id]);
         res.json({ ok: true, trackId, message: 'Трек одобрен и поставлен в очередь на обработку' });

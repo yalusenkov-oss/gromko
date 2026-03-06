@@ -1165,18 +1165,28 @@ function ModerationTab() {
           {filtered.map(sub => (
             <div key={sub.id} className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-5">
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center shrink-0"><Music className="w-5 h-5 text-zinc-500" /></div>
+                {sub.coverUrl ? (
+                  <img src={apiUrl(sub.coverUrl)} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0"><Music className="w-6 h-6 text-zinc-500" /></div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-white font-semibold">{sub.title}</span>
                     <span className="text-zinc-500">—</span>
                     <span className="text-zinc-300">{sub.artist}</span>
+                    {sub.albumName && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-400">💿 {sub.albumName}</span>}
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[sub.status]}`}>{statusLabels[sub.status]}</span>
                   </div>
                   <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
                     <span>{sub.genre}</span><span>{sub.year}</span><span>{sub.originalFilename}</span>
                     <span>{new Date(sub.createdAt).toLocaleDateString('ru-RU')}</span>
                   </div>
+                  {sub.audioUrl && (
+                    <audio controls preload="none" className="mt-2 w-full h-8 [&::-webkit-media-controls-panel]:bg-zinc-800 rounded">
+                      <source src={apiUrl(sub.audioUrl)} />
+                    </audio>
+                  )}
                   {sub.comment && <p className="mt-2 text-sm text-zinc-400 bg-zinc-800/50 rounded-lg px-3 py-2">💬 {sub.comment}</p>}
                   {sub.rejectReason && <p className="mt-2 text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">❌ {sub.rejectReason}</p>}
                   <div className="mt-3 flex items-center gap-2">

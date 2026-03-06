@@ -211,6 +211,9 @@ export async function initSchema() {
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_albums TEXT[] NOT NULL DEFAULT '{}'`);
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_artists TEXT[] NOT NULL DEFAULT '{}'`);
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
+        // Migration: add cover_path and album_name to submissions
+        await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_path TEXT`);
+        await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
         console.log('  ✅ Database schema initialized');
     }
     finally {

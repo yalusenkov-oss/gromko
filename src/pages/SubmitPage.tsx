@@ -184,14 +184,9 @@ export default function SubmitPage() {
           formData.append('artist', form.artist);
           formData.append('genre', form.genre);
           formData.append('year', form.year.toString());
+          formData.append('albumName', form.albumName);
           if (coverFile) formData.append('cover', coverFile);
-          if (form.comment && i === 0) formData.append('comment', `Альбом: ${form.albumName}. ${form.comment}`);
-          else if (i === 0) formData.append('comment', `Альбом: ${form.albumName}`);
-
-          // For admin uploads, include the album name in meta
-          if (isAdmin) {
-            formData.append('albumName', form.albumName);
-          }
+          if (form.comment && i === 0) formData.append('comment', form.comment);
 
           await new Promise<void>((resolve, reject) => {
             const xhr = new XMLHttpRequest();

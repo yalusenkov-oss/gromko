@@ -140,9 +140,9 @@ export default function Navbar() {
           {currentUser ? (
             <>
               {(currentUser.role === 'user' || currentUser.role === 'admin') && (
-                <Link to="/submit" className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-sm font-medium rounded-lg transition-colors">
+                <Link to="/submit" className="flex items-center gap-2 px-2.5 md:px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-sm font-medium rounded-lg transition-colors">
                   <Upload size={14} />
-                  <span>Предложить трек</span>
+                  <span className="hidden md:inline">Предложить трек</span>
                 </Link>
               )}
               {isAdmin && (
