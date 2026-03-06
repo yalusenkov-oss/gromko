@@ -47,8 +47,17 @@ export default function ArtistPage() {
   // Check if we came from context menu "Go to album" — should open album overlay immediately
   const openAlbumFromNav = !!(location.state as any)?.openAlbum;
   const albumParam = searchParams.get('album');
+  const passedAlbumData = (location.state as any)?.albumData as Album | undefined;
 
   const artist = artists.find(a => a.slug === slug);
+
+  // If album data was passed via navigation state, open overlay immediately
+  useEffect(() => {
+    if (passedAlbumData && !mobileAlbum) {
+      setMobileAlbum(passedAlbumData);
+      setAlbumLoading(false);
+    }
+  }, [passedAlbumData]);
 
   // Fetch tracks directly from API for this artist (includes meta.album)
   useEffect(() => {
@@ -121,7 +130,7 @@ export default function ArtistPage() {
   }, [artistTracks]);
 
   // Auto-open album from URL param (?album=Name)
-  const [albumLoading, setAlbumLoading] = useState(!!albumParam);
+  const [albumLoading, setAlbumLoading] = useState(!!albumParam && !passedAlbumData);
   useEffect(() => {
     if (albumParam && albums.length > 0 && !mobileAlbum) {
       const found = albums.find(a => a.name === albumParam);
