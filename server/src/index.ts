@@ -46,6 +46,7 @@ ensureDirs();
 
 // ─── Auto-start SpotiFLAC Go server ───
 let spotiflacProcess: ChildProcess | null = null;
+let goRuntimeBootstrapAttempted = false;
 
 function resolveSpotiflacDir(): string | null {
   const explicitDir = (process.env.SPOTIFLAC_DIR || '').trim();
@@ -88,6 +89,62 @@ function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: str
     return { cmd: 'go', args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
   }
 
+  // If system Go is missing, try one-time local bootstrap (Linux only).
+  const localGo = ensureLocalGoRuntime(SPOTIFLAC_DIR);
+  if (localGo) {
+    return { cmd: localGo, args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
+  }
+
+  return null;
+}
+
+function ensureLocalGoRuntime(SPOTIFLAC_DIR: string): string | null {
+  if (process.env.SPOTIFLAC_AUTO_INSTALL_GO === '0') return null;
+  if (process.platform !== 'linux') return null;
+
+  const arch = process.arch === 'x64' ? 'amd64' : process.arch === 'arm64' ? 'arm64' : '';
+  if (!arch) return null;
+
+  const runtimeRoot = path.join(SPOTIFLAC_DIR, '.runtime');
+  const localGoBin = path.join(runtimeRoot, 'go', 'bin', 'go');
+  if (fs.existsSync(localGoBin)) return localGoBin;
+  if (goRuntimeBootstrapAttempted) return null;
+  goRuntimeBootstrapAttempted = true;
+
+  const goVersion = (process.env.SPOTIFLAC_GO_VERSION || '1.22.12').trim();
+  const tarUrl = `https://go.dev/dl/go${goVersion}.linux-${arch}.tar.gz`;
+  const goRoot = path.join(runtimeRoot, 'go');
+
+  console.log(`  ⏳ Go runtime not found, downloading ${tarUrl}`);
+  const installCmd = [
+    'set -e',
+    'TMP_DIR="$(mktemp -d)"',
+    'ARCHIVE="$TMP_DIR/go.tar.gz"',
+    `URL="${tarUrl}"`,
+    'if command -v curl >/dev/null 2>&1; then',
+    '  curl -fsSL "$URL" -o "$ARCHIVE"',
+    'elif command -v wget >/dev/null 2>&1; then',
+    '  wget -qO "$ARCHIVE" "$URL"',
+    'else',
+    '  echo "Neither curl nor wget is installed" >&2',
+    '  exit 1',
+    'fi',
+    `mkdir -p "${runtimeRoot}"`,
+    `rm -rf "${goRoot}"`,
+    `tar -C "${runtimeRoot}" -xzf "$ARCHIVE"`,
+    'rm -rf "$TMP_DIR"',
+  ].join('; ');
+
+  const result = spawnSync('sh', ['-lc', installCmd], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (result.status !== 0) {
+    const err = result.stderr?.toString().trim() || result.stdout?.toString().trim() || `exit code ${result.status}`;
+    console.warn('  ⚠️ Failed to bootstrap local Go runtime:', err);
+    return null;
+  }
+  if (fs.existsSync(localGoBin)) {
+    console.log('  ✅ Local Go runtime installed:', localGoBin);
+    return localGoBin;
+  }
   return null;
 }
 

@@ -1875,7 +1875,7 @@ function SpotifyImportTab() {
         }`} />
         <span className="text-sm text-zinc-300">
           {healthy === true && 'SpotiFLAC сервис работает'}
-          {healthy === false && 'SpotiFLAC сервис недоступен — запустите Go сервер (cd SpotiFLAC-main && go run ./cmd/server)'}
+          {healthy === false && 'SpotiFLAC сервис недоступен — проверьте логи backend/PM2'}
           {healthy === null && 'Проверка SpotiFLAC сервиса...'}
         </span>
         <button
