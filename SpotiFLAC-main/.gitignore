@@ -6,7 +6,9 @@ build/
 *.so
 
 # Compiled server binary & downloaded Go runtime (auto-built by GROMKO)
-bin/
+# Keep the prebuilt linux binary (bin/spotiflac-server-linux-amd64) in git
+bin/*
+!bin/spotiflac-server-linux-amd64
 .runtime/
 downloads/
 
