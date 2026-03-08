@@ -20,6 +20,7 @@ import { parseArtistNames } from './parse-artists.js';
 
 const SPOTIFLAC_URL = process.env.SPOTIFLAC_URL || 'http://localhost:3099';
 const PRIMARY_SERVICE = 'tidal';
+const FALLBACK_SERVICES = ['deezer', 'qobuz'];
 const RETRYABLE_DOWNLOAD_ERROR_RE = /\b524\b|timeout|timed\s*out|temporar/i;
 const TRANSPORT_ERROR_RE = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|network/i;
 const INTER_TRACK_DELAY_MS = Number(process.env.SPOTIFY_IMPORT_INTER_TRACK_DELAY_MS || 200);
@@ -175,28 +176,34 @@ function buildDownloadPayload(
 async function downloadViaPrimaryService(
   payloadFactory: (service: string) => any,
 ): Promise<any> {
+  const allServices = [PRIMARY_SERVICE, ...FALLBACK_SERVICES];
   const errors: string[] = [];
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      return await spotiflacFetch('/api/download', {
-        method: 'POST',
-        body: JSON.stringify(payloadFactory(PRIMARY_SERVICE)),
-      }, 5 * 60 * 1000);
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      if (TRANSPORT_ERROR_RE.test(msg)) {
-        throw new Error(msg);
+
+  for (const service of allServices) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`  ⬇️ Trying download via ${service} (attempt ${attempt})`);
+        return await spotiflacFetch('/api/download', {
+          method: 'POST',
+          body: JSON.stringify(payloadFactory(service)),
+        }, 5 * 60 * 1000);
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (TRANSPORT_ERROR_RE.test(msg)) {
+          throw new Error(msg);
+        }
+        errors.push(`${service}#${attempt}: ${msg}`);
+        console.warn(`  ⚠️ Download failed via ${service}#${attempt}: ${msg}`);
+        const retryable = RETRYABLE_DOWNLOAD_ERROR_RE.test(msg);
+        if (retryable && attempt < 2) {
+          await sleep(1200);
+          continue;
+        }
+        break; // Move to next service
       }
-      errors.push(`${PRIMARY_SERVICE}#${attempt}: ${msg}`);
-      const retryable = RETRYABLE_DOWNLOAD_ERROR_RE.test(msg);
-      if (retryable && attempt < 2) {
-        await sleep(1200);
-        continue;
-      }
-      break;
     }
   }
-  throw new Error(`Не удалось скачать трек через ${PRIMARY_SERVICE} (${errors.join(' | ')})`);
+  throw new Error(`Не удалось скачать трек ни через один сервис (${errors.join(' | ')})`);
 }
 
 export async function checkSpotiflacHealth(): Promise<boolean> {
@@ -765,7 +772,12 @@ function finalizeJob(job: SpotifyImportJob) {
 
   if (job.completedTracks === 0 && job.failedTracks > 0) {
     job.status = 'error';
-    job.error = `Не удалось загрузить ни одного трека (${job.failedTracks}/${job.totalTracks}).`;
+    // Include per-track errors so the user sees the real reason
+    const trackErrors = job.tracks
+      .filter(t => t.status === 'error' && t.error)
+      .map(t => `${t.title}: ${t.error}`)
+      .join('; ');
+    job.error = `Не удалось загрузить ни одного трека (${job.failedTracks}/${job.totalTracks}).${trackErrors ? ' Ошибки: ' + trackErrors : ''}`;
     return;
   }
 
