@@ -13,7 +13,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
@@ -40,14 +40,60 @@ console.log('  🔑 PORT:', process.env.PORT || CONFIG.port);
 ensureDirs();
 // ─── Auto-start SpotiFLAC Go server ───
 let spotiflacProcess = null;
+function resolveSpotiflacDir() {
+    const explicitDir = (process.env.SPOTIFLAC_DIR || '').trim();
+    const candidates = [
+        explicitDir,
+        path.join(process.cwd(), 'SpotiFLAC-main'),
+        path.join(process.cwd(), '..', 'SpotiFLAC-main'),
+        path.join(__dirname, '..', '..', 'SpotiFLAC-main'),
+        path.join(__dirname, '..', 'SpotiFLAC-main'),
+    ].filter(Boolean);
+    for (const dir of candidates) {
+        const cmdServer = path.join(dir, 'cmd', 'server', 'main.go');
+        if (fs.existsSync(cmdServer))
+            return dir;
+    }
+    return null;
+}
+function resolveSpotiflacLaunch(SPOTIFLAC_DIR) {
+    const explicitBin = (process.env.SPOTIFLAC_BIN || '').trim();
+    if (explicitBin && fs.existsSync(explicitBin)) {
+        return { cmd: explicitBin, args: [], cwd: path.dirname(explicitBin) };
+    }
+    const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'amd64' : process.arch;
+    const platform = process.platform === 'linux' ? 'linux' : process.platform;
+    const binCandidates = [
+        path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-server-${platform}-${arch}`),
+        path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-${platform}-${arch}`),
+        path.join(SPOTIFLAC_DIR, 'bin', 'spotiflac-server'),
+    ];
+    for (const bin of binCandidates) {
+        if (fs.existsSync(bin)) {
+            return { cmd: bin, args: [], cwd: path.dirname(bin) };
+        }
+    }
+    const goCheck = spawnSync('go', ['version'], { stdio: 'ignore' });
+    if (goCheck.status === 0) {
+        return { cmd: 'go', args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
+    }
+    return null;
+}
 function startSpotiflac() {
-    const SPOTIFLAC_DIR = path.join(__dirname, '..', '..', 'SpotiFLAC-main');
+    const explicitUrl = (process.env.SPOTIFLAC_URL || '').trim();
+    if (explicitUrl && !/localhost|127\.0\.0\.1/.test(explicitUrl)) {
+        console.log('  ℹ️ Using external SpotiFLAC service:', explicitUrl);
+        return;
+    }
+    const SPOTIFLAC_DIR = resolveSpotiflacDir();
     const spotiflacPort = process.env.SPOTIFLAC_PORT || '3099';
-    if (!fs.existsSync(SPOTIFLAC_DIR)) {
-        console.warn('  ⚠️ SpotiFLAC directory not found at', SPOTIFLAC_DIR);
+    if (!SPOTIFLAC_DIR) {
+        console.warn('  ⚠️ SpotiFLAC directory not found');
+        console.warn('  💡 Checked SPOTIFLAC_DIR, ./SpotiFLAC-main, ../SpotiFLAC-main and dist-relative paths');
         console.warn('  ⚠️ Spotify import will not be available');
         return;
     }
+    console.log('  📁 SpotiFLAC dir:', SPOTIFLAC_DIR);
     // Check if SpotiFLAC is already running
     fetch(`http://localhost:${spotiflacPort}/health`)
         .then(r => r.json())
@@ -61,8 +107,15 @@ function startSpotiflac() {
         console.log('  ⏳ Starting SpotiFLAC Go server...');
         const downloadsDir = path.join(SPOTIFLAC_DIR, 'downloads');
         fs.mkdirSync(downloadsDir, { recursive: true });
-        spotiflacProcess = spawn('go', ['run', './cmd/server'], {
-            cwd: SPOTIFLAC_DIR,
+        const launch = resolveSpotiflacLaunch(SPOTIFLAC_DIR);
+        if (!launch) {
+            console.warn('  ⚠️ Cannot start SpotiFLAC automatically: no Go runtime and no prebuilt binary found');
+            console.warn('  💡 Set SPOTIFLAC_URL (external service) or SPOTIFLAC_BIN (local binary path)');
+            return;
+        }
+        console.log(`  ▶️ SpotiFLAC launch: ${launch.cmd} ${launch.args.join(' ')}`.trim());
+        spotiflacProcess = spawn(launch.cmd, launch.args, {
+            cwd: launch.cwd,
             env: {
                 ...process.env,
                 SPOTIFLAC_PORT: spotiflacPort,

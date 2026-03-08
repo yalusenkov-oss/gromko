@@ -12,7 +12,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server/dist/index.js",
-    "start:server": "NODE_ENV=production node server/dist/index.js"
+    "start:server": "NODE_ENV=production node server/dist/index.js",
+    "start:pm2": "pm2 start --no-daemon ecosystem.config.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
