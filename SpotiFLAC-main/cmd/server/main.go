@@ -65,10 +65,11 @@ func main() {
 	// Serve downloaded files
 	mux.Handle("/downloads/", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadDir))))
 
-	log.Printf("🎵 SpotiFLAC API server starting on :%s", port)
+	listenAddr := "127.0.0.1:" + port
+	log.Printf("🎵 SpotiFLAC API server starting on %s", listenAddr)
 	log.Printf("📁 Download directory: %s", downloadDir)
 
-	if err := http.ListenAndServe(":"+port, corsMiddleware(mux)); err != nil {
+	if err := http.ListenAndServe(listenAddr, corsMiddleware(mux)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
