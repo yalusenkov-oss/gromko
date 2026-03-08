@@ -3,6 +3,11 @@ node_modules/
 
 # Data (audio files, covers, waveforms, uploads)
 data/
+SpotiFLAC-main/downloads/
+yandex-music-downloader-main/*/*/*.m4a
+yandex-music-downloader-main/*/*/cover.jpg
+yandex-music-downloader-main/*/*/cover.jpeg
+yandex-music-downloader-main/*/*/cover.png
 
 # Environment variables
 .env

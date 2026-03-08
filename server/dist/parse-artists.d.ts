@@ -1,6 +1,6 @@
 /**
  * Utility to split an artist string into individual artist names.
- * Handles: commas, "feat.", "feat", "ft.", "ft", "&", "and", "x"
+ * Handles: commas, semicolons, "feat.", "feat", "ft.", "ft", "&", "and", "x"
  *
  * Examples:
  *   "Artist1, Artist2"           → ["Artist1", "Artist2"]

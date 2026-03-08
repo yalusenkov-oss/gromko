@@ -1,0 +1,1 @@
+{"version":3,"file":"track-dedupe.d.ts","sourceRoot":"","sources":["../src/track-dedupe.ts"],"names":[],"mappings":"AAIA,MAAM,WAAW,kBAAkB;IACjC,EAAE,EAAE,MAAM,CAAC;IACX,KAAK,EAAE,MAAM,CAAC;IACd,MAAM,EAAE,MAAM,CAAC;CAChB;AAmBD,wBAAsB,iCAAiC,CACrD,KAAK,EAAE,MAAM,EACb,SAAS,EAAE,MAAM,GAChB,OAAO,CAAC,kBAAkB,GAAG,IAAI,CAAC,CAiCpC"}

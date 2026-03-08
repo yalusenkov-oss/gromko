@@ -50,6 +50,7 @@ export interface Playlist {
 export interface Submission {
   id: string;
   userId: string;
+  releaseId?: string;
   title: string;
   artist: string;
   genre: string;
@@ -156,6 +157,7 @@ export interface AdminUser {
 export interface AdminSubmission {
   id: string;
   userId: string;
+  releaseId: string | null;
   title: string;
   artist: string;
   genre: string;
@@ -341,6 +343,7 @@ export const useStore = create<AppStore>((set, get) => ({
       const subs: Submission[] = (Array.isArray(data) ? data : []).map((s: any) => ({
         id: s.id,
         userId: s.userId || '',
+        releaseId: s.releaseId || undefined,
         title: s.title,
         artist: s.artist,
         genre: s.genre,

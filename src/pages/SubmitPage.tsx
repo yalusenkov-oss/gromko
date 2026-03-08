@@ -1,11 +1,12 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useStore, GENRES } from '../store';
 import { Link } from 'react-router-dom';
-import { Upload, CheckCircle, X, Music, Image, AlertCircle, Loader2, Info, Plus, Trash2, Disc3 } from 'lucide-react';
+import { Upload, CheckCircle, X, Music, Image, AlertCircle, Loader2, Info, Plus, Trash2, Disc3, Search, ExternalLink } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 
 type UploadStatus = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 type ReleaseType = 'single' | 'album';
+type SourceType = 'file' | 'spotify';
 
 interface TrackEntry {
   id: string;
@@ -13,12 +14,65 @@ interface TrackEntry {
   audioFile: File | null;
 }
 
+interface SpotifyJobTrack {
+  spotifyId: string;
+  title: string;
+  artist: string;
+  album: string;
+  status: 'pending' | 'downloading' | 'processing' | 'done' | 'error';
+  error?: string;
+}
+
+interface SpotifyJob {
+  id: string;
+  status: 'pending' | 'fetching_metadata' | 'downloading' | 'processing' | 'done' | 'error';
+  progress: number;
+  totalTracks: number;
+  completedTracks: number;
+  failedTracks: number;
+  tracks: SpotifyJobTrack[];
+  error?: string;
+}
+
+interface SpotifyPreview {
+  type: 'track' | 'album';
+  name: string;
+  artist: string;
+  cover?: string;
+  trackCount?: number;
+  tracks?: { name: string; artists: string }[];
+}
+
+
+interface ExistingTrackRef {
+  id: string;
+  title: string;
+  artist: string;
+  url?: string;
+}
+
+function extractExistingTrackFromMessage(msg: string): ExistingTrackRef | null {
+  if (!msg) return null;
+  const linkMatch = msg.match(/\/track\/([a-z0-9-]+)/i);
+  if (!linkMatch) return null;
+  const id = linkMatch[1];
+  const metaMatch = msg.match(/:\s*(.+?)\s+—\s+(.+?)\s+\(\/track\//);
+  return {
+    id,
+    artist: metaMatch?.[1] || 'Артист',
+    title: metaMatch?.[2] || 'Трек',
+    url: `/track/${id}`,
+  };
+}
+
 export default function SubmitPage() {
   const { currentUser, artists } = useStore();
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [existingTrack, setExistingTrack] = useState<ExistingTrackRef | null>(null);
   const [releaseType, setReleaseType] = useState<ReleaseType>('single');
+  const [sourceType, setSourceType] = useState<SourceType>('spotify');
 
   const [form, setForm] = useState({
     title: '', artist: '', genre: GENRES[0], year: new Date().getFullYear(), comment: '',
@@ -30,6 +84,7 @@ export default function SubmitPage() {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const albumBatchInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-track album
@@ -37,6 +92,27 @@ export default function SubmitPage() {
     { id: crypto.randomUUID(), title: '', audioFile: null },
     { id: crypto.randomUUID(), title: '', audioFile: null },
   ]);
+
+  // Spotify import
+  const [spotifyUrl, setSpotifyUrl] = useState('');
+  const [spotifyAvailable, setSpotifyAvailable] = useState<boolean | null>(null);
+  const [spotifyJob, setSpotifyJob] = useState<SpotifyJob | null>(null);
+  const [spotifyPreview, setSpotifyPreview] = useState<SpotifyPreview | null>(null);
+  const [spotifyLoading, setSpotifyLoading] = useState(false);
+
+  // Check SpotiFLAC availability on mount
+  useEffect(() => {
+    if (sourceType === 'spotify' && spotifyAvailable === null) {
+      const token = localStorage.getItem('gromko_token');
+      fetch(apiUrl('/submissions/spotify/health'), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.json())
+        .then(d => setSpotifyAvailable(d.available))
+        .catch(() => setSpotifyAvailable(false));
+    }
+  }, [sourceType, spotifyAvailable]);
+
 
   if (!currentUser) {
     return (
@@ -59,7 +135,7 @@ export default function SubmitPage() {
           <h2 className="text-2xl font-black mb-2">{isAdmin ? 'Загружено!' : 'Заявка отправлена!'}</h2>
           <p className="text-zinc-400 mb-6">
             {isAdmin
-              ? 'Аудио обрабатывается — создаются разные качества, HLS-поток и вейвформа.'
+              ? 'Аудио обрабатывается'
               : 'Ваша заявка отправлена на модерацию. После одобрения трек появится на платформе.'
             }
           </p>
@@ -68,6 +144,7 @@ export default function SubmitPage() {
               setStatus('idle'); setAudioFile(null); setCoverFile(null); setCoverPreview(null);
               setForm({ title: '', artist: '', genre: GENRES[0], year: new Date().getFullYear(), comment: '', albumName: '' });
               setAlbumTracks([{ id: crypto.randomUUID(), title: '', audioFile: null }, { id: crypto.randomUUID(), title: '', audioFile: null }]);
+              setSpotifyJob(null); setSpotifyPreview(null); setSpotifyUrl('');
             }} className="px-5 py-2.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm transition-colors">Отправить ещё</button>
             <Link to="/tracks" className="px-5 py-2.5 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-medium transition-colors">К трекам</Link>
           </div>
@@ -76,7 +153,7 @@ export default function SubmitPage() {
     );
   }
 
-  const handleAudioDrop = useCallback((e: React.DragEvent) => {
+  const handleAudioDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file && /\.(mp3|wav|flac|aac|ogg|m4a)$/i.test(file.name)) {
@@ -86,7 +163,7 @@ export default function SubmitPage() {
         setForm(f => ({ ...f, title: name }));
       }
     }
-  }, [form.title]);
+  };
 
   const handleCoverSelect = (file: File) => {
     setCoverFile(file);
@@ -106,6 +183,18 @@ export default function SubmitPage() {
     setAlbumTracks(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
   };
 
+  const handleAlbumBatchSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const list = Array.from(files).filter(f => /\.(mp3|wav|flac|aac|ogg|m4a)$/i.test(f.name));
+    if (list.length === 0) return;
+    list.sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' }));
+    setAlbumTracks(list.map(file => ({
+      id: crypto.randomUUID(),
+      title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+      audioFile: file,
+    })));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -122,6 +211,7 @@ export default function SubmitPage() {
     setStatus('uploading');
     setUploadProgress(0);
     setErrorMsg('');
+    setExistingTrack(null);
 
     try {
       if (releaseType === 'single') {
@@ -175,6 +265,7 @@ export default function SubmitPage() {
         const endpoint = isAdmin ? apiUrl('/tracks/upload') : apiUrl('/submissions');
         const token = localStorage.getItem('gromko_token');
         const total = albumTracks.length;
+        const releaseId = crypto.randomUUID();
 
         for (let i = 0; i < total; i++) {
           const t = albumTracks[i];
@@ -185,6 +276,7 @@ export default function SubmitPage() {
           formData.append('genre', form.genre);
           formData.append('year', form.year.toString());
           formData.append('albumName', form.albumName);
+          formData.append('releaseId', releaseId);
           if (coverFile) formData.append('cover', coverFile);
           if (form.comment && i === 0) formData.append('comment', form.comment);
 
@@ -233,6 +325,154 @@ export default function SubmitPage() {
     setTimeout(() => { clearInterval(interval); if (status === 'processing') setStatus('done'); }, 300000);
   };
 
+  // ─── Spotify import handlers ───
+
+  const isSpotifyUrl = (url: string) =>
+    /https?:\/\/open\.spotify\.com\/(track|album)\//.test(url);
+
+  const handleSpotifyPreview = async () => {
+    if (!spotifyUrl.trim() || !isSpotifyUrl(spotifyUrl)) {
+      setErrorMsg('Вставьте корректную ссылку на трек или альбом Spotify');
+      setStatus('error');
+      return;
+    }
+
+    setSpotifyLoading(true);
+    setSpotifyPreview(null);
+    setErrorMsg('');
+
+    try {
+      const token = localStorage.getItem('gromko_token');
+      // Use admin metadata endpoint if admin, otherwise we'll just submit directly
+      const metaEndpoint = isAdmin
+        ? apiUrl(`/admin/spotify/metadata?url=${encodeURIComponent(spotifyUrl)}`)
+        : null;
+
+      if (metaEndpoint) {
+        const resp = await fetch(metaEndpoint, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Не удалось получить метаданные');
+
+        if (data.album_info) {
+          setSpotifyPreview({
+            type: 'album',
+            name: data.album_info.name,
+            artist: data.album_info.artists,
+            cover: data.album_info.images,
+            trackCount: data.track_list?.length || data.album_info.total_tracks,
+            tracks: data.track_list?.map((t: any) => ({ name: t.name, artists: t.artists })),
+          });
+        } else if (data.track) {
+          setSpotifyPreview({
+            type: 'track',
+            name: data.track.name,
+            artist: data.track.artists,
+            cover: data.track.images,
+            trackCount: 1,
+          });
+        }
+      } else {
+        // For regular users, just validate the URL format
+        const isAlbum = spotifyUrl.includes('/album/');
+        setSpotifyPreview({
+          type: isAlbum ? 'album' : 'track',
+          name: isAlbum ? 'Альбом Spotify' : 'Трек Spotify',
+          artist: '',
+          trackCount: isAlbum ? undefined : 1,
+        });
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message);
+      setStatus('error');
+    } finally {
+      setSpotifyLoading(false);
+    }
+  };
+
+  const handleSpotifySubmit = async () => {
+    if (!spotifyUrl.trim() || !isSpotifyUrl(spotifyUrl)) {
+      setErrorMsg('Вставьте корректную ссылку на трек или альбом Spotify');
+      setStatus('error');
+      return;
+    }
+
+    setStatus('uploading');
+    setUploadProgress(0);
+    setErrorMsg('');
+    setExistingTrack(null);
+
+    try {
+      const token = localStorage.getItem('gromko_token');
+      const resp = await fetch(apiUrl('/submissions/spotify'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          url: spotifyUrl.trim(),
+          service: 'tidal',
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) {
+        if (resp.status === 409 && data?.existingTrack) {
+          setExistingTrack(data.existingTrack);
+        }
+        throw new Error(data.error || 'Ошибка при отправке');
+      }
+
+      // Poll job status
+      const jobId = data.jobId;
+      setStatus('processing');
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const jobResp = await fetch(apiUrl(`/submissions/spotify/job/${jobId}`), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const jobData = await jobResp.json();
+          setSpotifyJob(jobData);
+
+          if (jobData.totalTracks > 0) {
+            setUploadProgress(Math.round((jobData.completedTracks / jobData.totalTracks) * 100));
+          }
+
+          if (jobData.status === 'done') {
+            if (jobData.completedTracks === 0 && jobData.failedTracks > 0) {
+              clearInterval(pollInterval);
+              setStatus('error');
+              setErrorMsg(jobData.error || 'Импорт завершился с ошибкой, ни один трек не был добавлен');
+              return;
+            }
+            clearInterval(pollInterval);
+            setStatus('done');
+          } else if (jobData.status === 'error') {
+            clearInterval(pollInterval);
+            setStatus('error');
+            const existingFromError = extractExistingTrackFromMessage(jobData.error || '');
+            if (existingFromError) setExistingTrack(existingFromError);
+            setErrorMsg(jobData.error || 'Ошибка при импорте');
+          }
+        } catch { /* ignore poll errors */ }
+      }, 2000);
+
+      // Timeout after 10 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (status === 'processing') {
+          setStatus('done');
+        }
+      }, 600000);
+    } catch (err: any) {
+      setStatus('error');
+      setErrorMsg(err.message);
+    }
+  };
+
   const isUploading = status === 'uploading' || status === 'processing';
 
   return (
@@ -259,8 +499,8 @@ export default function SubmitPage() {
               <div className="space-y-2 text-sm">
                 <p className="text-blue-200 font-medium">Как это работает?</p>
                 <p className="text-blue-300/70">
-                  Вы можете предложить трек или альбом, который вам нравится, но которого ещё нет на платформе. 
-                  Загрузите аудиофайл, укажите информацию об артисте и треке — заявка будет отправлена на модерацию.
+                  Вы можете предложить трек или альбом, который вам нравится, но которого ещё нет на платформе.
+                  Загрузите аудиофайл или вставьте ссылку на Spotify — заявка будет отправлена на модерацию.
                 </p>
                 <p className="text-blue-300/70">
                   После одобрения администратором трек пройдёт обработку и появится на платформе.
@@ -277,6 +517,14 @@ export default function SubmitPage() {
             <div>
               <p className="text-red-300 text-sm font-medium">Ошибка</p>
               <p className="text-red-400/70 text-sm">{errorMsg}</p>
+              {existingTrack?.id && (
+                <Link
+                  to={`/track/${existingTrack.id}`}
+                  className="inline-flex mt-2 text-sm text-red-300 hover:text-red-200 underline underline-offset-2"
+                >
+                  Открыть существующий трек: {existingTrack.artist} — {existingTrack.title}
+                </Link>
+              )}
             </div>
             <button onClick={() => setStatus('idle')} className="ml-auto text-red-400/50 hover:text-red-400"><X size={16} /></button>
           </div>
@@ -289,20 +537,157 @@ export default function SubmitPage() {
               <Loader2 size={20} className="text-red-400 animate-spin" />
               <div>
                 <p className="text-white text-sm font-medium">
-                  {status === 'uploading' ? 'Загрузка файла...' : 'Обработка аудио...'}
+                  {sourceType === 'spotify'
+                    ? (status === 'uploading' ? 'Отправка запроса...' : 'Загрузка из Spotify...')
+                    : (status === 'uploading' ? 'Загрузка файла...' : 'Обработка аудио...')}
                 </p>
                 <p className="text-zinc-500 text-xs">
-                  {status === 'uploading' ? `${uploadProgress}%` : 'Транскодирование, HLS, вейвформа...'}
+                  {sourceType === 'spotify'
+                    ? (spotifyJob
+                      ? `${spotifyJob.completedTracks} из ${spotifyJob.totalTracks} треков`
+                      : 'Подождите, идёт загрузка...')
+                    : (status === 'uploading' ? `${uploadProgress}%` : 'Транскодирование, HLS, вейвформа...')}
                 </p>
               </div>
             </div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
               <div className="h-full bg-red-500 rounded-full transition-all duration-300"
-                style={{ width: status === 'uploading' ? `${uploadProgress}%` : '100%' }} />
+                style={{ width: `${uploadProgress}%` }} />
             </div>
+
+            {/* Import job track list */}
+            {sourceType === 'spotify' && spotifyJob && spotifyJob.tracks.length > 0 && (
+              <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto">
+                {spotifyJob.tracks.map((t, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className="w-4 text-center shrink-0">
+                      {t.status === 'done' && <CheckCircle size={12} className="text-green-400" />}
+                      {t.status === 'error' && <AlertCircle size={12} className="text-red-400" />}
+                      {(t.status === 'downloading' || t.status === 'processing') && <Loader2 size={12} className="text-yellow-400 animate-spin" />}
+                      {t.status === 'pending' && <span className="w-2 h-2 rounded-full bg-zinc-600 block mx-auto" />}
+                    </span>
+                    <span className={`truncate ${t.status === 'done' ? 'text-zinc-300' : t.status === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+                      {t.artist} — {t.title}
+                    </span>
+                    {t.error && <span className="text-red-500/60 text-[10px] ml-auto shrink-0">{t.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
+        {/* Source type selector */}
+        <div className="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
+          <button type="button" onClick={() => setSourceType('spotify')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${sourceType === 'spotify' ? 'bg-green-500/20 text-green-400' : 'text-zinc-500 hover:text-white'}`}>
+            <ExternalLink size={16} /> Ссылка Spotify
+          </button>
+          <button type="button" onClick={() => setSourceType('file')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${sourceType === 'file' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'}`}>
+            <Upload size={16} /> Загрузить файл
+          </button>
+        </div>
+
+        {/* ═══════════════ SPOTIFY MODE ═══════════════ */}
+        {sourceType === 'spotify' && (
+          <div className="space-y-5">
+            {spotifyAvailable === false && (
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
+                <div className="flex gap-3">
+                  <AlertCircle size={18} className="text-yellow-400 shrink-0 mt-0.5" />
+                  <p className="text-yellow-300/80 text-sm">
+                    Сервис импорта из Spotify временно недоступен. Попробуйте позже или загрузите файл вручную.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-2">Ссылка Spotify *</label>
+              <div className="flex gap-2">
+                <input
+                  value={spotifyUrl}
+                  onChange={e => { setSpotifyUrl(e.target.value); setSpotifyPreview(null); }}
+                  placeholder="https://open.spotify.com/track/... или /album/..."
+                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-green-500/50"
+                />
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleSpotifyPreview}
+                    disabled={spotifyLoading || !spotifyUrl.trim()}
+                    className="px-4 py-3 bg-white/5 hover:bg-white/10 disabled:opacity-50 border border-white/10 rounded-xl text-zinc-300 transition-colors shrink-0"
+                  >
+                    {spotifyLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                  </button>
+                )}
+              </div>
+              <p className="text-zinc-600 text-xs mt-1.5">
+                Вставьте ссылку на трек или альбом из Spotify
+              </p>
+            </div>
+
+            {/* Spotify preview card */}
+            {spotifyPreview && (
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex gap-4">
+                  {spotifyPreview.cover && (
+                    <img
+                      src={spotifyPreview.cover.startsWith('http')
+                        ? spotifyPreview.cover
+                        : `https://i.scdn.co/image/${spotifyPreview.cover}`}
+                      className="w-16 h-16 rounded-lg object-cover shrink-0"
+                      alt=""
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-white font-medium truncate">{spotifyPreview.name}</p>
+                    <p className="text-zinc-400 text-sm truncate">{spotifyPreview.artist}</p>
+                    <p className="text-zinc-600 text-xs mt-1">
+                      {spotifyPreview.type === 'album'
+                        ? `Альбом · ${spotifyPreview.trackCount || '?'} треков`
+                        : 'Трек'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Album track list */}
+                {spotifyPreview.tracks && spotifyPreview.tracks.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/5 space-y-1 max-h-40 overflow-y-auto">
+                    {spotifyPreview.tracks.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-zinc-500">
+                        <span className="w-5 text-right shrink-0 text-zinc-600">{i + 1}</span>
+                        <span className="truncate">{t.name}</span>
+                        <span className="text-zinc-700 ml-auto shrink-0">{t.artists}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Disclaimer */}
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
+              <p className="text-yellow-300/80 text-xs leading-relaxed">
+                ⚠️ Предлагайте только реально существующие релизы. Отправляя заявку, вы подтверждаете, что трек является
+                публично доступным произведением и размещается в ознакомительных целях.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSpotifySubmit}
+              disabled={isUploading || !spotifyUrl.trim() || spotifyAvailable === false}
+              className="w-full py-3.5 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-green-600/20 disabled:shadow-none"
+            >
+              {isUploading ? 'Загрузка...' : isAdmin ? 'Импортировать' : 'Отправить на модерацию'}
+            </button>
+          </div>
+        )}
+
+        {/* ═══════════════ FILE UPLOAD MODE ═══════════════ */}
+        {sourceType === 'file' && (
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Release type selector */}
           <div className="flex gap-1 bg-white/5 rounded-xl p-1">
@@ -371,6 +756,23 @@ export default function SubmitPage() {
 
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-3">Треки *</label>
+                <div className="mb-2">
+                  <input
+                    ref={albumBatchInputRef}
+                    type="file"
+                    accept=".mp3,.wav,.flac,.aac,.ogg,.m4a"
+                    multiple
+                    className="hidden"
+                    onChange={e => handleAlbumBatchSelect(e.target.files)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => albumBatchInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-zinc-200 text-sm transition-colors"
+                  >
+                    <Upload size={14} /> Загрузить треки пачкой
+                  </button>
+                </div>
                 <div className="space-y-2">
                   {albumTracks.map((track, i) => (
                     <div key={track.id} className="flex items-center gap-2 bg-white/5 rounded-xl p-2.5 md:p-3 overflow-hidden">
@@ -477,6 +879,7 @@ export default function SubmitPage() {
             {isUploading ? 'Загрузка...' : isAdmin ? 'Загрузить' : 'Отправить на модерацию'}
           </button>
         </form>
+        )}
       </div>
     </div>
   );

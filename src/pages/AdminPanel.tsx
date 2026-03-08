@@ -8,10 +8,10 @@ import {
   Search, Trash2, Edit3, Check, X, ChevronRight, ExternalLink,
   Activity, TrendingUp, Clock, Shield, ShieldOff, Image, Upload,
   Crown, User as UserIcon, Loader2, RefreshCw, AlertCircle, Link2, Unlink,
-  Play, BarChart3, Globe, Ban, Home, Plus, Save, ArrowLeft,
+  Play, BarChart3, Globe, Ban, Home, Plus, Save, ArrowLeft, Download,
 } from 'lucide-react';
 
-type Tab = 'dashboard' | 'tracks' | 'artists' | 'users' | 'moderation' | 'settings';
+type Tab = 'dashboard' | 'tracks' | 'artists' | 'users' | 'moderation' | 'settings' | 'spotify';
 
 /* ── Transliteration helper ── */
 const TRANSLIT: Record<string, string> = {
@@ -70,6 +70,7 @@ export default function AdminPanel() {
     { id: 'artists', label: 'Артисты', icon: <Mic2 className="w-4 h-4" /> },
     { id: 'users', label: 'Пользователи', icon: <Users className="w-4 h-4" /> },
     { id: 'moderation', label: 'Модерация', icon: <FileCheck className="w-4 h-4" /> },
+    { id: 'spotify', label: 'Spotify Import', icon: <Download className="w-4 h-4" /> },
     { id: 'settings', label: 'Настройки', icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -117,6 +118,7 @@ export default function AdminPanel() {
         {tab === 'artists' && <ArtistsTab />}
         {tab === 'users' && <UsersTab />}
         {tab === 'moderation' && <ModerationTab />}
+        {tab === 'spotify' && <SpotifyImportTab />}
         {tab === 'settings' && <SettingsTab />}
       </div>
     </div>
@@ -1142,6 +1144,19 @@ function ModerationTab() {
     return adminSubmissions.filter(s => s.status === filterStatus);
   }, [adminSubmissions, filterStatus]);
 
+  const grouped = useMemo(() => {
+    const m = new Map<string, { key: string; items: typeof filtered }>();
+    for (const sub of filtered) {
+      const key = sub.releaseId
+        ? `release:${sub.releaseId}`
+        : (sub.albumName ? `legacy:${sub.userId}:${sub.albumName}:${sub.status}` : `single:${sub.id}`);
+      const existing = m.get(key);
+      if (existing) existing.items.push(sub);
+      else m.set(key, { key, items: [sub] });
+    }
+    return Array.from(m.values());
+  }, [filtered]);
+
   if (loading && adminSubmissions.length === 0) return <LoadingSpinner text="Загрузка заявок..." />;
 
   const statusColors: Record<string, string> = { pending: 'bg-yellow-900/50 text-yellow-400', approved: 'bg-emerald-900/50 text-emerald-400', rejected: 'bg-red-900/50 text-red-400', deferred: 'bg-zinc-700 text-zinc-400' };
@@ -1159,65 +1174,105 @@ function ModerationTab() {
         <button onClick={() => fetchAdminSubmissions()} className="ml-auto p-2 text-zinc-500 hover:text-white rounded-lg hover:bg-zinc-800 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
 
-      {filtered.length === 0 ? (
+      {grouped.length === 0 ? (
         <EmptyState icon={<FileCheck />} text="Заявок нет" />
       ) : (
         <div className="space-y-3">
-          {filtered.map(sub => (
-            <div key={sub.id} className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-5">
+          {grouped.map(group => {
+            const first = group.items[0];
+            const isAlbumGroup = group.items.length > 1;
+            const cover = group.items.find(s => s.coverUrl)?.coverUrl || null;
+            const groupStatus = group.items.every(s => s.status === first.status) ? first.status : 'pending';
+            const actionIds = group.items
+              .filter(s => s.status === 'pending' || s.status === 'deferred')
+              .map(s => s.id);
+            return (
+            <div key={group.key} className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-5">
               <div className="flex items-start gap-4">
-                {sub.coverUrl ? (
-                  <img src={apiUrl(sub.coverUrl)} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                {cover ? (
+                  <img src={apiUrl(cover)} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
                 ) : (
                   <div className="w-14 h-14 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0"><Music className="w-6 h-6 text-zinc-500" /></div>
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-white font-semibold">{sub.title}</span>
-                    <span className="text-zinc-500">—</span>
-                    <span className="text-zinc-300">{sub.artist}</span>
-                    {sub.albumName && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-400">💿 {sub.albumName}</span>}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[sub.status]}`}>{statusLabels[sub.status]}</span>
+                    <span className="text-white font-semibold">
+                      {isAlbumGroup ? (first.albumName || 'Альбом') : first.title}
+                    </span>
+                    {!isAlbumGroup && (
+                      <>
+                        <span className="text-zinc-500">—</span>
+                        <span className="text-zinc-300">{first.artist}</span>
+                      </>
+                    )}
+                    {isAlbumGroup && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-400">💿 {group.items.length} треков</span>}
+                    {first.albumName && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-400">💿 {first.albumName}</span>}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[groupStatus]}`}>{statusLabels[groupStatus]}</span>
                   </div>
                   <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
-                    <span>{sub.genre}</span><span>{sub.year}</span><span>{sub.originalFilename}</span>
-                    <span>{new Date(sub.createdAt).toLocaleDateString('ru-RU')}</span>
+                    <span>{first.genre}</span><span>{first.year}</span>
+                    {!isAlbumGroup && <span>{first.originalFilename}</span>}
+                    <span>{new Date(first.createdAt).toLocaleDateString('ru-RU')}</span>
                   </div>
-                  {sub.audioUrl && (
+                  {!isAlbumGroup && first.audioUrl && (
                     <audio controls preload="none" className="mt-2 w-full h-8 [&::-webkit-media-controls-panel]:bg-zinc-800 rounded">
-                      <source src={apiUrl(sub.audioUrl)} />
+                      <source src={apiUrl(first.audioUrl)} />
                     </audio>
                   )}
-                  {sub.comment && <p className="mt-2 text-sm text-zinc-400 bg-zinc-800/50 rounded-lg px-3 py-2">💬 {sub.comment}</p>}
-                  {sub.rejectReason && <p className="mt-2 text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">❌ {sub.rejectReason}</p>}
+                  {isAlbumGroup && (
+                    <div className="mt-2 space-y-1">
+                      {group.items.map((s, idx) => (
+                        <div key={s.id} className="text-xs text-zinc-400">
+                          {idx + 1}. {s.artist} — {s.title}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {first.comment && <p className="mt-2 text-sm text-zinc-400 bg-zinc-800/50 rounded-lg px-3 py-2">💬 {first.comment}</p>}
+                  {first.rejectReason && <p className="mt-2 text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">❌ {first.rejectReason}</p>}
                   <div className="mt-3 flex items-center gap-2">
-                    <img src={sub.user.avatar || ''} alt="" className="w-5 h-5 rounded-full bg-zinc-800" />
-                    <span className="text-xs text-zinc-400">{sub.user.name}</span>
-                    <span className="text-xs text-zinc-600">{sub.user.email}</span>
+                    <img src={first.user.avatar || ''} alt="" className="w-5 h-5 rounded-full bg-zinc-800" />
+                    <span className="text-xs text-zinc-400">{first.user.name}</span>
+                    <span className="text-xs text-zinc-600">{first.user.email}</span>
                   </div>
                 </div>
-                {(sub.status === 'pending' || sub.status === 'deferred') && (
+                {actionIds.length > 0 && (
                   <div className="flex flex-col gap-2 shrink-0">
-                    <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'approve'); setProcessing(null); }} disabled={processing === sub.id}
+                    <button onClick={async () => {
+                      setProcessing(group.key);
+                      for (const id of actionIds) await moderateSubmission(id, 'approve');
+                      setProcessing(null);
+                    }} disabled={processing === group.key}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition disabled:opacity-50">
-                      {processing === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Одобрить
+                      {processing === group.key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Одобрить
                     </button>
-                    {rejectId === sub.id ? (
+                    {rejectId === group.key ? (
                       <div className="space-y-1.5">
                         <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Причина..." className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-white" />
                         <div className="flex gap-1">
-                          <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'reject', rejectReason); setRejectId(null); setRejectReason(''); setProcessing(null); }} disabled={processing === sub.id}
+                          <button onClick={async () => {
+                            setProcessing(group.key);
+                            for (const id of actionIds) await moderateSubmission(id, 'reject', rejectReason);
+                            setRejectId(null); setRejectReason(''); setProcessing(null);
+                          }} disabled={processing === group.key}
                             className="flex-1 px-2 py-1 rounded bg-red-600 text-white text-xs transition disabled:opacity-50">Отклонить</button>
                           <button onClick={() => { setRejectId(null); setRejectReason(''); }} className="px-2 py-1 rounded bg-zinc-700 text-white text-xs">✕</button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => setRejectId(sub.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/50 hover:bg-red-800/50 text-red-400 text-xs font-medium transition">
+                      <button onClick={() => setRejectId(group.key)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/50 hover:bg-red-800/50 text-red-400 text-xs font-medium transition">
                         <X className="w-3 h-3" /> Отклонить
                       </button>
                     )}
-                    {sub.status === 'pending' && (
-                      <button onClick={async () => { setProcessing(sub.id); await moderateSubmission(sub.id, 'defer'); setProcessing(null); }} disabled={processing === sub.id}
+                    {actionIds.some(id => group.items.find(s => s.id === id)?.status === 'pending') && (
+                      <button onClick={async () => {
+                        setProcessing(group.key);
+                        for (const id of actionIds) {
+                          const st = group.items.find(s => s.id === id)?.status;
+                          if (st === 'pending') await moderateSubmission(id, 'defer');
+                        }
+                        setProcessing(null);
+                      }} disabled={processing === group.key}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-medium transition disabled:opacity-50">
                         <Clock className="w-3 h-3" /> Отложить
                       </button>
@@ -1226,7 +1281,7 @@ function ModerationTab() {
                 )}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>
@@ -1712,4 +1767,367 @@ function LoadingSpinner({ text }: { text: string }) {
 
 function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   return <div className="flex items-center justify-center py-16"><div className="text-center text-zinc-500"><div className="w-12 h-12 mx-auto mb-3 opacity-30">{icon}</div><p className="text-sm">{text}</p></div></div>;
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  SPOTIFY IMPORT TAB                             */
+/* ═══════════════════════════════════════════════ */
+
+interface SpotifyJob {
+  id: string;
+  spotifyUrl: string;
+  type: 'track' | 'album';
+  status: string;
+  service: string;
+  progress: number;
+  totalTracks: number;
+  completedTracks: number;
+  failedTracks: number;
+  tracks: {
+    spotifyId: string;
+    title: string;
+    artist: string;
+    album: string;
+    status: string;
+    gromkoTrackId?: string;
+    error?: string;
+  }[];
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+function SpotifyImportTab() {
+  const [url, setUrl] = useState('');
+  const [service, setService] = useState('deezer');
+  const [genre, setGenre] = useState('Другое');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [healthy, setHealthy] = useState<boolean | null>(null);
+  const [jobs, setJobs] = useState<SpotifyJob[]>([]);
+  const [preview, setPreview] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Check SpotiFLAC health
+  useEffect(() => {
+    adminFetch('/admin/spotify/health')
+      .then(d => setHealthy(d.available))
+      .catch(() => setHealthy(false));
+  }, []);
+
+  // Poll jobs
+  useEffect(() => {
+    const fetchJobs = () => adminFetch('/admin/spotify/jobs').then(setJobs).catch(() => {});
+    fetchJobs();
+    const iv = setInterval(fetchJobs, 3000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Fetch preview
+  const handlePreview = async () => {
+    if (!url.trim()) return;
+    setPreviewLoading(true);
+    setPreview(null);
+    setError('');
+    try {
+      const data = await adminFetch(`/admin/spotify/metadata?url=${encodeURIComponent(url)}`);
+      setPreview(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!url.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      await adminFetch('/admin/spotify/import', {
+        method: 'POST',
+        body: JSON.stringify({ url: url.trim(), service, genre }),
+      });
+      setUrl('');
+      setPreview(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activeJobs = jobs.filter(j => !['done', 'error'].includes(j.status));
+  const finishedJobs = jobs.filter(j => ['done', 'error'].includes(j.status));
+
+  return (
+    <div className="space-y-6">
+      {/* Health status */}
+      <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+        healthy === true ? 'bg-emerald-500/10 border-emerald-500/30' :
+        healthy === false ? 'bg-red-500/10 border-red-500/30' :
+        'bg-zinc-800/50 border-zinc-700'
+      }`}>
+        <div className={`w-3 h-3 rounded-full ${
+          healthy === true ? 'bg-emerald-500 animate-pulse' :
+          healthy === false ? 'bg-red-500' :
+          'bg-zinc-600 animate-pulse'
+        }`} />
+        <span className="text-sm text-zinc-300">
+          {healthy === true && 'SpotiFLAC сервис работает'}
+          {healthy === false && 'SpotiFLAC сервис недоступен — запустите Go сервер (cd SpotiFLAC-main && go run ./cmd/server)'}
+          {healthy === null && 'Проверка SpotiFLAC сервиса...'}
+        </span>
+        <button
+          onClick={() => adminFetch('/admin/spotify/health').then(d => setHealthy(d.available)).catch(() => setHealthy(false))}
+          className="ml-auto text-zinc-500 hover:text-white transition"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Import form */}
+      <div className="bg-zinc-900/60 rounded-xl p-6 border border-zinc-800">
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Download className="w-5 h-5 text-green-500" />
+          Импорт из Spotify
+        </h3>
+
+        <div className="space-y-4">
+          {/* URL input */}
+          <div>
+            <label className="text-xs font-medium text-zinc-400 mb-1.5 block">Ссылка на трек или альбом Spotify</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                placeholder="https://open.spotify.com/album/... или /track/..."
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-green-500/50"
+                onKeyDown={e => e.key === 'Enter' && handlePreview()}
+              />
+              <button
+                onClick={handlePreview}
+                disabled={!url.trim() || previewLoading}
+                className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 rounded-lg text-sm text-white transition flex items-center gap-2"
+              >
+                {previewLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Превью
+              </button>
+            </div>
+          </div>
+
+          {/* Options */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-zinc-400 mb-1.5 block">Источник аудио</label>
+              <select
+                value={service}
+                onChange={e => setService(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500/50"
+              >
+                <option value="deezer">Deezer (FLAC, рекомендуется)</option>
+                <option value="tidal">Tidal (FLAC)</option>
+                <option value="qobuz">Qobuz (Hi-Res FLAC)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-400 mb-1.5 block">Жанр</label>
+              <select
+                value={genre}
+                onChange={e => setGenre(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500/50"
+              >
+                {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Preview */}
+          {preview && (
+            <div className="bg-zinc-800/60 rounded-xl p-4 border border-zinc-700 space-y-3">
+              {preview.album_info ? (
+                /* Album preview */
+                <div>
+                  <div className="flex items-start gap-4 mb-3">
+                    {preview.album_info.images && (
+                      <img
+                        src={preview.album_info.images.startsWith('http') ? preview.album_info.images : `https://i.scdn.co/image/${preview.album_info.images}`}
+                        alt=""
+                        className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
+                      />
+                    )}
+                    <div>
+                      <div className="text-white font-bold text-lg">{preview.album_info.name}</div>
+                      <div className="text-zinc-400 text-sm">{preview.album_info.artists}</div>
+                      <div className="text-zinc-500 text-xs mt-1">
+                        Альбом · {preview.album_info.total_tracks} треков · {preview.album_info.release_date}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {(preview.track_list || []).map((t: any, i: number) => (
+                      <div key={i} className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-zinc-700/40 text-sm">
+                        <span className="w-6 text-right text-zinc-500 text-xs">{t.track_number || i + 1}</span>
+                        <span className="text-zinc-200 flex-1 truncate">{t.name}</span>
+                        <span className="text-zinc-500 text-xs">{t.artists}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : preview.track ? (
+                /* Single track preview */
+                <div className="flex items-center gap-4">
+                  {preview.track.images && (
+                    <img
+                      src={preview.track.images.startsWith('http') ? preview.track.images : `https://i.scdn.co/image/${preview.track.images}`}
+                      alt=""
+                      className="w-16 h-16 rounded-lg object-cover"
+                    />
+                  )}
+                  <div>
+                    <div className="text-white font-semibold">{preview.track.name}</div>
+                    <div className="text-zinc-400 text-sm">{preview.track.artists}</div>
+                    <div className="text-zinc-500 text-xs">{preview.track.album_name} · {preview.track.release_date}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-zinc-400 text-sm">Неизвестный формат ответа</div>
+              )}
+            </div>
+          )}
+
+          {/* Import button */}
+          <button
+            onClick={handleImport}
+            disabled={!url.trim() || loading || !healthy}
+            className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:hover:bg-green-600 rounded-xl text-sm font-bold text-white transition flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {loading ? 'Запуск импорта...' : 'Импортировать'}
+          </button>
+        </div>
+      </div>
+
+      {/* Active jobs */}
+      {activeJobs.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide">Активные задачи</h3>
+          {activeJobs.map(job => <SpotifyJobCard key={job.id} job={job} />)}
+        </div>
+      )}
+
+      {/* Finished jobs */}
+      {finishedJobs.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide">История импорта</h3>
+          {finishedJobs.map(job => <SpotifyJobCard key={job.id} job={job} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpotifyJobCard({ job }: { job: SpotifyJob }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const statusColors: Record<string, string> = {
+    pending: 'text-zinc-400',
+    fetching_metadata: 'text-blue-400',
+    downloading: 'text-yellow-400',
+    processing: 'text-purple-400',
+    done: 'text-emerald-400',
+    error: 'text-red-400',
+  };
+
+  const statusLabels: Record<string, string> = {
+    pending: 'Ожидание',
+    fetching_metadata: 'Получение метаданных...',
+    downloading: 'Загрузка',
+    processing: 'Обработка',
+    done: 'Завершено',
+    error: 'Ошибка',
+  };
+
+  return (
+    <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 overflow-hidden">
+      <div
+        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-zinc-800/40 transition"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+          job.status === 'done' ? 'bg-emerald-500' :
+          job.status === 'error' ? 'bg-red-500' :
+          'bg-yellow-500 animate-pulse'
+        }`} />
+
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-white truncate">
+            {job.type === 'album' ? '💿' : '🎵'} {job.spotifyUrl}
+          </div>
+          <div className="flex items-center gap-3 mt-0.5">
+            <span className={`text-xs ${statusColors[job.status] || 'text-zinc-400'}`}>
+              {statusLabels[job.status] || job.status}
+            </span>
+            {job.totalTracks > 0 && (
+              <span className="text-xs text-zinc-500">
+                {job.completedTracks}/{job.totalTracks} треков
+                {job.failedTracks > 0 && <span className="text-red-400"> ({job.failedTracks} ошибок)</span>}
+              </span>
+            )}
+            <span className="text-xs text-zinc-600">{job.service.toUpperCase()}</span>
+          </div>
+        </div>
+
+        {!['done', 'error', 'pending'].includes(job.status) && (
+          <div className="w-24 bg-zinc-800 rounded-full h-1.5">
+            <div className="bg-green-500 h-full rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+          </div>
+        )}
+
+        <ChevronRight className={`w-4 h-4 text-zinc-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </div>
+
+      {job.error && (
+        <div className="px-4 pb-3">
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-xs text-red-400">
+            {job.error}
+          </div>
+        </div>
+      )}
+
+      {expanded && job.tracks.length > 0 && (
+        <div className="border-t border-zinc-800 px-4 py-2 space-y-1 max-h-80 overflow-y-auto">
+          {job.tracks.map((t, i) => (
+            <div key={i} className="flex items-center gap-3 py-1.5 text-sm">
+              <span className="w-5 text-right text-zinc-600 text-xs">{i + 1}</span>
+              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                t.status === 'done' ? 'bg-emerald-500' :
+                t.status === 'error' ? 'bg-red-500' :
+                t.status === 'downloading' || t.status === 'processing' ? 'bg-yellow-500 animate-pulse' :
+                'bg-zinc-700'
+              }`} />
+              <div className="flex-1 min-w-0">
+                <span className="text-zinc-200 truncate block">{t.title}</span>
+                <span className="text-zinc-500 text-xs truncate block">{t.artist}</span>
+              </div>
+              {t.error && <span className="text-xs text-red-400 truncate max-w-[200px]" title={t.error}>⚠ {t.error}</span>}
+              {t.gromkoTrackId && (
+                <Link to={`/track/${t.gromkoTrackId}`} className="text-xs text-purple-400 hover:text-purple-300">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

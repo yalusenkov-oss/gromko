@@ -23,6 +23,9 @@ import sharp from 'sharp';
 import { execute } from './db.js';
 import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
 import { S3_ENABLED, uploadToS3, uploadDirToS3, getS3Url } from './s3-storage.js';
+const ENABLE_NORMALIZATION = process.env.AUDIO_NORMALIZE === 'true';
+const TARGET_LUFS = Number(process.env.AUDIO_TARGET_LUFS || -14);
+const TRUE_PEAK_DBTP = Number(process.env.AUDIO_TRUE_PEAK_DBTP || -1);
 // ─── Set FFmpeg/FFprobe paths from npm packages (for environments without system ffmpeg) ───
 try {
     // @ts-ignore
@@ -154,31 +157,47 @@ function analyzeLoudness(inputPath) {
 // ─────────────────────────────────────────────
 function transcodeToQuality(inputPath, outputPath, quality, loudnessLufs) {
     return new Promise((resolve, reject) => {
-        // Calculate gain adjustment to target -14 LUFS (Spotify standard)
-        const targetLufs = -14;
-        const gainDb = targetLufs - loudnessLufs;
-        // Clamp to ±6 dB to avoid distortion
-        const clampedGain = Math.max(-6, Math.min(6, gainDb));
+        // Apply only attenuation (never boost) to avoid clipping artifacts.
+        const gainDb = TARGET_LUFS - loudnessLufs;
+        const safeGainDb = Math.max(-6, Math.min(0, gainDb));
+        const truePeakLinear = Math.pow(10, TRUE_PEAK_DBTP / 20);
         const cmd = ffmpeg(inputPath)
             .noVideo(); // CRITICAL: skip embedded cover art video stream
         if (quality.codec === 'flac') {
-            cmd
+            const flacCmd = cmd
                 .audioCodec('flac')
                 .audioFrequency(quality.sampleRate)
-                .audioChannels(quality.channels)
-                .audioFilters(`volume=${clampedGain}dB`)
+                .audioChannels(quality.channels);
+            if (ENABLE_NORMALIZATION) {
+                const filters = [`alimiter=limit=${truePeakLinear.toFixed(6)}`];
+                if (safeGainDb !== 0)
+                    filters.unshift(`volume=${safeGainDb}dB`);
+                flacCmd.audioFilters(filters.join(','));
+            }
+            flacCmd
                 .format('flac')
                 .output(outputPath);
         }
         else {
-            cmd
+            const aacCmd = cmd
                 .audioCodec('aac')
                 .audioBitrate(quality.bitrate)
                 .audioFrequency(quality.sampleRate)
                 .audioChannels(quality.channels)
-                .audioFilters(`volume=${clampedGain}dB`)
                 .format('mp4')
-                .outputOptions(['-movflags', '+faststart']) // web-optimized
+                .outputOptions([
+                '-movflags', '+faststart',
+                '-profile:a', 'aac_low',
+                '-aac_coder', 'twoloop',
+                '-cutoff', '20000',
+            ]); // web-optimized + higher-quality AAC settings
+            if (ENABLE_NORMALIZATION) {
+                const filters = [`alimiter=limit=${truePeakLinear.toFixed(6)}`];
+                if (safeGainDb !== 0)
+                    filters.unshift(`volume=${safeGainDb}dB`);
+                aacCmd.audioFilters(filters.join(','));
+            }
+            aacCmd
                 .output(outputPath);
         }
         cmd
@@ -334,9 +353,15 @@ export async function processTrack(trackId, inputPath, coverPath, keepOriginal) 
         console.log(`[${trackId}] Processing cover art...`);
         const coverPaths = await processCoverArt(trackId, meta.coverBuffer, coverPath);
         // ── Step 3: Analyze loudness ──
-        console.log(`[${trackId}] Analyzing loudness (EBU R128)...`);
-        const loudness = await analyzeLoudness(inputPath);
-        console.log(`[${trackId}] Integrated loudness: ${loudness.toFixed(1)} LUFS`);
+        let loudness = -14;
+        if (ENABLE_NORMALIZATION) {
+            console.log(`[${trackId}] Analyzing loudness (EBU R128)...`);
+            loudness = await analyzeLoudness(inputPath);
+            console.log(`[${trackId}] Integrated loudness: ${loudness.toFixed(1)} LUFS (target ${TARGET_LUFS} LUFS, TP ${TRUE_PEAK_DBTP} dBTP)`);
+        }
+        else {
+            console.log(`[${trackId}] Loudness normalization disabled (AUDIO_NORMALIZE=false)`);
+        }
         // ── Step 4: Transcode to multiple qualities ──
         // Smart quality selection based on source bitrate to avoid pointless upsampling
         console.log(`[${trackId}] Transcoding (source: ${meta.bitrate}kbps ${meta.format})...`);

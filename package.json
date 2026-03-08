@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:client": "vite",
+    "dev:server": "npm --prefix server run dev",
+    "dev:spotiflac": "sh -c 'cd SpotiFLAC-main && go run ./cmd/server'",
+    "dev:all": "sh -c 'trap \"kill 0\" EXIT; npm run dev:spotiflac & npm run dev:server & npm run dev:client'",
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server/dist/index.js",

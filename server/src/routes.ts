@@ -10,15 +10,107 @@ import { spawn, type ChildProcess } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import { slugify } from './slugify.js';
 import { query, queryOne, execute } from './db.js';
-import { CONFIG, PATHS, trackHlsDir } from './config.js';
+import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
 import { enqueueTrack, extractMetadata, getQueueStatus } from './audio-processor.js';
 import {
   registerUser, loginUser, getUserById,
   authRequired, authOptional, adminRequired,
 } from './auth.js';
 import { parseArtistNames } from './parse-artists.js';
+import { findExistingTrackByArtistAndTitle } from './track-dedupe.js';
+import {
+  checkSpotiflacHealth,
+  fetchSpotifyMetadata,
+  searchSpotify,
+  startSpotifyImport,
+  startSpotifySubmission,
+  getJob,
+  getAllJobs,
+} from './spotify-import.js';
 
 const router = Router();
+
+function mapAudioPublicPathToFs(publicPath: string): string | null {
+  // /audio/{trackId}/{file}
+  if (!publicPath.startsWith('/audio/')) return null;
+  const rel = publicPath.replace(/^\/audio\//, '');
+  return path.join(PATHS.audio, rel);
+}
+
+function resolveTrackSourcePath(trackId: string, row: any): string | null {
+  const dir = trackAudioDir(trackId);
+  const preferred = [
+    path.join(dir, 'lossless.flac'),
+    path.join(dir, 'high.m4a'),
+    path.join(dir, 'medium.m4a'),
+    path.join(dir, 'low.m4a'),
+  ];
+  for (const p of preferred) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  const streamCandidates = [row.stream_lossless, row.stream_high, row.stream_medium, row.stream_low]
+    .filter((v: any) => typeof v === 'string' && v.length > 0) as string[];
+  for (const streamPath of streamCandidates) {
+    const fsPath = mapAudioPublicPathToFs(streamPath);
+    if (fsPath && fs.existsSync(fsPath)) return fsPath;
+  }
+
+  return null;
+}
+
+async function prepareCoverTempPath(trackId: string, cover: string | null): Promise<string | undefined> {
+  const localCandidates = [
+    path.join(PATHS.covers, trackId, 'original.jpg'),
+    path.join(PATHS.covers, trackId, 'large.webp'),
+    path.join(PATHS.covers, trackId, 'medium.webp'),
+  ];
+  for (const p of localCandidates) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  if (!cover) return undefined;
+  if (!/^https?:\/\//i.test(cover)) return undefined;
+
+  try {
+    const resp = await fetch(cover);
+    if (!resp.ok) return undefined;
+    const ext = cover.includes('.png') ? '.png' : cover.includes('.webp') ? '.webp' : '.jpg';
+    const file = path.join(PATHS.temp, `reprocess-cover-${trackId}-${uuid()}${ext}`);
+    const buf = Buffer.from(await resp.arrayBuffer());
+    fs.writeFileSync(file, buf);
+    return file;
+  } catch {
+    return undefined;
+  }
+}
+
+async function enqueueTrackReprocess(row: any): Promise<{ source: string; cover?: string }> {
+  const source = resolveTrackSourcePath(row.id, row);
+  if (!source) {
+    throw new Error('Исходный файл не найден локально. Нужен хотя бы один локальный stream (lossless/high/medium/low).');
+  }
+
+  fs.mkdirSync(PATHS.temp, { recursive: true });
+  const ext = path.extname(source) || '.m4a';
+  const tempSource = path.join(PATHS.temp, `reprocess-${row.id}-${uuid()}${ext}`);
+  fs.copyFileSync(source, tempSource);
+
+  const tempCover = await prepareCoverTempPath(row.id, row.cover_path || null);
+
+  await execute(`
+    UPDATE tracks SET
+      status = 'pending',
+      processing_error = NULL,
+      processing_started_at = NULL,
+      processing_finished_at = NULL,
+      updated_at = NOW()
+    WHERE id = $1
+  `, [row.id]);
+
+  enqueueTrack(row.id, tempSource, tempCover, false);
+  return { source: tempSource, cover: tempCover };
+}
 
 // ─── Multer config ───
 const uploadStorage = multer.diskStorage({
@@ -724,6 +816,81 @@ router.put('/admin/tracks/:id', adminRequired, async (req: Request, res: Respons
   res.json(formatTrackRow(withArtists));
 });
 
+/** POST /api/admin/tracks/:id/reprocess — re-run processing for an existing track */
+router.post('/admin/tracks/:id/reprocess', adminRequired, async (req: Request, res: Response) => {
+  try {
+    const row = await queryOne(`
+      SELECT id, title, cover_path, stream_low, stream_medium, stream_high, stream_lossless
+      FROM tracks
+      WHERE id = $1
+    `, [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Трек не найден' });
+
+    const result = await enqueueTrackReprocess(row);
+    res.json({
+      ok: true,
+      trackId: row.id,
+      sourceQueued: result.source,
+      coverQueued: result.cover || null,
+      queue: getQueueStatus(),
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** POST /api/admin/tracks/reprocess — bulk reprocess by IDs */
+router.post('/admin/tracks/reprocess', adminRequired, async (req: Request, res: Response) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((x: any) => typeof x === 'string' && x.length > 0)
+    : [];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: 'Передайте ids: string[]' });
+  }
+
+  const placeholders = ids.map((_: string, i: number) => `$${i + 1}`).join(',');
+  const rows = await query(`
+    SELECT id, title, cover_path, stream_low, stream_medium, stream_high, stream_lossless
+    FROM tracks
+    WHERE id IN (${placeholders})
+  `, ids);
+
+  const rowMap = new Map<string, any>();
+  for (const row of rows) rowMap.set(row.id, row);
+
+  const queued: Array<{ id: string; title: string; sourceQueued: string; coverQueued: string | null }> = [];
+  const failed: Array<{ id: string; error: string }> = [];
+
+  for (const id of ids) {
+    const row = rowMap.get(id);
+    if (!row) {
+      failed.push({ id, error: 'Трек не найден' });
+      continue;
+    }
+    try {
+      const result = await enqueueTrackReprocess(row);
+      queued.push({
+        id: row.id,
+        title: row.title,
+        sourceQueued: result.source,
+        coverQueued: result.cover || null,
+      });
+    } catch (err: any) {
+      failed.push({ id: row.id, error: err.message || 'Не удалось поставить в очередь' });
+    }
+  }
+
+  res.json({
+    ok: failed.length === 0,
+    requested: ids.length,
+    queuedCount: queued.length,
+    failedCount: failed.length,
+    queued,
+    failed,
+    queue: getQueueStatus(),
+  });
+});
+
 /** DELETE /api/admin/tracks/errors — delete all tracks with status='error' (must be before :id route!) */
 router.delete('/admin/tracks/errors', adminRequired, async (_req: Request, res: Response) => {
   try {
@@ -936,6 +1103,7 @@ router.get('/admin/submissions', adminRequired, async (_req: Request, res: Respo
       status: s.status, rejectReason: s.reject_reason,
       originalFilename: s.original_filename, filePath: s.file_path,
       coverUrl, audioUrl,
+      releaseId: s.release_id || null,
       albumName: s.album_name || null,
       createdAt: s.created_at,
       user: { name: s.user_name, email: s.user_email, avatar: s.user_avatar },
@@ -954,15 +1122,27 @@ router.post('/submissions', authRequired, (req: Request, res: Response) => {
     if (!audioFile) return res.status(400).json({ error: 'Аудиофайл обязателен' });
 
     try {
-      const { title, artist, genre, year, comment, albumName } = req.body;
+      const { title, artist, genre, year, comment, albumName, releaseId } = req.body;
       if (!title || !artist) return res.status(400).json({ error: 'Название и артист обязательны' });
+      const existing = await findExistingTrackByArtistAndTitle(String(title), String(artist));
+      if (existing) {
+        return res.status(409).json({
+          error: `Трек уже есть на платформе: ${existing.artist} — ${existing.title}`,
+          existingTrack: {
+            id: existing.id,
+            title: existing.title,
+            artist: existing.artist,
+            url: `/track/${existing.id}`,
+          },
+        });
+      }
 
       const subId = uuid();
       await execute(`
-        INSERT INTO submissions (id, user_id, title, artist, genre, year, comment, status, original_filename, file_path, cover_path, album_name)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, $11)
+        INSERT INTO submissions (id, user_id, release_id, title, artist, genre, year, comment, status, original_filename, file_path, cover_path, album_name)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $12)
       `, [
-        subId, req.user!.id, title, artist,
+        subId, req.user!.id, (releaseId && String(releaseId).trim()) || null, title, artist,
         genre || 'Другое', Number(year) || new Date().getFullYear(),
         comment || null, audioFile.originalname, audioFile.path,
         coverFile?.path || null, albumName || null,
@@ -975,6 +1155,73 @@ router.post('/submissions', authRequired, (req: Request, res: Response) => {
   });
 });
 
+/** POST /api/submissions/spotify — submit a track via Spotify URL */
+router.post('/submissions/spotify', authRequired, async (req: Request, res: Response) => {
+  try {
+    const { url, genre = 'Другое' } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL обязателен' });
+
+    // Validate URL format
+    if (!url.includes('spotify.com/track/') && !url.includes('spotify.com/album/')) {
+      return res.status(400).json({ error: 'Только ссылки на треки и альбомы Spotify' });
+    }
+
+    // Check SpotiFLAC availability
+    const available = await checkSpotiflacHealth();
+    if (!available) {
+      return res.status(503).json({ error: 'Сервис импорта временно недоступен. Попробуйте позже.' });
+    }
+
+    // Duplicate check for single-track URLs before starting import job
+    if (url.includes('spotify.com/track/')) {
+      try {
+        const metadata = await fetchSpotifyMetadata(url);
+        const track = metadata?.track;
+        if (track?.name && track?.artists) {
+          const existing = await findExistingTrackByArtistAndTitle(track.name, track.artists);
+          if (existing) {
+            return res.status(409).json({
+              error: `Этот трек уже есть на платформе: ${existing.artist} — ${existing.title}`,
+              existingTrack: {
+                id: existing.id,
+                title: existing.title,
+                artist: existing.artist,
+                url: `/track/${existing.id}`,
+              },
+            });
+          }
+        }
+      } catch {
+        // If metadata check failed, continue with normal flow.
+      }
+    }
+
+    const isAdmin = req.user!.role === 'admin';
+    const jobId = startSpotifySubmission(url, req.user!.id, isAdmin, genre, 'tidal');
+
+    res.status(201).json({
+      jobId,
+      message: isAdmin ? 'Импорт запущен' : 'Трек загружается и будет отправлен на модерацию',
+      mode: isAdmin ? 'direct' : 'moderation',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/submissions/spotify/job/:id — check Spotify import job status */
+router.get('/submissions/spotify/job/:id', authRequired, async (req: Request, res: Response) => {
+  const job = getJob(req.params.id as string);
+  if (!job) return res.status(404).json({ error: 'Задача не найдена' });
+  res.json(job);
+});
+
+/** GET /api/submissions/spotify/health — check SpotiFLAC availability */
+router.get('/submissions/spotify/health', authRequired, async (_req: Request, res: Response) => {
+  const ok = await checkSpotiflacHealth();
+  res.json({ available: ok });
+});
+
 /** GET /api/submissions/my — current user's submissions */
 router.get('/submissions/my', authRequired, async (req: Request, res: Response) => {
   const subs = await query(
@@ -984,6 +1231,7 @@ router.get('/submissions/my', authRequired, async (req: Request, res: Response) 
   res.json(subs.map((s: any) => ({
     id: s.id, title: s.title, artist: s.artist, genre: s.genre, year: s.year,
     comment: s.comment, status: s.status, rejectReason: s.reject_reason,
+    releaseId: s.release_id || null,
     albumName: s.album_name || null,
     coverUrl: s.cover_path ? `/uploads/${path.basename(s.cover_path)}` : null,
     createdAt: s.created_at,
@@ -1248,6 +1496,71 @@ router.get('/admin/s3-import/status', adminRequired, (_req: Request, res: Respon
     log: s3ImportLog.slice(-100),
     lines: s3ImportLog.length,
   });
+});
+
+// ═══════════════════════════════════════════════
+// SPOTIFY IMPORT (admin-only)
+// ═══════════════════════════════════════════════
+
+/** GET /api/admin/spotify/health — check SpotiFLAC service status */
+router.get('/admin/spotify/health', adminRequired, async (_req: Request, res: Response) => {
+  const ok = await checkSpotiflacHealth();
+  res.json({ available: ok, url: process.env.SPOTIFLAC_URL || 'http://localhost:3099' });
+});
+
+/** GET /api/admin/spotify/metadata — fetch Spotify metadata */
+router.get('/admin/spotify/metadata', adminRequired, async (req: Request, res: Response) => {
+  try {
+    const url = req.query.url as string;
+    if (!url) return res.status(400).json({ error: 'URL обязателен' });
+    const data = await fetchSpotifyMetadata(url);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/admin/spotify/search — search Spotify */
+router.get('/admin/spotify/search', adminRequired, async (req: Request, res: Response) => {
+  try {
+    const q = req.query.q as string;
+    if (!q) return res.status(400).json({ error: 'Запрос обязателен' });
+    const limit = Number(req.query.limit) || 10;
+    const data = await searchSpotify(q, limit);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/admin/spotify/import — start Spotify import job */
+router.post('/admin/spotify/import', adminRequired, async (req: Request, res: Response) => {
+  try {
+    const { url, genre = 'Другое' } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL обязателен' });
+
+    // Validate URL format
+    if (!url.includes('spotify.com/track/') && !url.includes('spotify.com/album/')) {
+      return res.status(400).json({ error: 'Только ссылки на треки и альбомы Spotify' });
+    }
+
+    const jobId = startSpotifyImport(url, 'tidal', genre);
+    res.status(201).json({ jobId, message: 'Импорт запущен' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/admin/spotify/jobs — list all import jobs */
+router.get('/admin/spotify/jobs', adminRequired, async (_req: Request, res: Response) => {
+  res.json(getAllJobs());
+});
+
+/** GET /api/admin/spotify/jobs/:id — get import job status */
+router.get('/admin/spotify/jobs/:id', adminRequired, async (req: Request, res: Response) => {
+  const job = getJob(req.params.id as string);
+  if (!job) return res.status(404).json({ error: 'Задача не найдена' });
+  res.json(job);
 });
 
 export default router;

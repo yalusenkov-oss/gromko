@@ -168,6 +168,7 @@ export async function initSchema(): Promise<void> {
       CREATE TABLE IF NOT EXISTS submissions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id),
+        release_id TEXT,
         title TEXT NOT NULL,
         artist TEXT NOT NULL,
         genre TEXT NOT NULL,
@@ -226,6 +227,7 @@ export async function initSchema(): Promise<void> {
     // Migration: add cover_path and album_name to submissions
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_path TEXT`);
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
+    await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_id TEXT`);
     console.log('  ✅ Database schema initialized');
   } finally {
     client.release();

@@ -14,6 +14,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { spawn, type ChildProcess } from 'child_process';
 import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
@@ -42,6 +43,87 @@ console.log('  🔑 DATABASE_URL set:', !!process.env.DATABASE_URL);
 console.log('  🔑 PORT:', process.env.PORT || CONFIG.port);
 
 ensureDirs();
+
+// ─── Auto-start SpotiFLAC Go server ───
+let spotiflacProcess: ChildProcess | null = null;
+
+function startSpotiflac() {
+  const SPOTIFLAC_DIR = path.join(__dirname, '..', '..', 'SpotiFLAC-main');
+  const spotiflacPort = process.env.SPOTIFLAC_PORT || '3099';
+
+  if (!fs.existsSync(SPOTIFLAC_DIR)) {
+    console.warn('  ⚠️ SpotiFLAC directory not found at', SPOTIFLAC_DIR);
+    console.warn('  ⚠️ Spotify import will not be available');
+    return;
+  }
+
+  // Check if SpotiFLAC is already running
+  fetch(`http://localhost:${spotiflacPort}/health`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        console.log('  ✅ SpotiFLAC already running on port', spotiflacPort);
+      }
+    })
+    .catch(() => {
+      // Not running, start it
+      console.log('  ⏳ Starting SpotiFLAC Go server...');
+
+      const downloadsDir = path.join(SPOTIFLAC_DIR, 'downloads');
+      fs.mkdirSync(downloadsDir, { recursive: true });
+
+      spotiflacProcess = spawn('go', ['run', './cmd/server'], {
+        cwd: SPOTIFLAC_DIR,
+        env: {
+          ...process.env,
+          SPOTIFLAC_PORT: spotiflacPort,
+          SPOTIFLAC_DOWNLOAD_DIR: downloadsDir,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      spotiflacProcess.stdout?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        if (msg) console.log('  [SpotiFLAC]', msg);
+      });
+
+      spotiflacProcess.stderr?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        if (msg) console.error('  [SpotiFLAC ERR]', msg);
+      });
+
+      spotiflacProcess.on('exit', (code, signal) => {
+        console.warn(`  ⚠️ SpotiFLAC exited (code=${code}, signal=${signal})`);
+        spotiflacProcess = null;
+        // Auto-restart after 5 seconds
+        setTimeout(() => {
+          console.log('  🔄 Attempting to restart SpotiFLAC...');
+          startSpotiflac();
+        }, 5000);
+      });
+
+      spotiflacProcess.on('error', (err) => {
+        console.error('  ❌ Failed to start SpotiFLAC:', err.message);
+        console.warn('  💡 Make sure Go is installed: https://go.dev/dl/');
+        spotiflacProcess = null;
+      });
+
+      // Wait a bit and check health
+      setTimeout(async () => {
+        try {
+          const r = await fetch(`http://localhost:${spotiflacPort}/health`);
+          const data = await r.json();
+          if (data.status === 'ok') {
+            console.log('  ✅ SpotiFLAC server started on port', spotiflacPort);
+          }
+        } catch {
+          console.warn('  ⚠️ SpotiFLAC not responding yet (may still be compiling...)');
+        }
+      }, 8000);
+    });
+}
+
+startSpotiflac();
 
 // Connect to PostgreSQL and initialize schema
 let dbReady = false;
@@ -246,7 +328,12 @@ async function recalcArtistStats() {
 
     // Step 1: Clean up combined-name artists (feat/ft/&/comma)
     const combinedArtists = await query(
-      `SELECT id, name, slug, genre FROM artists WHERE name ~* '\\s+(feat\\.?|ft\\.?)\\s+' OR name LIKE '%,%' OR name ~ '\\s+&\\s+'`
+      `SELECT id, name, slug, genre
+       FROM artists
+       WHERE name ~* '\\s+(feat\\.?|ft\\.?)\\s+'
+          OR name LIKE '%,%'
+          OR name LIKE '%;%'
+          OR name ~ '\\s+&\\s+'`
     );
     let cleaned = 0;
     for (const ca of combinedArtists) {
@@ -322,6 +409,15 @@ async function recalcArtistStats() {
 async function shutdown(signal: string) {
   console.log(`\n  ${signal} received, shutting down...`);
   server.close();
+
+  // Stop SpotiFLAC Go server
+  if (spotiflacProcess) {
+    console.log('  Stopping SpotiFLAC...');
+    spotiflacProcess.removeAllListeners('exit'); // prevent auto-restart
+    spotiflacProcess.kill('SIGTERM');
+    spotiflacProcess = null;
+  }
+
   const { closeDb } = await import('./db.js');
   await closeDb();
   process.exit(0);
