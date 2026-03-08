@@ -24,6 +24,7 @@ const FALLBACK_SERVICES = ['deezer', 'qobuz'];
 const RETRYABLE_DOWNLOAD_ERROR_RE = /\b524\b|timeout|timed\s*out|temporar/i;
 const TRANSPORT_ERROR_RE = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|network/i;
 const INTER_TRACK_DELAY_MS = Number(process.env.SPOTIFY_IMPORT_INTER_TRACK_DELAY_MS || 200);
+const DOWNLOAD_CONCURRENCY = Number(process.env.SPOTIFY_IMPORT_CONCURRENCY || 3);
 const artistGenreCache = new Map<string, string | null>();
 
 // ─── Types ───
@@ -144,6 +145,30 @@ async function spotiflacFetch(endpoint: string, options?: RequestInit, timeoutMs
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Run `count` async tasks with at most `concurrency` running at a time.
+ * Each task receives its index (0-based).
+ */
+async function runConcurrent(count: number, concurrency: number, fn: (index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers: Promise<void>[] = [];
+
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= count) return;
+      await fn(i);
+    }
+  };
+
+  const numWorkers = Math.min(concurrency, count);
+  for (let w = 0; w < numWorkers; w++) {
+    workers.push(worker());
+  }
+
+  await Promise.all(workers);
 }
 
 function buildDownloadPayload(
@@ -275,13 +300,11 @@ async function runImport(job: SpotifyImportJob, genre: string) {
     let albumCover: string | undefined;
 
     if (job.type === 'album' && metadata.album_info) {
-      // Album response
       const albumMeta = metadata as SpotifyAlbumMeta;
       tracks = albumMeta.track_list || [];
       albumName = albumMeta.album_info.name;
       albumCover = albumMeta.album_info.images;
     } else if (metadata.track) {
-      // Single track response
       const trackMeta = metadata.track as SpotifyTrackMeta;
       tracks = [trackMeta];
       albumName = trackMeta.album_name;
@@ -298,23 +321,21 @@ async function runImport(job: SpotifyImportJob, genre: string) {
       status: 'pending' as const,
     }));
 
-    // Step 2: Download and process each track
+    // Step 2: Download and process tracks in parallel (DOWNLOAD_CONCURRENCY at a time)
     job.status = 'downloading';
 
-    for (let i = 0; i < tracks.length; i++) {
+    const processImportTrack = async (i: number) => {
       const trackMeta = tracks[i];
       const trackJob = job.tracks[i];
 
       try {
         trackJob.status = 'downloading';
-        job.progress = Math.round((i / tracks.length) * 100);
 
         const spotifyId = trackJob.spotifyId || trackMeta.spotify_id;
         if (!spotifyId) {
           throw new Error('Не удалось определить Spotify ID трека');
         }
 
-        // Download via SpotiFLAC (tidal-only, with retry on transient failures)
         const downloadResult = await downloadViaPrimaryService(
           (service) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service),
         );
@@ -323,7 +344,7 @@ async function runImport(job: SpotifyImportJob, genre: string) {
           throw new Error(downloadResult.error || 'Загрузка не удалась');
         }
 
-        // Step 3: Copy file to GROMKO uploads dir and process
+        // Copy file to GROMKO uploads dir — lightweight, runs inline
         trackJob.status = 'processing';
 
         const rawSrcPath = downloadResult.file_path;
@@ -338,18 +359,14 @@ async function runImport(job: SpotifyImportJob, genre: string) {
         fs.mkdirSync(PATHS.uploads, { recursive: true });
         fs.copyFileSync(srcPath, destPath);
 
-        // Download cover image if available
+        // Download cover (quick HTTP fetch)
         let coverPath: string | undefined;
         const coverUrl = trackMeta.images || albumCover;
         if (coverUrl) {
-          try {
-            coverPath = await downloadCoverImage(coverUrl);
-          } catch (e) {
-            console.warn(`  ⚠️ Failed to download cover: ${e}`);
-          }
+          try { coverPath = await downloadCoverImage(coverUrl); } catch { /* skip */ }
         }
 
-        // Extract metadata from downloaded file
+        // Extract basic metadata (fast FFprobe call)
         const meta = await extractMetadata(destPath);
 
         const trackId = uuid();
@@ -361,7 +378,6 @@ async function runImport(job: SpotifyImportJob, genre: string) {
         const album = trackMeta.album_name || albumName || meta.album || null;
         const resolvedGenre = await resolveImportGenre(trackMeta, genre, meta.genre);
 
-        // Multi-artist handling
         const artistNames = parseArtistNames(artist);
         const primarySlug = slugify(artistNames[0] || artist);
 
@@ -377,7 +393,7 @@ async function runImport(job: SpotifyImportJob, genre: string) {
           meta.sampleRate, meta.channels, explicit, album, trackMeta.track_number || null,
         ]);
 
-        // Create artists and link via junction table
+        // Create artists
         for (let j = 0; j < artistNames.length; j++) {
           const aName = artistNames[j];
           const aSlug = slugify(aName);
@@ -398,7 +414,7 @@ async function runImport(job: SpotifyImportJob, genre: string) {
           );
         }
 
-        // Enqueue for audio processing
+        // Heavy audio processing (FFmpeg transcode, waveform) — enqueued to background worker pool
         enqueueTrack(trackId, destPath, coverPath);
 
         trackJob.status = 'done';
@@ -408,12 +424,11 @@ async function runImport(job: SpotifyImportJob, genre: string) {
         // Clean up SpotiFLAC download
         try {
           fs.unlinkSync(srcPath);
-          // Also try to remove the parent directory if empty
           const parentDir = path.dirname(srcPath);
           if (fs.existsSync(parentDir) && fs.readdirSync(parentDir).length === 0) {
             fs.rmdirSync(parentDir);
           }
-        } catch { /* ignore cleanup errors */ }
+        } catch { /* ignore */ }
 
       } catch (err: any) {
         trackJob.status = 'error';
@@ -421,12 +436,12 @@ async function runImport(job: SpotifyImportJob, genre: string) {
         job.failedTracks++;
         console.error(`  ❌ Failed to import track "${trackJob.title}": ${err.message}`);
       }
+    };
 
-      // Tiny configurable delay to reduce provider pressure without slowing imports too much.
-      if (i < tracks.length - 1 && INTER_TRACK_DELAY_MS > 0) {
-        await new Promise(r => setTimeout(r, INTER_TRACK_DELAY_MS));
-      }
-    }
+    await runConcurrent(tracks.length, DOWNLOAD_CONCURRENCY, async (i) => {
+      await processImportTrack(i);
+      job.progress = Math.round(((job.completedTracks + job.failedTracks) / tracks.length) * 100);
+    });
 
     finalizeJob(job);
 
@@ -625,7 +640,6 @@ export function startSpotifySubmission(
  */
 async function runSubmission(job: SpotifyImportJob, userId: string, genre: string) {
   try {
-    // Step 1: Fetch metadata
     job.status = 'fetching_metadata';
 
     const metadata = await fetchSpotifyMetadata(job.spotifyUrl);
@@ -656,23 +670,21 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
       status: 'pending' as const,
     }));
 
-    // Step 2: Download and create submission for each track
+    // Step 2: Download tracks in parallel
     job.status = 'downloading';
 
-    for (let i = 0; i < tracks.length; i++) {
+    const processSubmissionTrack = async (i: number) => {
       const trackMeta = tracks[i];
       const trackJob = job.tracks[i];
 
       try {
         trackJob.status = 'downloading';
-        job.progress = Math.round((i / tracks.length) * 100);
 
         const spotifyId = trackJob.spotifyId || trackMeta.spotify_id;
         if (!spotifyId) {
           throw new Error('Не удалось определить Spotify ID трека');
         }
 
-        // Download via SpotiFLAC (tidal-only, with retry on transient failures)
         const downloadResult = await downloadViaPrimaryService(
           (service) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service),
         );
@@ -689,22 +701,16 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
           throw new Error(`Файл не найден: ${rawSrcPath}`);
         }
 
-        // Copy file to uploads
         const ext = path.extname(srcPath).toLowerCase();
         const destFilename = `${uuid()}${ext}`;
         const destPath = path.join(PATHS.uploads, destFilename);
         fs.mkdirSync(PATHS.uploads, { recursive: true });
         fs.copyFileSync(srcPath, destPath);
 
-        // Download cover image
         let coverPath: string | undefined;
         const coverUrl = trackMeta.images || albumCover;
         if (coverUrl) {
-          try {
-            coverPath = await downloadCoverImage(coverUrl);
-          } catch (e) {
-            console.warn(`  ⚠️ Failed to download cover: ${e}`);
-          }
+          try { coverPath = await downloadCoverImage(coverUrl); } catch { /* skip */ }
         }
 
         const meta = await extractMetadata(destPath);
@@ -716,7 +722,6 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
         const resolvedGenre = await resolveImportGenre(trackMeta, genre, meta.genre);
         const importComment = buildSpotifyImportComment(trackMeta, job.spotifyUrl);
 
-        // Create submission entry for moderation
         const subId = uuid();
         await execute(`
           INSERT INTO submissions (id, user_id, release_id, title, artist, genre, year, comment, status, original_filename, file_path, cover_path, album_name)
@@ -732,7 +737,7 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
         ]);
 
         trackJob.status = 'done';
-        trackJob.gromkoTrackId = subId; // submission ID for tracking
+        trackJob.gromkoTrackId = subId;
         job.completedTracks++;
 
         // Clean up SpotiFLAC download
@@ -742,7 +747,7 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
           if (fs.existsSync(parentDir) && fs.readdirSync(parentDir).length === 0) {
             fs.rmdirSync(parentDir);
           }
-        } catch { /* ignore cleanup errors */ }
+        } catch { /* ignore */ }
 
       } catch (err: any) {
         trackJob.status = 'error';
@@ -750,11 +755,12 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
         job.failedTracks++;
         console.error(`  ❌ Failed to submit track "${trackJob.title}": ${err.message}`);
       }
+    };
 
-      if (i < tracks.length - 1 && INTER_TRACK_DELAY_MS > 0) {
-        await new Promise(r => setTimeout(r, INTER_TRACK_DELAY_MS));
-      }
-    }
+    await runConcurrent(tracks.length, DOWNLOAD_CONCURRENCY, async (i: number) => {
+      await processSubmissionTrack(i);
+      job.progress = Math.round(((job.completedTracks + job.failedTracks) / tracks.length) * 100);
+    });
 
     finalizeJob(job);
 
@@ -772,7 +778,6 @@ function finalizeJob(job: SpotifyImportJob) {
 
   if (job.completedTracks === 0 && job.failedTracks > 0) {
     job.status = 'error';
-    // Include per-track errors so the user sees the real reason
     const trackErrors = job.tracks
       .filter(t => t.status === 'error' && t.error)
       .map(t => `${t.title}: ${t.error}`)

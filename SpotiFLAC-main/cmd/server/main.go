@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	// Embed Mozilla CA root certificates into the binary so TLS works
@@ -36,8 +35,8 @@ import (
 )
 
 var (
-	downloadDir string
-	mu          sync.Mutex
+	downloadDir   string
+	downloadSem   chan struct{} // semaphore limiting concurrent downloads
 )
 
 func main() {
@@ -51,6 +50,9 @@ func main() {
 		downloadDir = filepath.Join(".", "downloads")
 	}
 	os.MkdirAll(downloadDir, 0755)
+
+	// Allow up to 3 concurrent downloads
+	downloadSem = make(chan struct{}, 3)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +196,9 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	trackDir := filepath.Join(downloadDir, fmt.Sprintf("%s_%d", req.SpotifyID, time.Now().UnixNano()))
 	os.MkdirAll(trackDir, 0755)
 
-	mu.Lock()
-	defer mu.Unlock()
+	// Acquire semaphore slot (blocks if 3 downloads already in progress)
+	downloadSem <- struct{}{}
+	defer func() { <-downloadSem }()
 
 	spotifyURL := fmt.Sprintf("https://open.spotify.com/track/%s", req.SpotifyID)
 
