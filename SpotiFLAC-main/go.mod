@@ -1,6 +1,6 @@
 module github.com/afkarxyz/SpotiFLAC
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/bogem/id3v2/v2 v2.1.4
@@ -12,6 +12,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	github.com/wailsapp/wails/v2 v2.11.0
 	go.etcd.io/bbolt v1.4.3
+	golang.org/x/crypto/x509roots/fallback v0.0.0-20260213171211-a408498e5541
 	golang.org/x/text v0.31.0
 )
 

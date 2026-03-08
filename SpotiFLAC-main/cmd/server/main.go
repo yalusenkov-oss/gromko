@@ -28,6 +28,10 @@ import (
 	"sync"
 	"time"
 
+	// Embed Mozilla CA root certificates into the binary so TLS works
+	// even in minimal containers without ca-certificates installed.
+	_ "golang.org/x/crypto/x509roots/fallback"
+
 	"github.com/afkarxyz/SpotiFLAC/backend"
 )
 
