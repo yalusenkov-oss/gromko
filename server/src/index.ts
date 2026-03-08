@@ -14,7 +14,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { CONFIG, PATHS, ensureDirs } from './config.js';
 import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
@@ -47,7 +47,40 @@ ensureDirs();
 // ─── Auto-start SpotiFLAC Go server ───
 let spotiflacProcess: ChildProcess | null = null;
 
+function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: string[]; cwd: string } | null {
+  const explicitBin = (process.env.SPOTIFLAC_BIN || '').trim();
+  if (explicitBin && fs.existsSync(explicitBin)) {
+    return { cmd: explicitBin, args: [], cwd: path.dirname(explicitBin) };
+  }
+
+  const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'amd64' : process.arch;
+  const platform = process.platform === 'linux' ? 'linux' : process.platform;
+  const binCandidates = [
+    path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-server-${platform}-${arch}`),
+    path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-${platform}-${arch}`),
+    path.join(SPOTIFLAC_DIR, 'bin', 'spotiflac-server'),
+  ];
+  for (const bin of binCandidates) {
+    if (fs.existsSync(bin)) {
+      return { cmd: bin, args: [], cwd: path.dirname(bin) };
+    }
+  }
+
+  const goCheck = spawnSync('go', ['version'], { stdio: 'ignore' });
+  if (goCheck.status === 0) {
+    return { cmd: 'go', args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
+  }
+
+  return null;
+}
+
 function startSpotiflac() {
+  const explicitUrl = (process.env.SPOTIFLAC_URL || '').trim();
+  if (explicitUrl && !/localhost|127\.0\.0\.1/.test(explicitUrl)) {
+    console.log('  ℹ️ Using external SpotiFLAC service:', explicitUrl);
+    return;
+  }
+
   const SPOTIFLAC_DIR = path.join(__dirname, '..', '..', 'SpotiFLAC-main');
   const spotiflacPort = process.env.SPOTIFLAC_PORT || '3099';
 
@@ -71,9 +104,16 @@ function startSpotiflac() {
 
       const downloadsDir = path.join(SPOTIFLAC_DIR, 'downloads');
       fs.mkdirSync(downloadsDir, { recursive: true });
+      const launch = resolveSpotiflacLaunch(SPOTIFLAC_DIR);
+      if (!launch) {
+        console.warn('  ⚠️ Cannot start SpotiFLAC automatically: no Go runtime and no prebuilt binary found');
+        console.warn('  💡 Set SPOTIFLAC_URL (external service) or SPOTIFLAC_BIN (local binary path)');
+        return;
+      }
+      console.log(`  ▶️ SpotiFLAC launch: ${launch.cmd} ${launch.args.join(' ')}`.trim());
 
-      spotiflacProcess = spawn('go', ['run', './cmd/server'], {
-        cwd: SPOTIFLAC_DIR,
+      spotiflacProcess = spawn(launch.cmd, launch.args, {
+        cwd: launch.cwd,
         env: {
           ...process.env,
           SPOTIFLAC_PORT: spotiflacPort,
