@@ -49,6 +49,14 @@ func main() {
 	os.MkdirAll(downloadDir, 0755)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "spotiflac"})
+	})
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/api/metadata", handleMetadata)
 	mux.HandleFunc("/api/download", handleDownload)
