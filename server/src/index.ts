@@ -47,6 +47,23 @@ ensureDirs();
 // ─── Auto-start SpotiFLAC Go server ───
 let spotiflacProcess: ChildProcess | null = null;
 
+function resolveSpotiflacDir(): string | null {
+  const explicitDir = (process.env.SPOTIFLAC_DIR || '').trim();
+  const candidates = [
+    explicitDir,
+    path.join(process.cwd(), 'SpotiFLAC-main'),
+    path.join(process.cwd(), '..', 'SpotiFLAC-main'),
+    path.join(__dirname, '..', '..', 'SpotiFLAC-main'),
+    path.join(__dirname, '..', 'SpotiFLAC-main'),
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    const cmdServer = path.join(dir, 'cmd', 'server', 'main.go');
+    if (fs.existsSync(cmdServer)) return dir;
+  }
+  return null;
+}
+
 function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: string[]; cwd: string } | null {
   const explicitBin = (process.env.SPOTIFLAC_BIN || '').trim();
   if (explicitBin && fs.existsSync(explicitBin)) {
@@ -81,14 +98,16 @@ function startSpotiflac() {
     return;
   }
 
-  const SPOTIFLAC_DIR = path.join(__dirname, '..', '..', 'SpotiFLAC-main');
+  const SPOTIFLAC_DIR = resolveSpotiflacDir();
   const spotiflacPort = process.env.SPOTIFLAC_PORT || '3099';
 
-  if (!fs.existsSync(SPOTIFLAC_DIR)) {
-    console.warn('  ⚠️ SpotiFLAC directory not found at', SPOTIFLAC_DIR);
+  if (!SPOTIFLAC_DIR) {
+    console.warn('  ⚠️ SpotiFLAC directory not found');
+    console.warn('  💡 Checked SPOTIFLAC_DIR, ./SpotiFLAC-main, ../SpotiFLAC-main and dist-relative paths');
     console.warn('  ⚠️ Spotify import will not be available');
     return;
   }
+  console.log('  📁 SpotiFLAC dir:', SPOTIFLAC_DIR);
 
   // Check if SpotiFLAC is already running
   fetch(`http://localhost:${spotiflacPort}/health`)
