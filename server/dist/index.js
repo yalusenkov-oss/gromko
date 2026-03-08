@@ -113,7 +113,8 @@ function findGoBin(SPOTIFLAC_DIR) {
     const tarUrl = `https://go.dev/dl/go${goVersion}.linux-${goArch}.tar.gz`;
     const goRoot = path.join(runtimeRoot, 'go');
     console.log(`  ⏳ Go not found, downloading ${tarUrl} ...`);
-    const installCmd = [
+    const scriptLines = [
+        '#!/bin/sh',
         'set -e',
         'TMP_DIR="$(mktemp -d)"',
         'ARCHIVE="$TMP_DIR/go.tar.gz"',
@@ -130,8 +131,17 @@ function findGoBin(SPOTIFLAC_DIR) {
         `rm -rf "${goRoot}"`,
         `tar -C "${runtimeRoot}" -xzf "$ARCHIVE"`,
         'rm -rf "$TMP_DIR"',
-    ].join('; ');
-    const result = spawnSync('sh', ['-lc', installCmd], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
+    ].join('\n');
+    // Write install script to a temp file and execute it (avoids dash/sh quoting issues)
+    const scriptPath = path.join(runtimeRoot, '_install_go.sh');
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    fs.writeFileSync(scriptPath, scriptLines, { mode: 0o755 });
+    const result = spawnSync('sh', [scriptPath], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
+    // Clean up script
+    try {
+        fs.unlinkSync(scriptPath);
+    }
+    catch { }
     if (result.status !== 0) {
         const err = result.stderr?.toString().trim() || result.stdout?.toString().trim() || `exit code ${result.status}`;
         console.warn('  ⚠️ Failed to download Go runtime:', err);
