@@ -243,6 +243,9 @@ function startSpotiflac() {
                 ...process.env,
                 SPOTIFLAC_PORT: spotiflacPort,
                 SPOTIFLAC_DOWNLOAD_DIR: downloadsDir,
+                // Ensure Go finds CA certificates in slim containers
+                SSL_CERT_FILE: process.env.SSL_CERT_FILE || '/etc/ssl/certs/ca-certificates.crt',
+                SSL_CERT_DIR: process.env.SSL_CERT_DIR || '/etc/ssl/certs',
             },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
