@@ -15,12 +15,20 @@ RUN npm ci
 COPY server/ ./
 RUN npx tsc
 
-# ── Stage 3: Production runtime ──
+# ── Stage 3: Compile SpotiFLAC Go binary ──
+FROM golang:1.24-bookworm AS spotiflac-build
+WORKDIR /src
+COPY SpotiFLAC-main/go.mod SpotiFLAC-main/go.sum ./
+RUN go mod download
+COPY SpotiFLAC-main/backend ./backend
+COPY SpotiFLAC-main/cmd ./cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /spotiflac-server ./cmd/server
+
+# ── Stage 4: Production runtime ──
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    golang-go \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -36,10 +44,8 @@ COPY package.json ./
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=frontend-build /app/dist ./dist
 
-# Copy SpotiFLAC source needed for `go run ./cmd/server` auto-start
-COPY SpotiFLAC-main/go.mod SpotiFLAC-main/go.sum ./SpotiFLAC-main/
-COPY SpotiFLAC-main/backend ./SpotiFLAC-main/backend
-COPY SpotiFLAC-main/cmd ./SpotiFLAC-main/cmd
+# Copy pre-compiled SpotiFLAC binary (no Go runtime needed!)
+COPY --from=spotiflac-build /spotiflac-server ./SpotiFLAC-main/bin/spotiflac-server
 
 # Pre-create writable data dirs (Timeweb runs as non-root user 'app')
 RUN mkdir -p /app/data/uploads /app/data/audio /app/data/covers /app/data/waveforms /app/data/temp /tmp/pgdata /app/SpotiFLAC-main/downloads \

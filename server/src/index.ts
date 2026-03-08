@@ -59,18 +59,22 @@ function resolveSpotiflacDir(): string | null {
   ].filter(Boolean);
 
   for (const dir of candidates) {
+    // Accept the directory if it has either source code or a prebuilt binary
     const cmdServer = path.join(dir, 'cmd', 'server', 'main.go');
-    if (fs.existsSync(cmdServer)) return dir;
+    const binServer = path.join(dir, 'bin', 'spotiflac-server');
+    if (fs.existsSync(cmdServer) || fs.existsSync(binServer)) return dir;
   }
   return null;
 }
 
 function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: string[]; cwd: string } | null {
+  // 1. Explicit binary path from env
   const explicitBin = (process.env.SPOTIFLAC_BIN || '').trim();
   if (explicitBin && fs.existsSync(explicitBin)) {
-    return { cmd: explicitBin, args: [], cwd: path.dirname(explicitBin) };
+    return { cmd: explicitBin, args: [], cwd: SPOTIFLAC_DIR };
   }
 
+  // 2. Look for prebuilt binary in bin/
   const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'amd64' : process.arch;
   const platform = process.platform === 'linux' ? 'linux' : process.platform;
   const binCandidates = [
@@ -80,42 +84,45 @@ function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: str
   ];
   for (const bin of binCandidates) {
     if (fs.existsSync(bin)) {
-      return { cmd: bin, args: [], cwd: path.dirname(bin) };
+      return { cmd: bin, args: [], cwd: SPOTIFLAC_DIR };
     }
   }
 
-  const goCheck = spawnSync('go', ['version'], { stdio: 'ignore' });
-  if (goCheck.status === 0) {
-    return { cmd: 'go', args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
-  }
-
-  // If system Go is missing, try one-time local bootstrap (Linux only).
-  const localGo = ensureLocalGoRuntime(SPOTIFLAC_DIR);
-  if (localGo) {
-    return { cmd: localGo, args: ['run', './cmd/server'], cwd: SPOTIFLAC_DIR };
+  // 3. No binary found — try to build one from source
+  const built = buildSpotiflacBinary(SPOTIFLAC_DIR);
+  if (built) {
+    return { cmd: built, args: [], cwd: SPOTIFLAC_DIR };
   }
 
   return null;
 }
 
-function ensureLocalGoRuntime(SPOTIFLAC_DIR: string): string | null {
-  if (process.env.SPOTIFLAC_AUTO_INSTALL_GO === '0') return null;
-  if (process.platform !== 'linux') return null;
+/**
+ * Finds a usable `go` binary — system-installed or locally bootstrapped.
+ */
+function findGoBin(SPOTIFLAC_DIR: string): string | null {
+  // System Go
+  const goCheck = spawnSync('go', ['version'], { stdio: 'ignore' });
+  if (goCheck.status === 0) return 'go';
 
-  const arch = process.arch === 'x64' ? 'amd64' : process.arch === 'arm64' ? 'arm64' : '';
-  if (!arch) return null;
-
+  // Already-bootstrapped local Go
   const runtimeRoot = path.join(SPOTIFLAC_DIR, '.runtime');
   const localGoBin = path.join(runtimeRoot, 'go', 'bin', 'go');
   if (fs.existsSync(localGoBin)) return localGoBin;
+
+  // Bootstrap Go runtime (Linux only, one-time)
+  if (process.env.SPOTIFLAC_AUTO_INSTALL_GO === '0') return null;
+  if (process.platform !== 'linux') return null;
+  const goArch = process.arch === 'x64' ? 'amd64' : process.arch === 'arm64' ? 'arm64' : '';
+  if (!goArch) return null;
   if (goRuntimeBootstrapAttempted) return null;
   goRuntimeBootstrapAttempted = true;
 
-  const goVersion = (process.env.SPOTIFLAC_GO_VERSION || '1.22.12').trim();
-  const tarUrl = `https://go.dev/dl/go${goVersion}.linux-${arch}.tar.gz`;
+  const goVersion = (process.env.SPOTIFLAC_GO_VERSION || '1.24.4').trim();
+  const tarUrl = `https://go.dev/dl/go${goVersion}.linux-${goArch}.tar.gz`;
   const goRoot = path.join(runtimeRoot, 'go');
 
-  console.log(`  ⏳ Go runtime not found, downloading ${tarUrl}`);
+  console.log(`  ⏳ Go not found, downloading ${tarUrl} ...`);
   const installCmd = [
     'set -e',
     'TMP_DIR="$(mktemp -d)"',
@@ -135,15 +142,71 @@ function ensureLocalGoRuntime(SPOTIFLAC_DIR: string): string | null {
     'rm -rf "$TMP_DIR"',
   ].join('; ');
 
-  const result = spawnSync('sh', ['-lc', installCmd], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const result = spawnSync('sh', ['-lc', installCmd], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
   if (result.status !== 0) {
     const err = result.stderr?.toString().trim() || result.stdout?.toString().trim() || `exit code ${result.status}`;
-    console.warn('  ⚠️ Failed to bootstrap local Go runtime:', err);
+    console.warn('  ⚠️ Failed to download Go runtime:', err);
     return null;
   }
   if (fs.existsSync(localGoBin)) {
-    console.log('  ✅ Local Go runtime installed:', localGoBin);
+    console.log('  ✅ Go runtime installed:', localGoBin);
     return localGoBin;
+  }
+  return null;
+}
+
+/**
+ * Compiles SpotiFLAC from source into a static binary.
+ * Returns the path to the binary on success, null on failure.
+ */
+function buildSpotiflacBinary(SPOTIFLAC_DIR: string): string | null {
+  const mainGo = path.join(SPOTIFLAC_DIR, 'cmd', 'server', 'main.go');
+  if (!fs.existsSync(mainGo)) {
+    console.warn('  ⚠️ SpotiFLAC source not found:', mainGo);
+    return null;
+  }
+
+  const goBin = findGoBin(SPOTIFLAC_DIR);
+  if (!goBin) {
+    console.warn('  ⚠️ No Go runtime available to compile SpotiFLAC');
+    return null;
+  }
+
+  const outDir = path.join(SPOTIFLAC_DIR, 'bin');
+  const outBin = path.join(outDir, 'spotiflac-server');
+  fs.mkdirSync(outDir, { recursive: true });
+
+  console.log(`  🔨 Building SpotiFLAC binary (this may take a minute on first run)...`);
+  const buildEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    CGO_ENABLED: '0',
+  };
+  // If using local Go, ensure GOROOT & PATH are set
+  if (goBin !== 'go') {
+    const goRoot = path.resolve(goBin, '..', '..');
+    buildEnv.GOROOT = goRoot;
+    buildEnv.PATH = `${path.dirname(goBin)}:${process.env.PATH || ''}`;
+  }
+
+  const result = spawnSync(
+    goBin,
+    ['build', '-trimpath', '-ldflags=-s -w', '-o', outBin, './cmd/server'],
+    { cwd: SPOTIFLAC_DIR, env: buildEnv, stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000 },
+  );
+
+  const stderr = result.stderr?.toString().trim();
+  if (result.status !== 0) {
+    console.error('  ❌ SpotiFLAC build failed:', stderr || result.stdout?.toString().trim() || `exit ${result.status}`);
+    return null;
+  }
+  if (stderr) console.log('  [go build]', stderr);
+
+  if (fs.existsSync(outBin)) {
+    // Make executable
+    try { fs.chmodSync(outBin, 0o755); } catch {}
+    const sizeMB = (fs.statSync(outBin).size / 1024 / 1024).toFixed(1);
+    console.log(`  ✅ SpotiFLAC binary built: ${outBin} (${sizeMB} MB)`);
+    return outBin;
   }
   return null;
 }

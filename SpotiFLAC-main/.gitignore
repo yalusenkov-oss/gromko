@@ -5,6 +5,11 @@ build/
 *.dylib
 *.so
 
+# Compiled server binary & downloaded Go runtime (auto-built by GROMKO)
+bin/
+.runtime/
+downloads/
+
 # Wails Generated Files
 frontend/wailsjs/
 
