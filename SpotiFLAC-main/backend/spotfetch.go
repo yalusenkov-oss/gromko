@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -36,6 +37,21 @@ func NewSpotifyClient() *SpotifyClient {
 	return &SpotifyClient{
 		client:  &http.Client{Timeout: 30 * time.Second},
 		cookies: make(map[string]string),
+	}
+}
+
+// applyFallbackSession sets hardcoded session values for when open.spotify.com
+// is unreachable or geo-blocked (HTTP 403). These values allow the client token
+// and access token flows to proceed via alternative API endpoints.
+func (c *SpotifyClient) applyFallbackSession() {
+	if c.clientVersion == "" {
+		c.clientVersion = "1.2.52.442.g0f7a4e37"
+	}
+	if c.clientID == "" {
+		c.clientID = "d8a5ed958d274c2e8ee717e6a4b0971d"
+	}
+	if c.deviceID == "" {
+		c.deviceID = fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
 }
 
@@ -81,13 +97,15 @@ func (c *SpotifyClient) getAccessToken() error {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return err
+		log.Printf("[SpotiFLAC] access token request failed (%v), trying fallback", err)
+		return c.getAccessTokenFallback()
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%w: access token request failed: HTTP %d | %s", SpotifyError, resp.StatusCode, string(body))
+		log.Printf("[SpotiFLAC] access token HTTP %d (%s), trying fallback", resp.StatusCode, string(body))
+		return c.getAccessTokenFallback()
 	}
 
 	var data map[string]interface{}
@@ -108,6 +126,89 @@ func (c *SpotifyClient) getAccessToken() error {
 	return nil
 }
 
+// getAccessTokenFallback obtains an anonymous access token via the
+// Spotify get_access_token endpoint or client credentials grant.
+func (c *SpotifyClient) getAccessTokenFallback() error {
+	// Try get_access_token endpoint (sometimes works even when /api/token is blocked)
+	req, err := http.NewRequest("GET", "https://open.spotify.com/get_access_token?reason=transport&productType=web_player", nil)
+	if err != nil {
+		return c.getAccessTokenViaClientCredentials()
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	for name, value := range c.cookies {
+		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return c.getAccessTokenViaClientCredentials()
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return c.getAccessTokenViaClientCredentials()
+	}
+
+	token := getString(data, "accessToken")
+	if token == "" {
+		return c.getAccessTokenViaClientCredentials()
+	}
+	c.accessToken = token
+	if cid := getString(data, "clientId"); cid != "" {
+		c.clientID = cid
+	}
+	log.Printf("[SpotiFLAC] Got access token via get_access_token fallback")
+	return nil
+}
+
+// getAccessTokenViaClientCredentials uses Spotify's public client credentials
+// to obtain an anonymous access token that works for metadata queries.
+func (c *SpotifyClient) getAccessTokenViaClientCredentials() error {
+	// Use a well-known Spotify web client ID
+	clientID := c.clientID
+	if clientID == "" {
+		clientID = "d8a5ed958d274c2e8ee717e6a4b0971d"
+	}
+
+	payload := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=", clientID)
+	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("%w: failed to create client credentials request: %v", SpotifyError, err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: client credentials request failed: %v", SpotifyError, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%w: client credentials failed: HTTP %d | %s", SpotifyError, resp.StatusCode, string(body))
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return fmt.Errorf("%w: failed to parse client credentials response: %v", SpotifyError, err)
+	}
+
+	token := getString(data, "access_token")
+	if token == "" {
+		return fmt.Errorf("%w: no access_token in client credentials response", SpotifyError)
+	}
+
+	c.accessToken = token
+	c.clientID = clientID
+	log.Printf("[SpotiFLAC] Got access token via client credentials fallback")
+	return nil
+}
+
 func (c *SpotifyClient) getSessionInfo() error {
 	req, err := http.NewRequest("GET", "https://open.spotify.com", nil)
 	if err != nil {
@@ -122,12 +223,25 @@ func (c *SpotifyClient) getSessionInfo() error {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return err
+		// Network error — use fallback values
+		log.Printf("[SpotiFLAC] open.spotify.com unreachable (%v), using fallback session", err)
+		c.applyFallbackSession()
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("%w: session initialization failed: HTTP %d", SpotifyError, resp.StatusCode)
+		// Geo-blocked or rate-limited — use fallback values instead of failing
+		log.Printf("[SpotiFLAC] open.spotify.com returned HTTP %d, using fallback session", resp.StatusCode)
+		// Still read cookies from the response (they may contain sp_t)
+		for _, cookie := range resp.Cookies() {
+			if cookie.Name == "sp_t" {
+				c.deviceID = cookie.Value
+			}
+			c.cookies[cookie.Name] = cookie.Value
+		}
+		c.applyFallbackSession()
+		return nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
