@@ -7,3 +7,8 @@ data
 !.env.example
 *.log
 .DS_Store
+SpotiFLAC-main/downloads
+yandex-music-downloader-main/*/*/*.m4a
+yandex-music-downloader-main/*/*/cover.jpg
+yandex-music-downloader-main/*/*/cover.jpeg
+yandex-music-downloader-main/*/*/cover.png
