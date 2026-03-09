@@ -106,6 +106,8 @@ class AudioEngine {
     // Reset retry count when user explicitly plays a new track
     if (track.id !== this.currentTrack?.id) {
       this._retryCount = 0;
+      // Record play event on server (fire & forget)
+      this.recordPlay(track.id);
     }
 
     this.currentTrack = track;
@@ -325,6 +327,16 @@ class AudioEngine {
   }
 
   // ─── Private methods ───
+
+  /** Record a play event on the server (fire & forget) */
+  private recordPlay(trackId: string): void {
+    const quality = this._quality === 'auto' ? this.autoSelectQuality() : this._quality;
+    fetch(`${API_BASE}/api/tracks/${trackId}/play`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quality }),
+    }).catch(() => {}); // fire & forget
+  }
 
   private getStreamUrl(track: AudioTrack): string {
     // Choose quality

@@ -370,6 +370,25 @@ router.get('/tracks/:id/waveform', async (req, res) => {
         return res.status(404).json({ error: 'Трек не найден' });
     res.json({ peaks: track.waveform_peaks || [] });
 });
+/** POST /api/tracks/:id/play — record a play event (called by frontend when track starts) */
+router.post('/tracks/:id/play', async (req, res) => {
+    const track = await queryOne(`SELECT id, artist_slug FROM tracks WHERE id = $1 AND status = 'ready'`, [req.params.id]);
+    if (!track)
+        return res.status(404).json({ error: 'Трек не найден' });
+    const userId = req.user?.id || null;
+    const quality = req.body?.quality || 'medium';
+    // Increment plays counter
+    execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => { });
+    // Record in play_history
+    execute('INSERT INTO play_history (track_id, quality, user_id) VALUES ($1, $2, $3)', [req.params.id, quality, userId]).catch(() => { });
+    // Update artist total_plays
+    execute(`
+    UPDATE artists SET total_plays = total_plays + 1
+    WHERE id IN (SELECT artist_id FROM track_artists WHERE track_id = $1)
+       OR slug = $2
+  `, [req.params.id, track.artist_slug]).catch(() => { });
+    res.json({ ok: true });
+});
 /** GET /api/tracks/:id/stream — audio stream with Range support */
 router.get('/tracks/:id/stream', async (req, res) => {
     const quality = req.query.quality || 'medium';
@@ -393,16 +412,8 @@ router.get('/tracks/:id/stream', async (req, res) => {
     }
     if (!streamPath)
         return res.status(404).json({ error: `Качество "${quality}" недоступно` });
-    // Record play (fire & forget) — include user_id from authOptional middleware
-    const userId = req.user?.id || null;
-    execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => { });
-    execute('INSERT INTO play_history (track_id, quality, user_id) VALUES ($1, $2, $3)', [req.params.id, quality, userId]).catch(() => { });
-    // Update total_plays for all artists linked to this track
-    execute(`
-    UPDATE artists SET total_plays = total_plays + 1
-    WHERE id IN (SELECT artist_id FROM track_artists WHERE track_id = $1)
-       OR slug = $2
-  `, [req.params.id, track.artist_slug]).catch(() => { });
+    // Play counting is now handled by POST /api/tracks/:id/play
+    // The stream endpoint only serves the audio file
     // If URL is absolute (S3), redirect to it — browser/player fetches directly from CDN
     if (streamPath.startsWith('http://') || streamPath.startsWith('https://')) {
         return res.redirect(302, streamPath);
