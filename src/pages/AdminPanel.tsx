@@ -153,7 +153,7 @@ function DashboardTab() {
         <StatCard label="Всего прослушиваний" value={formatPlays(s.totalPlays)} icon={<TrendingUp className="w-5 h-5" />} color="amber" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Сейчас слушают" value={s.activeListeners} icon={<Activity className="w-5 h-5 animate-pulse" />} color="green" subtitle="за 15 мин" />
+        <StatCard label="Сейчас слушают" value={s.activeListeners} icon={<Activity className="w-5 h-5 animate-pulse" />} color="green" subtitle="в реальном времени" />
         <StatCard label="Сегодня" value={formatPlays(s.playsToday)} icon={<Play className="w-5 h-5" />} color="sky" />
         <StatCard label="За неделю" value={formatPlays(s.playsWeek)} icon={<BarChart3 className="w-5 h-5" />} color="violet" />
         <StatCard label="За месяц" value={formatPlays(s.playsMonth)} icon={<Globe className="w-5 h-5" />} color="rose" />

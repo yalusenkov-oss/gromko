@@ -16,6 +16,25 @@ import { parseArtistNames } from './parse-artists.js';
 import { findExistingTrackByArtistAndTitle } from './track-dedupe.js';
 import { checkSpotiflacHealth, fetchSpotifyMetadata, searchSpotify, startSpotifyImport, startSpotifySubmission, getJob, getAllJobs, } from './spotify-import.js';
 const router = Router();
+/* ═══════════════════════════════════════════════ */
+/*  ACTIVE LISTENERS — in-memory heartbeat tracker */
+/* ═══════════════════════════════════════════════ */
+const HEARTBEAT_TTL = 45_000; // consider listener inactive after 45s without heartbeat
+const activeListenersMap = new Map();
+/** Clean up stale entries */
+function pruneStaleListeners() {
+    const now = Date.now();
+    for (const [sid, entry] of activeListenersMap) {
+        if (now - entry.ts > HEARTBEAT_TTL)
+            activeListenersMap.delete(sid);
+    }
+}
+setInterval(pruneStaleListeners, 15_000);
+/** Get active listener count */
+function getActiveListenerCount() {
+    pruneStaleListeners();
+    return activeListenersMap.size;
+}
 function mapAudioPublicPathToFs(publicPath) {
     // /audio/{trackId}/{file}
     if (!publicPath.startsWith('/audio/'))
@@ -258,8 +277,9 @@ router.get('/tracks', async (req, res) => {
             paramIdx++;
         }
         const sortCol = sort === 'plays' ? 'plays' : sort === 'likes' ? 'likes'
-            : sort === 'year' ? 'year' : sort === 'title' ? 'title' : 'plays';
-        const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+            : sort === 'year' ? 'year' : sort === 'title' ? 'title'
+                : sort === 'new' ? 'created_at' : 'plays';
+        const sortOrder = sort === 'new' ? 'DESC' : (order === 'asc' ? 'ASC' : 'DESC');
         const countRes = await queryOne(`SELECT COUNT(*) as total FROM tracks ${where}`, params);
         const total = Number(countRes?.total || 0);
         const lim = Number(limit);
@@ -290,6 +310,59 @@ router.get('/tracks/:id', async (req, res) => {
     const [withArtists] = await attachArtists([track]);
     res.json(formatTrackRow(withArtists));
 });
+/** GET /api/trending — most played tracks in last 24 hours */
+router.get('/trending', async (_req, res) => {
+    try {
+        const rows = await query(`
+      SELECT ph.track_id, COUNT(*) as cnt
+      FROM play_history ph
+      WHERE ph.played_at > NOW() - INTERVAL '24 hours'
+      GROUP BY ph.track_id
+      ORDER BY cnt DESC
+      LIMIT 10
+    `);
+        const trackIds = rows.map((r) => r.track_id);
+        if (trackIds.length === 0)
+            return res.json({ tracks: [] });
+        const placeholders = trackIds.map((_, i) => `$${i + 1}`).join(',');
+        const tracks = await query(`SELECT * FROM tracks WHERE id IN (${placeholders}) AND status = 'ready'`, trackIds);
+        const withArtists = await attachArtists(tracks);
+        // Keep the trending order
+        const mapped = withArtists.map(formatTrackRow);
+        const ordered = trackIds.map((id) => mapped.find((t) => t.id === id)).filter(Boolean);
+        res.json({ tracks: ordered, playsData: rows.map((r) => ({ trackId: r.track_id, plays24h: Number(r.cnt) })) });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+/** Auto-update hero track every hour (most listened in 24h) */
+async function autoUpdateHeroTrack() {
+    try {
+        const setting = await queryOne(`SELECT value FROM site_settings WHERE key = 'hero_mode'`);
+        if (setting?.value !== 'auto')
+            return; // only run in auto mode
+        const top = await queryOne(`
+      SELECT track_id, COUNT(*) as cnt
+      FROM play_history
+      WHERE played_at > NOW() - INTERVAL '24 hours'
+      GROUP BY track_id
+      ORDER BY cnt DESC
+      LIMIT 1
+    `);
+        if (top) {
+            await execute('UPDATE tracks SET featured = FALSE WHERE featured = TRUE');
+            await execute('UPDATE tracks SET featured = TRUE WHERE id = $1', [top.track_id]);
+        }
+    }
+    catch (err) {
+        console.error('Auto-hero update failed:', err);
+    }
+}
+// Run every hour
+setInterval(autoUpdateHeroTrack, 60 * 60 * 1000);
+// Also run once on startup (after 10s delay for DB to be ready)
+setTimeout(autoUpdateHeroTrack, 10000);
 /** GET /api/tracks/:id/waveform */
 router.get('/tracks/:id/waveform', async (req, res) => {
     const track = await queryOne('SELECT waveform_peaks FROM tracks WHERE id = $1', [req.params.id]);
@@ -597,13 +670,8 @@ router.get('/admin/stats', adminRequired, async (_req, res) => {
         queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '24 hours'`),
         query(`SELECT genre, COUNT(*) as count FROM tracks WHERE status = 'ready' GROUP BY genre ORDER BY count DESC LIMIT 10`),
     ]);
-    // Active listeners (played something in last 15 minutes)
-    // Count distinct logged-in users + number of anonymous plays as separate "listeners"
-    const [loggedListeners, anonPlays] = await Promise.all([
-        queryOne(`SELECT COUNT(DISTINCT user_id) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NOT NULL`),
-        queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NULL`),
-    ]);
-    const activeListenersCount = Number(loggedListeners?.c || 0) + Number(anonPlays?.c || 0);
+    // Active listeners — real-time from heartbeat system
+    const activeListenersCount = getActiveListenerCount();
     // Plays today / this week / this month
     const [playsToday, playsWeek, playsMonth] = await Promise.all([
         queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '24 hours'`),
@@ -1307,6 +1375,75 @@ function formatArtistRow(row) {
     };
 }
 // ═══════════════════════════════════════════════
+// GENRE NORMALIZATION (admin-only)
+// ═══════════════════════════════════════════════
+const KNOWN_GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic', 'Другое'];
+const GENRE_NORMALIZE_RULES = [
+    [/hip[\s\-_]*hop/i, 'Хип-хоп'], [/хип[\s\-_]*хоп/i, 'Хип-хоп'],
+    [/^rap$/i, 'Рэп'], [/^рэп$/i, 'Рэп'], [/^рап$/i, 'Рэп'], [/gangsta/i, 'Рэп'],
+    [/^trap$/i, 'Trap'], [/^трэп$/i, 'Trap'],
+    [/r\s*[&n]\s*b/i, 'R&B'], [/rhythm.*blues/i, 'R&B'], [/soul/i, 'R&B'], [/рнб/i, 'R&B'],
+    [/drill/i, 'Drill'], [/дрилл/i, 'Drill'],
+    [/phonk/i, 'Phonk'], [/фонк/i, 'Phonk'],
+    [/^pop$/i, 'Pop'], [/^поп$/i, 'Pop'], [/synth[\s\-]?pop/i, 'Pop'], [/indie[\s\-]?pop/i, 'Pop'], [/dance[\s\-]?pop/i, 'Pop'], [/k[\s\-]?pop/i, 'Pop'],
+    [/rock/i, 'Rock'], [/рок/i, 'Rock'], [/punk/i, 'Rock'], [/metal/i, 'Rock'], [/grunge/i, 'Rock'], [/alternative/i, 'Rock'],
+    [/electro/i, 'Electronic'], [/edm/i, 'Electronic'], [/techno/i, 'Electronic'], [/house/i, 'Electronic'],
+    [/trance/i, 'Electronic'], [/dubstep/i, 'Electronic'], [/drum\s*[&n]\s*bass/i, 'Electronic'], [/dnb/i, 'Electronic'],
+    [/ambient/i, 'Electronic'], [/synth/i, 'Electronic'], [/электрон/i, 'Electronic'],
+];
+function normalizeGenreServer(raw) {
+    if (KNOWN_GENRES.includes(raw))
+        return raw;
+    for (const [re, genre] of GENRE_NORMALIZE_RULES) {
+        if (re.test(raw))
+            return genre;
+    }
+    return 'Другое';
+}
+/** POST /api/admin/normalize-genres — batch fix genres for all tracks */
+router.post('/admin/normalize-genres', adminRequired, async (_req, res) => {
+    try {
+        const rows = await query('SELECT id, genre FROM tracks');
+        let updated = 0;
+        const changes = [];
+        const changeMap = new Map();
+        for (const row of rows) {
+            const normalized = normalizeGenreServer(row.genre);
+            if (normalized !== row.genre) {
+                await execute('UPDATE tracks SET genre = $1 WHERE id = $2', [normalized, row.id]);
+                updated++;
+                const key = `${row.genre} → ${normalized}`;
+                if (!changeMap.has(key))
+                    changeMap.set(key, { to: normalized, count: 0 });
+                changeMap.get(key).count++;
+            }
+        }
+        for (const [from, { to, count }] of changeMap) {
+            changes.push({ from: from.split(' → ')[0], to, count });
+        }
+        // Also normalize artist genres
+        const artistRows = await query('SELECT id, genre FROM artists WHERE genre IS NOT NULL');
+        let artistUpdated = 0;
+        for (const row of artistRows) {
+            const normalized = normalizeGenreServer(row.genre);
+            if (normalized !== row.genre) {
+                await execute('UPDATE artists SET genre = $1 WHERE id = $2', [normalized, row.id]);
+                artistUpdated++;
+            }
+        }
+        res.json({
+            ok: true,
+            tracksTotal: rows.length,
+            tracksUpdated: updated,
+            artistsUpdated: artistUpdated,
+            changes: changes.sort((a, b) => b.count - a.count),
+        });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+// ═══════════════════════════════════════════════
 // S3 IMPORT (admin-only, runs as child process)
 // ═══════════════════════════════════════════════
 let s3ImportRunning = false;
@@ -1466,6 +1603,25 @@ router.get('/admin/spotify/jobs/:id', adminRequired, async (req, res) => {
     if (!job)
         return res.status(404).json({ error: 'Задача не найдена' });
     res.json(job);
+});
+/** POST /api/heartbeat — client sends every 20s while playing */
+router.post('/heartbeat', (req, res) => {
+    const { sessionId, trackId } = req.body || {};
+    if (!sessionId || !trackId)
+        return res.status(400).json({ error: 'sessionId & trackId required' });
+    activeListenersMap.set(sessionId, {
+        trackId,
+        userId: req.user?.id,
+        ts: Date.now(),
+    });
+    res.json({ ok: true });
+});
+/** POST /api/heartbeat/stop — client sends when pausing/stopping */
+router.post('/heartbeat/stop', (req, res) => {
+    const { sessionId } = req.body || {};
+    if (sessionId)
+        activeListenersMap.delete(sessionId);
+    res.json({ ok: true });
 });
 export default router;
 //# sourceMappingURL=routes.js.map

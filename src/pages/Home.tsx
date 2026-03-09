@@ -138,9 +138,9 @@ export default function Home() {
                   {isHeroPlaying ? 'Пауза' : 'Слушать'}
                 </button>
                 <button onClick={handleShuffleAll}
-                  className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all active:scale-95">
-                  <Shuffle size={16} />
-                  Перемешать всё
+                  className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-xs md:text-sm transition-all active:scale-95">
+                  <Shuffle size={14} className="md:w-4 md:h-4" />
+                  Перемешать
                 </button>
                 <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
                   Подробнее

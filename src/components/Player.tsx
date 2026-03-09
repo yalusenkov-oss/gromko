@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { audioEngine, EngineState } from '../audio/engine';
 import { shareUrl } from '../utils/share';
+import { apiUrl } from '../lib/api';
 
 export default function Player() {
   const {
@@ -123,6 +124,45 @@ export default function Player() {
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
     window.addEventListener('touchend', handleTouchEnd);
   }, [seek]);
+
+  // ─── Heartbeat: send periodic "I'm listening" pings ───
+  const heartbeatSessionRef = useRef<string>('');
+  useEffect(() => {
+    if (!heartbeatSessionRef.current) {
+      heartbeatSessionRef.current = `s_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    }
+  }, []);
+
+  useEffect(() => {
+    const sid = heartbeatSessionRef.current;
+    if (!player.currentTrack || !player.isPlaying) {
+      // Tell server we stopped
+      if (sid) {
+        fetch(apiUrl('/heartbeat/stop'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sid }),
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    const trackId = player.currentTrack.id;
+    const sendHeartbeat = () => {
+      fetch(apiUrl('/heartbeat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid, trackId }),
+      }).catch(() => {});
+    };
+
+    // Send immediately + every 20s
+    sendHeartbeat();
+    const iv = setInterval(sendHeartbeat, 20_000);
+    return () => {
+      clearInterval(iv);
+    };
+  }, [player.currentTrack?.id, player.isPlaying]);
 
   // All hooks above — early return is safe here
   if (!player.currentTrack) return null;

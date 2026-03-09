@@ -30,6 +30,27 @@ import {
 
 const router = Router();
 
+/* ═══════════════════════════════════════════════ */
+/*  ACTIVE LISTENERS — in-memory heartbeat tracker */
+/* ═══════════════════════════════════════════════ */
+const HEARTBEAT_TTL = 45_000; // consider listener inactive after 45s without heartbeat
+const activeListenersMap = new Map<string, { trackId: string; userId?: string; ts: number }>();
+
+/** Clean up stale entries */
+function pruneStaleListeners() {
+  const now = Date.now();
+  for (const [sid, entry] of activeListenersMap) {
+    if (now - entry.ts > HEARTBEAT_TTL) activeListenersMap.delete(sid);
+  }
+}
+setInterval(pruneStaleListeners, 15_000);
+
+/** Get active listener count */
+function getActiveListenerCount(): number {
+  pruneStaleListeners();
+  return activeListenersMap.size;
+}
+
 function mapAudioPublicPathToFs(publicPath: string): string | null {
   // /audio/{trackId}/{file}
   if (!publicPath.startsWith('/audio/')) return null;
@@ -720,13 +741,8 @@ router.get('/admin/stats', adminRequired, async (_req: Request, res: Response) =
     query(`SELECT genre, COUNT(*) as count FROM tracks WHERE status = 'ready' GROUP BY genre ORDER BY count DESC LIMIT 10`),
   ]);
 
-  // Active listeners (played something in last 15 minutes)
-  // Count distinct logged-in users + number of anonymous plays as separate "listeners"
-  const [loggedListeners, anonPlays] = await Promise.all([
-    queryOne(`SELECT COUNT(DISTINCT user_id) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NOT NULL`),
-    queryOne(`SELECT COUNT(*) as c FROM play_history WHERE played_at > NOW() - INTERVAL '15 minutes' AND user_id IS NULL`),
-  ]);
-  const activeListenersCount = Number(loggedListeners?.c || 0) + Number(anonPlays?.c || 0);
+  // Active listeners — real-time from heartbeat system
+  const activeListenersCount = getActiveListenerCount();
 
   // Plays today / this week / this month
   const [playsToday, playsWeek, playsMonth] = await Promise.all([
@@ -1689,6 +1705,25 @@ router.get('/admin/spotify/jobs/:id', adminRequired, async (req: Request, res: R
   const job = getJob(req.params.id as string);
   if (!job) return res.status(404).json({ error: 'Задача не найдена' });
   res.json(job);
+});
+
+/** POST /api/heartbeat — client sends every 20s while playing */
+router.post('/heartbeat', (req: Request, res: Response) => {
+  const { sessionId, trackId } = req.body || {};
+  if (!sessionId || !trackId) return res.status(400).json({ error: 'sessionId & trackId required' });
+  activeListenersMap.set(sessionId, {
+    trackId,
+    userId: req.user?.id,
+    ts: Date.now(),
+  });
+  res.json({ ok: true });
+});
+
+/** POST /api/heartbeat/stop — client sends when pausing/stopping */
+router.post('/heartbeat/stop', (req: Request, res: Response) => {
+  const { sessionId } = req.body || {};
+  if (sessionId) activeListenersMap.delete(sessionId);
+  res.json({ ok: true });
 });
 
 export default router;

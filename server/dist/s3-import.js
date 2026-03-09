@@ -87,6 +87,89 @@ const SHUFFLE = process.env.SHUFFLE !== '0'; // default: on — shuffle for vari
 // ─── Audio extensions ───
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma', '.opus', '.aiff']);
 const COVER_NAMES = new Set(['cover.jpg', 'cover.jpeg', 'cover.png', 'folder.jpg', 'folder.png', 'front.jpg', 'front.png', 'artwork.jpg', 'artwork.png']);
+// ─── Genre normalization ───
+// Maps raw ID3 genre tags to our supported GENRES list.
+const GENRE_MAP = {};
+const GENRE_RULES = [
+    // Хип-хоп
+    [/hip[\s\-_]*hop/i, 'Хип-хоп'],
+    [/хип[\s\-_]*хоп/i, 'Хип-хоп'],
+    // Рэп
+    [/^rap$/i, 'Рэп'],
+    [/^рэп$/i, 'Рэп'],
+    [/^рап$/i, 'Рэп'],
+    [/gangsta/i, 'Рэп'],
+    [/hardcore.*hip/i, 'Рэп'],
+    // Trap
+    [/^trap$/i, 'Trap'],
+    [/^трэп$/i, 'Trap'],
+    // R&B
+    [/r\s*[&n]\s*b/i, 'R&B'],
+    [/rhythm.*blues/i, 'R&B'],
+    [/soul/i, 'R&B'],
+    [/рнб/i, 'R&B'],
+    // Drill
+    [/drill/i, 'Drill'],
+    [/дрилл/i, 'Drill'],
+    // Phonk
+    [/phonk/i, 'Phonk'],
+    [/фонк/i, 'Phonk'],
+    // Pop
+    [/^pop$/i, 'Pop'],
+    [/^поп$/i, 'Pop'],
+    [/synth[\s\-]?pop/i, 'Pop'],
+    [/indie[\s\-]?pop/i, 'Pop'],
+    [/dance[\s\-]?pop/i, 'Pop'],
+    [/k[\s\-]?pop/i, 'Pop'],
+    // Rock
+    [/rock/i, 'Rock'],
+    [/рок/i, 'Rock'],
+    [/punk/i, 'Rock'],
+    [/metal/i, 'Rock'],
+    [/grunge/i, 'Rock'],
+    [/alternative/i, 'Rock'],
+    [/indie[\s\-]?rock/i, 'Rock'],
+    // Electronic
+    [/electro/i, 'Electronic'],
+    [/edm/i, 'Electronic'],
+    [/techno/i, 'Electronic'],
+    [/house/i, 'Electronic'],
+    [/trance/i, 'Electronic'],
+    [/dubstep/i, 'Electronic'],
+    [/drum\s*[&n]\s*bass/i, 'Electronic'],
+    [/dnb/i, 'Electronic'],
+    [/ambient/i, 'Electronic'],
+    [/synth/i, 'Electronic'],
+    [/idm/i, 'Electronic'],
+    [/bass\s*music/i, 'Electronic'],
+    [/future/i, 'Electronic'],
+    [/электрон/i, 'Electronic'],
+];
+/** Normalize a raw genre tag to one of our supported genres, or undefined. */
+function normalizeGenre(raw) {
+    if (!raw)
+        return undefined;
+    const trimmed = raw.trim();
+    if (!trimmed)
+        return undefined;
+    // Exact match to our genres
+    const KNOWN = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic', 'Другое'];
+    if (KNOWN.includes(trimmed))
+        return trimmed;
+    // Cached
+    if (GENRE_MAP[trimmed] !== undefined)
+        return GENRE_MAP[trimmed] || undefined;
+    // Try regex rules
+    for (const [re, genre] of GENRE_RULES) {
+        if (re.test(trimmed)) {
+            GENRE_MAP[trimmed] = genre;
+            return genre;
+        }
+    }
+    // No match
+    GENRE_MAP[trimmed] = '';
+    return undefined;
+}
 const stats = {
     totalFound: 0,
     skipped: 0,
@@ -393,7 +476,7 @@ async function importSingleTrack(track, existingFiles) {
         const artist = meta.artist || track.artist;
         const { year: albumYear, cleanAlbum } = parseAlbumYear(track.album);
         const album = meta.album || cleanAlbum || undefined;
-        const genre = FORCE_GENRE || meta.genre || 'Другое';
+        const genre = FORCE_GENRE || normalizeGenre(meta.genre) || 'Другое';
         const year = meta.year || albumYear || new Date().getFullYear();
         const explicit = isExplicit(track.album, track.filename);
         const trackId = uuid();
@@ -568,8 +651,18 @@ async function main() {
     console.log(`  🚀 Импорт: до ${IMPORT_LIMIT > 0 ? IMPORT_LIMIT : tracksToImport.length} треков из ${tracksToImport.length} доступных (${formatBytes(importSize)}, ${MAX_WORKERS} потоков)\n`);
     stats.queued = IMPORT_LIMIT > 0 ? IMPORT_LIMIT : tracksToImport.length;
     stats.startTime = Date.now();
+    // ── Keep DB connection alive during long imports ──
+    const dbKeepalive = setInterval(async () => {
+        try {
+            await query('SELECT 1');
+        }
+        catch (err) {
+            console.error(`\n  ⚠️ DB keepalive failed: ${err.message}`);
+        }
+    }, 30_000); // ping every 30s
     // ── Step 4: Process in parallel ──
     await processPool(tracksToImport, existingFiles);
+    clearInterval(dbKeepalive);
     // ── Step 5: Summary ──
     const elapsed = Date.now() - stats.startTime;
     console.log('\n\n');
