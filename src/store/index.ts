@@ -417,18 +417,43 @@ export const useStore = create<AppStore>((set, get) => ({
   toggleLike: async (trackId) => {
     const { currentUser } = get();
     if (!currentUser) return;
+
+    // Optimistic update — instant UI response
+    const wasLiked = currentUser.likedTracks.includes(trackId);
+    set(s => ({
+      currentUser: s.currentUser ? {
+        ...s.currentUser,
+        likedTracks: wasLiked
+          ? s.currentUser.likedTracks.filter((id: string) => id !== trackId)
+          : [...s.currentUser.likedTracks, trackId],
+      } : null,
+      tracks: s.tracks.map(t => t.id === trackId ? { ...t, likes: t.likes + (wasLiked ? -1 : 1) } : t),
+    }));
+
     try {
       const data = await apiFetch(`/tracks/${trackId}/like`, { method: 'POST' });
+      // Reconcile with server response (in case of mismatch)
       set(s => ({
         currentUser: s.currentUser ? {
           ...s.currentUser,
           likedTracks: data.liked
+            ? (s.currentUser.likedTracks.includes(trackId) ? s.currentUser.likedTracks : [...s.currentUser.likedTracks, trackId])
+            : s.currentUser.likedTracks.filter((id: string) => id !== trackId),
+        } : null,
+      }));
+    } catch (e) {
+      console.error('toggleLike:', e);
+      // Revert optimistic update on error
+      set(s => ({
+        currentUser: s.currentUser ? {
+          ...s.currentUser,
+          likedTracks: wasLiked
             ? [...s.currentUser.likedTracks, trackId]
             : s.currentUser.likedTracks.filter((id: string) => id !== trackId),
         } : null,
-        tracks: s.tracks.map(t => t.id === trackId ? { ...t, likes: t.likes + (data.liked ? 1 : -1) } : t),
+        tracks: s.tracks.map(t => t.id === trackId ? { ...t, likes: t.likes + (wasLiked ? 1 : -1) } : t),
       }));
-    } catch (e) { console.error('toggleLike:', e); }
+    }
   },
 
   toggleAlbumLike: async (albumName) => {

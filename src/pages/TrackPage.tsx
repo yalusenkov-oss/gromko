@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useStore, Track } from '../store';
 import { Play, Pause, Heart, Share2, Maximize2, Minimize2 } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
+import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '../lib/api';
@@ -24,7 +25,19 @@ export default function TrackPage() {
   }, [id, tracks]);
 
   const track = tracks.find(t => t.id === id) || fetchedTrack;
-  const similar = tracks.filter(t => t.id !== id && t.genre === track?.genre).slice(0, 6);
+
+  // Other tracks by the same artist(s)
+  const artistTracks = tracks.filter(t => {
+    if (t.id === id) return false;
+    if (!track) return false;
+    // Check if any artist overlaps
+    if (track.artists && track.artists.length > 0) {
+      return track.artists.some(a =>
+        t.artists?.some(ta => ta.slug === a.slug) || t.artistSlug === a.slug
+      );
+    }
+    return t.artistSlug === track.artistSlug;
+  }).slice(0, 6);
 
   if (!track) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
@@ -116,11 +129,11 @@ export default function TrackPage() {
               </button>
               <button
                 onClick={() => {
-                  const url = `${window.location.origin}/track/${track.id}`;
-                  try {
-                    if (navigator.share) navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url }).catch(() => {});
-                    else navigator.clipboard.writeText(url).catch(() => {});
-                  } catch { navigator.clipboard.writeText(url).catch(() => {}); }
+                  shareUrl({
+                    title: `${track.title} — ${track.artist}`,
+                    text: `Послушай "${track.title}" на GROMKO 🎵`,
+                    url: `${window.location.origin}/track/${track.id}`,
+                  });
                 }}
                 className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
                 <Share2 size={18} />
@@ -136,11 +149,11 @@ export default function TrackPage() {
         </div>
 
         {/* Similar tracks */}
-        {similar.length > 0 && (
+        {artistTracks.length > 0 && (
           <section>
-            <h2 className="text-lg font-bold mb-4">Похожие треки</h2>
+            <h2 className="text-lg font-bold mb-4">Другие треки исполнителя</h2>
             <div className="space-y-1">
-              {similar.map(t => <TrackCard key={t.id} track={t} queue={similar} />)}
+              {artistTracks.map(t => <TrackCard key={t.id} track={t} queue={artistTracks} />)}
             </div>
           </section>
         )}

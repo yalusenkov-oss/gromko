@@ -1,17 +1,25 @@
 import { useStore, Track } from '../store';
-import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3 } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3, Sparkles, Shuffle } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 
 export default function Home() {
-  const { tracks, artists, heroTrackId, player, playTrack, togglePlay } = useStore();
+  const { tracks, artists, heroTrackId, player, playTrack, togglePlay, toggleShuffle, currentUser, openAuthModal } = useStore();
 
   const heroTrack = tracks.find(t => t.id === heroTrackId) || tracks[0];
   const isHeroPlaying = player.currentTrack?.id === heroTrack?.id && player.isPlaying;
 
   const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
+
+  // New releases — tracks sorted by creation date (newest first)
+  const newTracks = useMemo(() => {
+    return [...tracks]
+      .filter(t => t.createdAt)
+      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+      .slice(0, 6);
+  }, [tracks]);
 
   // Build popular albums from tracks
   const popularAlbums = useMemo(() => {
@@ -54,6 +62,19 @@ export default function Home() {
     else playTrack(heroTrack, tracks);
   };
 
+  const handleShuffleAll = () => {
+    if (!currentUser) {
+      openAuthModal('login');
+      return;
+    }
+    if (tracks.length === 0) return;
+    // Pick a random starting track and enable shuffle
+    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+    playTrack(shuffled[0], shuffled);
+    // Enable shuffle mode
+    if (!player.shuffle) toggleShuffle();
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-14">
       {/* Hero */}
@@ -94,6 +115,11 @@ export default function Home() {
                 >
                   {isHeroPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
                   {isHeroPlaying ? 'Пауза' : 'Слушать'}
+                </button>
+                <button onClick={handleShuffleAll}
+                  className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all active:scale-95">
+                  <Shuffle size={16} />
+                  Перемешать всё
                 </button>
                 <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
                   Подробнее
@@ -159,6 +185,38 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {/* New releases */}
+        {newTracks.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Sparkles size={20} className="text-red-400" />
+                <h2 className="text-xl font-bold">Новинки</h2>
+              </div>
+              <Link to="/tracks?sort=new" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
+                Все новинки <ChevronRight size={16} />
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {newTracks.map(track => (
+                <Link key={track.id} to={`/track/${track.id}`} className="group relative block rounded-xl overflow-hidden">
+                  <div className="aspect-square">
+                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute top-2 right-2">
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Artists */}
         <section>

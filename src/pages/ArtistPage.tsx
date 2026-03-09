@@ -2,6 +2,7 @@ import { useParams, useSearchParams, useLocation, useNavigate } from 'react-rout
 import { useStore, Track } from '../store';
 import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, Share2 } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
+import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { apiUrl } from '../lib/api';
@@ -251,6 +252,18 @@ export default function ArtistPage() {
             {isAnyPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" />}
             {isAnyPlaying ? 'Пауза' : 'Слушать всё'}
           </button>
+          <button
+            onClick={() => {
+              shareUrl({
+                title: artist!.name,
+                text: `Послушай ${artist!.name} на GROMKO 🎵`,
+                url: `${window.location.origin}/artist/${artist!.slug}`,
+              });
+            }}
+            className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+          >
+            <Share2 size={18} />
+          </button>
         </div>
 
         {/* Popular Tracks */}
@@ -412,11 +425,11 @@ export default function ArtistPage() {
             <div className="flex items-center gap-5 mt-5">
               <button
                 onClick={() => {
-                  const url = `${window.location.origin}/artist/${artist?.slug}?album=${encodeURIComponent(mobileAlbum.name)}`;
-                  try {
-                    if (navigator.share) navigator.share({ title: `${mobileAlbum.name} — ${artist?.name}`, url }).catch(() => {});
-                    else navigator.clipboard.writeText(url).catch(() => {});
-                  } catch { navigator.clipboard.writeText(url).catch(() => {}); }
+                  shareUrl({
+                    title: `${mobileAlbum.name} — ${artist?.name}`,
+                    text: `Послушай альбом "${mobileAlbum.name}" на GROMKO 🎵`,
+                    url: `${window.location.origin}/artist/${artist?.slug}?album=${encodeURIComponent(mobileAlbum.name)}`,
+                  });
                 }}
                 className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center active:bg-white/20 active:scale-95 transition-all"
               >

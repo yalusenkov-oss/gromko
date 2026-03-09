@@ -282,8 +282,9 @@ router.get('/tracks', async (req: Request, res: Response) => {
     }
 
     const sortCol = sort === 'plays' ? 'plays' : sort === 'likes' ? 'likes'
-      : sort === 'year' ? 'year' : sort === 'title' ? 'title' : 'plays';
-    const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+      : sort === 'year' ? 'year' : sort === 'title' ? 'title'
+      : sort === 'new' ? 'created_at' : 'plays';
+    const sortOrder = sort === 'new' ? 'DESC' : (order === 'asc' ? 'ASC' : 'DESC');
 
     const countRes = await queryOne(`SELECT COUNT(*) as total FROM tracks ${where}`, params);
     const total = Number(countRes?.total || 0);
@@ -317,6 +318,59 @@ router.get('/tracks/:id', async (req: Request, res: Response) => {
   const [withArtists] = await attachArtists([track]);
   res.json(formatTrackRow(withArtists));
 });
+
+/** GET /api/trending — most played tracks in last 24 hours */
+router.get('/trending', async (_req: Request, res: Response) => {
+  try {
+    const rows = await query(`
+      SELECT ph.track_id, COUNT(*) as cnt
+      FROM play_history ph
+      WHERE ph.played_at > NOW() - INTERVAL '24 hours'
+      GROUP BY ph.track_id
+      ORDER BY cnt DESC
+      LIMIT 10
+    `);
+    const trackIds = rows.map((r: any) => r.track_id);
+    if (trackIds.length === 0) return res.json({ tracks: [] });
+
+    const placeholders = trackIds.map((_: any, i: number) => `$${i + 1}`).join(',');
+    const tracks = await query(`SELECT * FROM tracks WHERE id IN (${placeholders}) AND status = 'ready'`, trackIds);
+    const withArtists = await attachArtists(tracks);
+    // Keep the trending order
+    const mapped = withArtists.map(formatTrackRow);
+    const ordered = trackIds.map((id: string) => mapped.find((t: any) => t.id === id)).filter(Boolean);
+    res.json({ tracks: ordered, playsData: rows.map((r: any) => ({ trackId: r.track_id, plays24h: Number(r.cnt) })) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Auto-update hero track every hour (most listened in 24h) */
+async function autoUpdateHeroTrack() {
+  try {
+    const setting = await queryOne(`SELECT value FROM site_settings WHERE key = 'hero_mode'`);
+    if (setting?.value !== 'auto') return; // only run in auto mode
+
+    const top = await queryOne(`
+      SELECT track_id, COUNT(*) as cnt
+      FROM play_history
+      WHERE played_at > NOW() - INTERVAL '24 hours'
+      GROUP BY track_id
+      ORDER BY cnt DESC
+      LIMIT 1
+    `);
+    if (top) {
+      await execute('UPDATE tracks SET featured = FALSE WHERE featured = TRUE');
+      await execute('UPDATE tracks SET featured = TRUE WHERE id = $1', [top.track_id]);
+    }
+  } catch (err) {
+    console.error('Auto-hero update failed:', err);
+  }
+}
+// Run every hour
+setInterval(autoUpdateHeroTrack, 60 * 60 * 1000);
+// Also run once on startup (after 10s delay for DB to be ready)
+setTimeout(autoUpdateHeroTrack, 10000);
 
 /** GET /api/tracks/:id/waveform */
 router.get('/tracks/:id/waveform', async (req: Request, res: Response) => {

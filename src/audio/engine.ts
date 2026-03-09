@@ -75,6 +75,7 @@ class AudioEngine {
   private _crossfadeDuration = 0; // ms, 0 = no crossfade (reserved for future use)
   private _retryCount: number = 0;
   private _maxRetries: number = 2;
+  private _switching: boolean = false; // true during track switch to suppress abort errors
 
   private listeners: Set<EngineListener> = new Set();
   private animFrameId: number | null = null;
@@ -109,15 +110,21 @@ class AudioEngine {
 
     this.currentTrack = track;
     this._state = 'loading';
+    this._switching = true; // flag to suppress abort errors during switch
     this.notify();
     this.updateMediaSessionMetadata(); // update track info for lock screen
-    // NOTE: don't call syncPlaybackState() here — audio.paused is still true.
-    // The 'play' audio event will sync it once playback actually starts.
+
+    // Stop current playback cleanly before switching source
+    this.audio.pause();
 
     const url = this.getStreamUrl(track);
     this.setCrossOrigin(this.audio, url);
     this.audio.src = url;
     this.audio.load();
+
+    // Clear switching flag after a tick so the new source's events are handled normally
+    requestAnimationFrame(() => { this._switching = false; });
+
     this.audio.play().catch(() => {
       // Autoplay blocked by browser — expected, user needs to click
       this._state = 'paused';
@@ -451,10 +458,15 @@ class AudioEngine {
 
     this.audio.addEventListener('error', () => {
       const err = this.audio.error;
+      // Suppress errors during track switching (abort from changing src)
+      if (this._switching) return;
       // Only log real errors (not aborted loads)
       if (err && err.code !== MediaError.MEDIA_ERR_ABORTED) {
         console.error('Audio error:', err.code, err.message, 'src:', this.audio.src);
       }
+      // Don't set error state for aborted loads (happens naturally when switching tracks)
+      if (err && err.code === MediaError.MEDIA_ERR_ABORTED) return;
+
       this._state = 'error';
       this.notify();
 
