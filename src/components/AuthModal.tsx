@@ -46,6 +46,22 @@ export default function AuthModal() {
     return () => { document.body.style.overflow = ''; };
   }, [authModal]);
 
+  // Build artist list for picker (with covers from their tracks)
+  // MUST be before early return to keep hooks order stable
+  const displayArtists = useMemo(() => {
+    const list = artists.map(a => {
+      const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
+      if (needsFallback) {
+        const artistTrack = tracks.find(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug);
+        return { ...a, photo: artistTrack?.cover || a.photo };
+      }
+      return a;
+    });
+    if (!artistSearch.trim()) return list;
+    const q = artistSearch.toLowerCase();
+    return list.filter(a => a.name.toLowerCase().includes(q));
+  }, [artists, tracks, artistSearch]);
+
   if (!authModal) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,21 +92,6 @@ export default function AuthModal() {
 
     setLoading(false);
   };
-
-  // Build artist list for picker (with covers from their tracks)
-  const displayArtists = useMemo(() => {
-    const list = artists.map(a => {
-      const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
-      if (needsFallback) {
-        const artistTrack = tracks.find(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug);
-        return { ...a, photo: artistTrack?.cover || a.photo };
-      }
-      return a;
-    });
-    if (!artistSearch.trim()) return list;
-    const q = artistSearch.toLowerCase();
-    return list.filter(a => a.name.toLowerCase().includes(q));
-  }, [artists, tracks, artistSearch]);
 
   const toggleArtistSelect = (slug: string) => {
     setSelectedArtists(prev =>

@@ -13,12 +13,33 @@ export default function Home() {
 
   const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
 
-  // New releases — tracks sorted by creation date (newest first)
-  const newTracks = useMemo(() => {
-    return [...tracks]
+  // New releases — group by album (show album once, not each track), singles show individually
+  const newReleases = useMemo(() => {
+    const sorted = [...tracks]
       .filter(t => t.createdAt)
-      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
-      .slice(0, 6);
+      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+
+    const seen = new Set<string>(); // album names already added
+    const items: { type: 'track' | 'album'; track: Track; albumName?: string; albumTracks?: Track[] }[] = [];
+
+    for (const t of sorted) {
+      if (items.length >= 6) break;
+      const albumName = t.meta?.album;
+      if (albumName) {
+        if (seen.has(albumName)) continue; // skip — album already shown
+        seen.add(albumName);
+        // Gather all tracks from this album
+        const albumTracks = tracks.filter(at => at.meta?.album === albumName);
+        if (albumTracks.length > 1) {
+          items.push({ type: 'album', track: t, albumName, albumTracks });
+        } else {
+          items.push({ type: 'track', track: t });
+        }
+      } else {
+        items.push({ type: 'track', track: t });
+      }
+    }
+    return items;
   }, [tracks]);
 
   // Build popular albums from tracks
@@ -187,7 +208,7 @@ export default function Home() {
         </section>
 
         {/* New releases */}
-        {newTracks.length > 0 && (
+        {newReleases.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
@@ -199,21 +220,45 @@ export default function Home() {
               </Link>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {newTracks.map(track => (
-                <Link key={track.id} to={`/track/${track.id}`} className="group relative block rounded-xl overflow-hidden">
-                  <div className="aspect-square">
-                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  </div>
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                  <div className="absolute top-2 right-2">
-                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
-                  </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
-                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
-                  </div>
-                </Link>
-              ))}
+              {newReleases.map(item => {
+                if (item.type === 'album' && item.albumName) {
+                  // Album card — link to artist page with album overlay
+                  return (
+                    <Link key={`album-${item.albumName}`}
+                      to={`/artist/${item.track.artistSlug}?album=${encodeURIComponent(item.albumName)}`}
+                      state={{ openAlbum: true, albumData: { name: item.albumName, cover: item.track.cover, artist: item.track.artist, tracks: item.albumTracks, totalPlays: item.albumTracks?.reduce((s, t) => s + t.plays, 0) || 0, year: item.track.year } }}
+                      className="group relative block rounded-xl overflow-hidden">
+                      <div className="aspect-square">
+                        <img src={item.track.cover} alt={item.albumName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                      <div className="absolute top-2 right-2">
+                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 p-3">
+                        <p className="text-white text-sm font-semibold truncate">{item.albumName}</p>
+                        <p className="text-zinc-400 text-xs truncate">{item.track.artist} · {item.albumTracks?.length} треков</p>
+                      </div>
+                    </Link>
+                  );
+                }
+                // Single track card
+                return (
+                  <Link key={item.track.id} to={`/track/${item.track.id}`} className="group relative block rounded-xl overflow-hidden">
+                    <div className="aspect-square">
+                      <img src={item.track.cover} alt={item.track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute top-2 right-2">
+                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                      <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
+                      <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
