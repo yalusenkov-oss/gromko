@@ -121,7 +121,7 @@ export default function AuthModal() {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
       {/* Modal */}
-      <div className="relative w-full max-w-sm bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 p-6 animate-in max-h-[90vh] overflow-y-auto">
+      <div className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 p-6 animate-in max-h-[90vh] overflow-y-auto ${step === 'artists' ? 'max-w-lg' : 'max-w-sm'}`}>
         {/* Close button */}
         <button
           onClick={step === 'artists' ? handleFinishOnboarding : closeAuthModal}
@@ -155,7 +155,7 @@ export default function AuthModal() {
             </div>
 
             {/* Artist grid */}
-            <div className="grid grid-cols-3 gap-3 mb-5 max-h-[40vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-5 max-h-[50vh] overflow-y-auto pr-1">
               {displayArtists.map(artist => {
                 const isSelected = selectedArtists.includes(artist.slug);
                 return (

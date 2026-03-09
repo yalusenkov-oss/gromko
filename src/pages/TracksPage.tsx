@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore, GENRES, Track } from '../store';
-import TrackCard from '../components/TrackCard';
-import { Search, Disc3, Play, Pause, X, Heart, Music, Shuffle, Share2 } from 'lucide-react';
+import { Search, Play, Pause, X, Heart, Music, Shuffle, Share2 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { formatPlays, formatDuration } from '../utils/format';
 
@@ -16,7 +15,20 @@ interface Album {
 }
 
 type Sort = 'new' | 'popular' | 'alpha';
-type View = 'tracks' | 'albums';
+
+/* Unified card item — either a multi-track album or a single track */
+interface CardItem {
+  type: 'album' | 'single';
+  key: string;
+  name: string;
+  artist: string;
+  artistSlug: string;
+  cover: string;
+  year: number;
+  plays: number;
+  tracks: Track[];
+  createdAt: number;
+}
 
 export default function TracksPage() {
   const { tracks, player, playTrack, currentUser, toggleAlbumLike } = useStore();
@@ -24,10 +36,7 @@ export default function TracksPage() {
   const [sort, setSort] = useState<Sort>('popular');
   const [genre, setGenre] = useState(searchParams.get('genre') || 'Все');
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [view, setView] = useState<View>((searchParams.get('view') as View) || 'tracks');
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(null);
-  const PER_PAGE = 50;
 
   // Lock body scroll when album overlay is open
   useEffect(() => {
@@ -49,90 +58,128 @@ export default function TracksPage() {
     }
   }, [mobileAlbum]);
 
-  // Sync genre and view from URL params
+  // Sync genre from URL params
   useEffect(() => {
     const g = searchParams.get('genre');
     if (g && GENRES.includes(g)) setGenre(g);
-    const v = searchParams.get('view');
-    if (v === 'albums' || v === 'tracks') setView(v);
   }, [searchParams]);
 
-  const filtered = tracks
-    .filter(t => genre === 'Все' || t.genre === genre)
-    .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.artist.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      if (sort === 'popular') return b.plays - a.plays;
-      if (sort === 'new') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      return a.title.localeCompare(b.title);
-    });
-
-  const paged = filtered.slice(0, page * PER_PAGE);
-
-  // Build albums from all tracks (with meta.album)
-  const albums = useMemo(() => {
-    const albumMap = new Map<string, Album>();
+  // Build unified card list: albums (grouped) + singles
+  const cards = useMemo(() => {
     const src = genre === 'Все' ? tracks : tracks.filter(t => t.genre === genre);
 
-    for (const track of src) {
-      const albumName = track.meta?.album;
-      if (!albumName) continue;
+    // Group tracks by album
+    const albumMap = new Map<string, Track[]>();
+    const singles: Track[] = [];
 
-      if (!albumMap.has(albumName)) {
-        albumMap.set(albumName, {
-          name: albumName,
-          cover: track.cover,
-          year: track.year,
-          artist: track.artist,
-          artistSlug: track.artistSlug,
-          tracks: [],
-          totalPlays: 0,
-        });
+    for (const t of src) {
+      const albumName = t.meta?.album;
+      if (albumName) {
+        if (!albumMap.has(albumName)) albumMap.set(albumName, []);
+        albumMap.get(albumName)!.push(t);
+      } else {
+        singles.push(t);
       }
-      const album = albumMap.get(albumName)!;
-      album.tracks.push(track);
-      album.totalPlays += track.plays;
     }
 
-    let result = [...albumMap.values()].filter(a => a.tracks.length > 1);
+    const items: CardItem[] = [];
 
-    // Apply search filter to albums too
+    // Albums with 2+ tracks become album cards
+    for (const [name, albumTracks] of albumMap) {
+      if (albumTracks.length > 1) {
+        const first = albumTracks[0];
+        const totalPlays = albumTracks.reduce((s, t) => s + t.plays, 0);
+        const latestDate = albumTracks.reduce((max, t) => {
+          const d = new Date(t.createdAt || 0).getTime();
+          return d > max ? d : max;
+        }, 0);
+        items.push({
+          type: 'album',
+          key: `album-${name}`,
+          name,
+          artist: first.artist,
+          artistSlug: first.artistSlug,
+          cover: first.cover,
+          year: first.year,
+          plays: totalPlays,
+          tracks: albumTracks,
+          createdAt: latestDate,
+        });
+      } else {
+        // Solo album tracks become singles
+        singles.push(...albumTracks);
+      }
+    }
+
+    // Singles become individual cards
+    for (const t of singles) {
+      items.push({
+        type: 'single',
+        key: `track-${t.id}`,
+        name: t.title,
+        artist: t.artist,
+        artistSlug: t.artistSlug,
+        cover: t.cover,
+        year: t.year,
+        plays: t.plays,
+        tracks: [t],
+        createdAt: new Date(t.createdAt || 0).getTime(),
+      });
+    }
+
+    // Search filter
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(a => a.name.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q));
+      return items
+        .filter(c => c.name.toLowerCase().includes(q) || c.artist.toLowerCase().includes(q))
+        .sort((a, b) => {
+          if (sort === 'popular') return b.plays - a.plays;
+          if (sort === 'new') return b.createdAt - a.createdAt;
+          return a.name.localeCompare(b.name);
+        });
     }
 
-    return result.sort((a, b) => {
-      if (sort === 'popular') return b.totalPlays - a.totalPlays;
-      if (sort === 'new') {
-        const aDate = a.tracks.reduce((latest, t) => {
-          const d = new Date(t.createdAt || 0).getTime();
-          return d > latest ? d : latest;
-        }, 0);
-        const bDate = b.tracks.reduce((latest, t) => {
-          const d = new Date(t.createdAt || 0).getTime();
-          return d > latest ? d : latest;
-        }, 0);
-        return bDate - aDate;
-      }
+    // Sort
+    items.sort((a, b) => {
+      if (sort === 'popular') return b.plays - a.plays;
+      if (sort === 'new') return b.createdAt - a.createdAt;
       return a.name.localeCompare(b.name);
     });
+
+    return items;
   }, [tracks, genre, search, sort]);
 
-  const handlePlayAlbum = (album: Album) => {
-    const firstTrack = album.tracks[0];
-    if (firstTrack) playTrack(firstTrack, album.tracks);
+  const handlePlayCard = (card: CardItem) => {
+    if (card.tracks.length > 0) playTrack(card.tracks[0], card.tracks);
   };
 
   const handleShuffleAll = () => {
-    const source = view === 'tracks' ? filtered : tracks.filter(t => genre === 'Все' || t.genre === genre);
-    if (source.length === 0) return;
-    const shuffled = [...source].sort(() => Math.random() - 0.5);
+    const allTracks = cards.flatMap(c => c.tracks);
+    if (allTracks.length === 0) return;
+    const shuffled = [...allTracks].sort(() => Math.random() - 0.5);
     playTrack(shuffled[0], shuffled);
+  };
+
+  const openAlbumOverlay = (card: CardItem) => {
+    if (card.type === 'album') {
+      setMobileAlbum({
+        name: card.name,
+        cover: card.cover,
+        year: card.year,
+        artist: card.artist,
+        artistSlug: card.artistSlug,
+        tracks: card.tracks,
+        totalPlays: card.plays,
+      });
+    } else {
+      // Single — just play it
+      playTrack(card.tracks[0], cards.flatMap(c => c.tracks));
+    }
   };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-16">
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-black">Музыка</h1>
           <button
@@ -140,39 +187,31 @@ export default function TracksPage() {
             className="flex items-center gap-2 px-4 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-full text-sm font-medium transition-colors"
           >
             <Shuffle size={16} />
-            Перемешать всё
+            <span className="hidden sm:inline">Перемешать всё</span>
           </button>
         </div>
 
-        {/* View toggle: Tracks / Albums */}
-        <div className="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
-          <button
-            onClick={() => { setView('tracks'); setPage(1); }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${view === 'tracks' ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}
-          >
-            <Music size={16} />
-            Треки
-          </button>
-          <button
-            onClick={() => { setView('albums'); setPage(1); }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${view === 'albums' ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}
-          >
-            <Disc3 size={16} />
-            Альбомы
-          </button>
+        {/* Genre pills */}
+        <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-hide">
+          {['Все', ...GENRES].map(g => (
+            <button key={g} onClick={() => setGenre(g)}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-all ${genre === g ? 'bg-red-500 text-white' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
+              {g}
+            </button>
+          ))}
         </div>
 
-        {/* Filters */}
+        {/* Search + Sort */}
         <div className="flex flex-col md:flex-row gap-3 mb-6">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-            <input type="text" placeholder={view === 'tracks' ? 'Поиск треков...' : 'Поиск альбомов...'} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            <input type="text" placeholder="Поиск треков и альбомов..." value={search} onChange={e => setSearch(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50" />
           </div>
 
           <div className="flex gap-1 bg-white/5 rounded-xl p-1 w-full md:w-auto">
             {(['popular', 'new', 'alpha'] as Sort[]).map(s => (
-              <button key={s} onClick={() => { setSort(s); setPage(1); }}
+              <button key={s} onClick={() => setSort(s)}
                 className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg text-sm transition-all ${sort === s ? 'bg-red-500 text-white' : 'text-zinc-400 hover:text-white'}`}>
                 {s === 'popular' ? 'Популярные' : s === 'new' ? 'Новые' : 'А-Я'}
               </button>
@@ -180,64 +219,41 @@ export default function TracksPage() {
           </div>
         </div>
 
-        {/* === TRACKS VIEW === */}
-        {view === 'tracks' && (
-          <>
-            <p className="text-zinc-600 text-sm mb-4">{filtered.length} треков</p>
-            <div className="space-y-1">
-              {paged.map((t, i) => <TrackCard key={t.id} track={t} queue={filtered} showRank={i + 1} />)}
-            </div>
-            {paged.length < filtered.length && (
-              <button onClick={() => setPage(p => p + 1)}
-                className="w-full mt-6 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-sm text-zinc-400 hover:text-white transition-all">
-                Загрузить ещё
-              </button>
-            )}
-            {filtered.length === 0 && (
-              <div className="text-center py-16">
-                <Music size={40} className="text-zinc-700 mx-auto mb-4" />
-                <p className="text-zinc-500">Треков не найдено</p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* === ALBUMS VIEW === */}
-        {view === 'albums' && (
-          <>
-            <p className="text-zinc-600 text-sm mb-4">{albums.length} альбомов</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {albums.map(album => {
-                const isAlbumPlaying = album.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
-                return (
-                  <div key={album.name} className="col-span-1">
-                    <div
-                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer mb-2"
-                      onClick={() => setMobileAlbum(album)}
-                    >
-                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handlePlayAlbum(album); }}
-                        className={`absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all ${isAlbumPlaying ? 'bg-red-500 opacity-100' : 'bg-black/60 opacity-0 group-hover:opacity-100'}`}
-                      >
-                        {isAlbumPlaying ? <Pause size={16} fill="white" className="text-white" /> : <Play size={16} fill="white" className="text-white" />}
-                      </button>
+        {/* Unified cards grid */}
+        <p className="text-zinc-600 text-sm mb-4">{cards.length} релизов</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {cards.map(card => {
+            const isCardPlaying = card.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying;
+            return (
+              <div key={card.key} className="group cursor-pointer" onClick={() => openAlbumOverlay(card)}>
+                <div className="relative aspect-square rounded-xl overflow-hidden mb-2">
+                  <img src={card.cover} alt={card.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                  {card.type === 'album' && (
+                    <div className="absolute top-2 left-2">
+                      <span className="bg-white/15 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">{card.tracks.length} треков</span>
                     </div>
-                    <p className="text-white text-sm font-semibold truncate">{album.name}</p>
-                    <Link to={`/artist/${album.artistSlug}`} className="text-zinc-500 text-xs hover:text-white transition-colors truncate block">{album.artist}</Link>
-                    <p className="text-zinc-600 text-xs">{album.year} · {album.tracks.length} треков</p>
-                  </div>
-                );
-              })}
-            </div>
-            {albums.length === 0 && (
-              <div className="text-center py-16">
-                <Disc3 size={40} className="text-zinc-700 mx-auto mb-4" />
-                <p className="text-zinc-500">Альбомов не найдено</p>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handlePlayCard(card); }}
+                    className={`absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all ${isCardPlaying ? 'bg-red-500 opacity-100' : 'bg-black/60 opacity-0 group-hover:opacity-100'}`}
+                  >
+                    {isCardPlaying ? <Pause size={16} fill="white" className="text-white" /> : <Play size={16} fill="white" className="text-white" />}
+                  </button>
+                </div>
+                <p className="text-white text-sm font-semibold truncate">{card.name}</p>
+                <p className="text-zinc-500 text-xs truncate">{card.artist}</p>
+                <p className="text-zinc-600 text-xs">{formatPlays(card.plays)} прослушиваний</p>
               </div>
-            )}
-          </>
+            );
+          })}
+        </div>
+
+        {cards.length === 0 && (
+          <div className="text-center py-16">
+            <Music size={40} className="text-zinc-700 mx-auto mb-4" />
+            <p className="text-zinc-500">Ничего не найдено</p>
+          </div>
         )}
       </div>
 
@@ -270,7 +286,7 @@ export default function TracksPage() {
               <span className="text-zinc-400 text-sm">{mobileAlbum.year}</span>
             </div>
 
-            {/* Action buttons: more, play, heart */}
+            {/* Action buttons: share, play, heart */}
             <div className="flex items-center gap-5 mt-5">
               <button
                 onClick={() => {
@@ -285,7 +301,7 @@ export default function TracksPage() {
                 <Share2 size={20} className="text-white" />
               </button>
               <button
-                onClick={() => handlePlayAlbum(mobileAlbum)}
+                onClick={() => { const first = mobileAlbum.tracks[0]; if (first) playTrack(first, mobileAlbum.tracks); }}
                 className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30"
               >
                 {mobileAlbum.tracks.some(t => t.id === player.currentTrack?.id) && player.isPlaying

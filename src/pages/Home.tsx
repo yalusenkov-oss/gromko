@@ -185,7 +185,7 @@ export default function Home() {
                   <Disc3 size={18} className="text-red-400" />
                   <h3 className="text-lg font-semibold">Популярные альбомы</h3>
                 </div>
-                <Link to="/tracks?view=albums" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
+                <Link to="/tracks" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
                   Все альбомы <ChevronRight size={16} />
                 </Link>
               </div>

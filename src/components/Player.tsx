@@ -18,7 +18,6 @@ export default function Player() {
   } = useStore();
   const { seek, setVolume, next, prev } = useAudioEngine();
 
-  const [showVolume, setShowVolume] = useState(false);
   const [engineState, setEngineState] = useState<EngineState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
@@ -563,38 +562,33 @@ export default function Player() {
           </div>
         </div>
         <div className="flex items-center gap-3 w-56 justify-end">
-          <div className="relative">
-            <button onClick={() => setShowVolume(!showVolume)} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
-            {showVolume && (
-              <div className="absolute bottom-10 right-0 bg-zinc-900 border border-white/10 rounded-lg p-3 shadow-xl">
-                <div className="relative w-2 h-20 bg-white/10 rounded-full mx-auto cursor-pointer"
-                  onClick={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const v = 1 - (e.clientY - rect.top) / rect.height;
-                    setVolume(Math.max(0, Math.min(1, v)));
-                  }}
-                  onMouseDown={(e) => {
-                    const bar = e.currentTarget;
-                    const rect = bar.getBoundingClientRect();
-                    const handleMove = (ev: MouseEvent) => {
-                      const v = 1 - (ev.clientY - rect.top) / rect.height;
-                      setVolume(Math.max(0, Math.min(1, v)));
-                    };
-                    const handleUp = () => {
-                      window.removeEventListener('mousemove', handleMove);
-                      window.removeEventListener('mouseup', handleUp);
-                    };
-                    window.addEventListener('mousemove', handleMove);
-                    window.addEventListener('mouseup', handleUp);
-                  }}
-                >
-                  <div className="absolute bottom-0 left-0 right-0 bg-red-500 rounded-full" style={{ height: `${player.volume * 100}%` }} />
-                  <div className="absolute left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white rounded-full shadow" style={{ top: `${(1 - player.volume) * 100}%`, transform: 'translate(-50%, -50%)' }} />
-                </div>
-              </div>
-            )}
+          <div className="relative flex items-center gap-2">
+            <button onClick={() => { if (player.volume > 0) setVolume(0); else setVolume(0.8); }} className="text-zinc-400 hover:text-white transition-colors">{player.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
+            <div className="relative w-20 h-1.5 bg-white/10 rounded-full cursor-pointer group"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const v = (e.clientX - rect.left) / rect.width;
+                setVolume(Math.max(0, Math.min(1, v)));
+              }}
+              onMouseDown={(e) => {
+                const bar = e.currentTarget;
+                const rect = bar.getBoundingClientRect();
+                const handleMove = (ev: MouseEvent) => {
+                  const v = (ev.clientX - rect.left) / rect.width;
+                  setVolume(Math.max(0, Math.min(1, v)));
+                };
+                const handleUp = () => {
+                  window.removeEventListener('mousemove', handleMove);
+                  window.removeEventListener('mouseup', handleUp);
+                };
+                window.addEventListener('mousemove', handleMove);
+                window.addEventListener('mouseup', handleUp);
+              }}
+            >
+              <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${player.volume * 100}%` }} />
+              <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `${player.volume * 100}%`, transform: 'translate(-50%, -50%)' }} />
+            </div>
           </div>
-          <input type="range" min="0" max="1" step="0.01" value={player.volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-20 accent-red-500 h-1" />
           <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>
         </div>
       </div>

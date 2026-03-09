@@ -1,18 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useStore } from '../store';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Send, Clock, CheckCircle, XCircle, Heart, LogOut,
   Settings, ChevronRight, Shield, Edit3, Camera, Save, X,
-  ListMusic, BarChart3
+  BarChart3, Play, Pause, Music, Users, Disc3
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
+import { formatDuration } from '../utils/format';
 
-type Tab = 'overview' | 'submissions';
+type Tab = 'music' | 'submissions';
 
 export default function ProfilePage() {
-  const { currentUser, submissions, fetchMySubmissions, logout, updateProfile, tracks } = useStore();
-  const [tab, setTab] = useState<Tab>('overview');
+  const { currentUser, submissions, fetchMySubmissions, logout, updateProfile, tracks, artists, player, playTrack } = useStore();
+  const [tab, setTab] = useState<Tab>('music');
   const navigate = useNavigate();
 
   // Edit profile state
@@ -32,25 +33,65 @@ export default function ProfilePage() {
     if (!currentUser) navigate('/login');
   }, [currentUser, navigate]);
 
-  if (!currentUser) {
-    return null;
-  }
+  if (!currentUser) return null;
 
   const likedCount = currentUser.likedTracks.length;
+  const likedAlbumsCount = currentUser.likedAlbums?.length || 0;
+  const likedArtistsCount = currentUser.likedArtists?.length || 0;
   const userSubmissions = submissions;
 
-  // Listening stats
-  const likedTracks = tracks.filter(t => currentUser.likedTracks.includes(t.id));
+  // Recently liked tracks (last 10, most recent first)
+  const recentlyLiked = useMemo(() => {
+    return tracks
+      .filter(t => currentUser.likedTracks.includes(t.id))
+      .slice(0, 10);
+  }, [tracks, currentUser.likedTracks]);
 
-  const artistMap = new Map<string, number>();
-  likedTracks.forEach(t => {
-    const name = t.artists && t.artists.length > 0 ? t.artists[0].name : t.artist;
-    if (name) artistMap.set(name, (artistMap.get(name) || 0) + 1);
-  });
-  const topArtists = [...artistMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([a]) => a);
+  // Top artists by liked track count
+  const topArtistStats = useMemo(() => {
+    const map = new Map<string, { name: string; slug: string; count: number; plays: number }>();
+    const likedSet = new Set(currentUser.likedTracks);
+    for (const t of tracks) {
+      if (!likedSet.has(t.id)) continue;
+      const name = t.artists?.[0]?.name || t.artist;
+      const slug = t.artists?.[0]?.slug || t.artistSlug;
+      if (!map.has(slug)) map.set(slug, { name, slug, count: 0, plays: 0 });
+      const entry = map.get(slug)!;
+      entry.count += 1;
+      entry.plays += t.plays;
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count).slice(0, 6);
+  }, [tracks, currentUser.likedTracks]);
+
+  // Genre breakdown from liked tracks
+  const genreBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    const likedSet = new Set(currentUser.likedTracks);
+    for (const t of tracks) {
+      if (!likedSet.has(t.id) || !t.genre) continue;
+      map.set(t.genre, (map.get(t.genre) || 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [tracks, currentUser.likedTracks]);
+
+  const genreTotal = genreBreakdown.reduce((s, [, c]) => s + c, 0);
+  const genreColors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-amber-500', 'bg-purple-500', 'bg-cyan-500'];
+
+  // Artist photo lookup
+  const artistPhotoMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of artists) {
+      if (a.photo && !a.photo.includes('default') && !a.photo.includes('placeholder')) {
+        map.set(a.slug, a.photo);
+      } else {
+        const best = [...tracks]
+          .filter(t => t.artists?.some(ar => ar.slug === a.slug) || t.artistSlug === a.slug)
+          .sort((x, y) => y.plays - x.plays)[0];
+        if (best) map.set(a.slug, best.cover);
+      }
+    }
+    return map;
+  }, [artists, tracks]);
 
   const statusIcon = (status: string) => {
     if (status === 'pending') return <Clock size={14} className="text-yellow-400" />;
@@ -151,91 +192,164 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Listening stats */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        {/* Stats grid */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
           <Link to="/liked" className="bg-white/5 hover:bg-white/8 rounded-xl p-4 text-center transition-colors">
-            <Heart size={22} className="text-red-400 mx-auto mb-2" fill="currentColor" />
-            <p className="text-2xl font-bold text-white">{likedCount}</p>
-            <p className="text-zinc-500 text-xs mt-0.5">Любимое</p>
+            <Heart size={20} className="text-red-400 mx-auto mb-1.5" fill="currentColor" />
+            <p className="text-xl font-bold text-white">{likedCount}</p>
+            <p className="text-zinc-500 text-[11px]">Треков</p>
           </Link>
-          <div className="bg-white/5 rounded-xl p-4 text-center">
-            <ListMusic size={22} className="text-cyan-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-white">{artistMap.size > 0 ? artistMap.size : '—'}</p>
-            <p className="text-zinc-500 text-xs mt-0.5">Артистов</p>
-          </div>
-        </div>
-
-        {/* Quick links */}
-        <div className="space-y-1.5 mb-8">
-          <Link to="/liked" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center shrink-0">
-              <Heart size={18} className="text-white" fill="currentColor" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm">Любимые треки</p>
-              <p className="text-zinc-500 text-xs">{likedCount} треков</p>
-            </div>
-            <ChevronRight size={18} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+          <Link to="/liked?tab=albums" className="bg-white/5 hover:bg-white/8 rounded-xl p-4 text-center transition-colors">
+            <Disc3 size={20} className="text-purple-400 mx-auto mb-1.5" />
+            <p className="text-xl font-bold text-white">{likedAlbumsCount}</p>
+            <p className="text-zinc-500 text-[11px]">Альбомов</p>
           </Link>
-
-          <Link to="/submit" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center shrink-0">
-              <Send size={18} className="text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm">Предложить трек</p>
-              <p className="text-zinc-500 text-xs">Отправить трек на модерацию</p>
-            </div>
-            <ChevronRight size={18} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+          <Link to="/liked?tab=artists" className="bg-white/5 hover:bg-white/8 rounded-xl p-4 text-center transition-colors">
+            <Users size={20} className="text-cyan-400 mx-auto mb-1.5" />
+            <p className="text-xl font-bold text-white">{likedArtistsCount}</p>
+            <p className="text-zinc-500 text-[11px]">Артистов</p>
           </Link>
-
-          {currentUser.role === 'admin' && (
-            <Link to="/admin" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
-              <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shrink-0">
-                <Settings size={18} className="text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium text-sm">Админ-панель</p>
-                <p className="text-zinc-500 text-xs">Управление контентом</p>
-              </div>
-              <ChevronRight size={18} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-            </Link>
-          )}
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 bg-white/5 rounded-xl p-1 mb-6">
-          <button onClick={() => setTab('overview')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'overview' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'}`}>
-            <BarChart3 size={15} /> Статистика
+          <button onClick={() => setTab('music')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'music' ? 'bg-red-500 text-white' : 'text-zinc-500 hover:text-white'}`}>
+            <Music size={15} /> Моя музыка
           </button>
           <button onClick={() => setTab('submissions')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'submissions' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'}`}>
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'submissions' ? 'bg-red-500 text-white' : 'text-zinc-500 hover:text-white'}`}>
             <Send size={15} /> Заявки ({userSubmissions.length})
           </button>
         </div>
 
-        {/* Tab content */}
-        {tab === 'overview' && (
-          <div className="space-y-4">
+        {/* Music tab */}
+        {tab === 'music' && (
+          <div className="space-y-6">
+            {/* Recently liked tracks */}
+            {recentlyLiked.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Heart size={16} className="text-red-400" fill="currentColor" />
+                    Любимые треки
+                  </h3>
+                  <Link to="/liked" className="flex items-center gap-1 text-zinc-400 hover:text-white text-xs transition-colors">
+                    Все <ChevronRight size={14} />
+                  </Link>
+                </div>
+                <div className="space-y-0.5">
+                  {recentlyLiked.map(t => {
+                    const isCurrent = player.currentTrack?.id === t.id;
+                    const isPlaying = isCurrent && player.isPlaying;
+                    return (
+                      <button key={t.id} onClick={() => playTrack(t, recentlyLiked)}
+                        className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left transition-colors ${isCurrent ? 'bg-white/5' : 'hover:bg-white/5'}`}>
+                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 relative">
+                          <img src={t.cover} alt="" className="w-full h-full object-cover" />
+                          {isCurrent && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                              {isPlaying ? <Pause size={14} fill="white" className="text-white" /> : <Play size={14} fill="white" className="text-white" />}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
+                          <p className="text-zinc-500 text-xs truncate">{t.artist}</p>
+                        </div>
+                        <span className="text-zinc-600 text-xs tabular-nums shrink-0">
+                          {t.duration ? formatDuration(t.duration) : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Top artists */}
-            {topArtists.length > 0 && (
+            {topArtistStats.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2 mb-3">
+                  <Users size={16} className="text-cyan-400" />
+                  Топ артисты
+                </h3>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                  {topArtistStats.map(a => {
+                    const photo = artistPhotoMap.get(a.slug);
+                    return (
+                      <Link key={a.slug} to={`/artist/${a.slug}`} className="group text-center">
+                        <div className="aspect-square rounded-full overflow-hidden mb-2 ring-2 ring-transparent group-hover:ring-red-500 transition-all mx-auto w-full max-w-[100px]">
+                          {photo ? (
+                            <img src={photo} alt={a.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          ) : (
+                            <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                              <Users size={20} className="text-zinc-600" />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-white text-xs font-medium truncate">{a.name}</p>
+                        <p className="text-zinc-600 text-[10px]">{a.count} ❤️</p>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Genre breakdown */}
+            {genreBreakdown.length > 0 && (
               <div className="bg-white/5 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Любимые артисты</h3>
-                <div className="space-y-2">
-                  {topArtists.map((a, i) => (
-                    <div key={a} className="flex items-center gap-3">
-                      <span className="text-zinc-600 text-sm font-bold w-5">{i + 1}</span>
-                      <span className="text-white text-sm font-medium">{a}</span>
-                      <span className="text-zinc-600 text-xs ml-auto">{artistMap.get(a)} ❤️</span>
+                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <BarChart3 size={14} />
+                  Жанры
+                </h3>
+                {/* Visual bar */}
+                <div className="flex rounded-full overflow-hidden h-2.5 mb-4">
+                  {genreBreakdown.map(([g, c], i) => (
+                    <div key={g} className={`${genreColors[i]} transition-all`} style={{ width: `${(c / genreTotal) * 100}%` }} />
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {genreBreakdown.map(([g, c], i) => (
+                    <div key={g} className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${genreColors[i]} shrink-0`} />
+                      <span className="text-white text-sm truncate">{g}</span>
+                      <span className="text-zinc-600 text-xs ml-auto">{Math.round((c / genreTotal) * 100)}%</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Account info */}
+            {/* Quick links */}
+            <div className="space-y-1.5">
+              <Link to="/submit" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center shrink-0">
+                  <Send size={18} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium text-sm">Предложить трек</p>
+                  <p className="text-zinc-500 text-xs">Отправить трек на модерацию</p>
+                </div>
+                <ChevronRight size={18} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+              </Link>
 
+              {currentUser.role === 'admin' && (
+                <Link to="/admin" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
+                  <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shrink-0">
+                    <Settings size={18} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium text-sm">Админ-панель</p>
+                    <p className="text-zinc-500 text-xs">Управление контентом</p>
+                  </div>
+                  <ChevronRight size={18} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                </Link>
+              )}
+            </div>
+
+            {/* Logout */}
             <button
               onClick={() => { logout(); navigate('/'); }}
               className="flex items-center gap-3 w-full px-5 py-3.5 bg-red-500/10 hover:bg-red-500/20 rounded-xl text-red-400 transition-colors"
@@ -246,6 +360,7 @@ export default function ProfilePage() {
           </div>
         )}
 
+        {/* Submissions tab */}
         {tab === 'submissions' && (
           <div className="space-y-3">
             {userSubmissions.length === 0 ? (
