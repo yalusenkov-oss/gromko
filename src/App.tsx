@@ -121,6 +121,7 @@ export function App() {
         <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
         <Route path="/profile" element={<PublicLayout><ProfilePage /></PublicLayout>} />
         <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />
+        <Route path="/liked/:userId" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/submit" element={<PublicLayout><SubmitPage /></PublicLayout>} />
 
         {/* 404 */}

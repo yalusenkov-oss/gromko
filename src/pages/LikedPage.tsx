@@ -73,10 +73,10 @@ export default function LikedPage() {
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/liked`;
+    const shareUrl = `${window.location.origin}/liked/${currentUser!.id}`;
     const shareData = {
-      title: 'GROMQ — Любимое',
-      text: `🎵 Моё любимое на GROMQ (${likedTracks.length} ${pluralizeTracks(likedTracks.length)})`,
+      title: `${currentUser!.name} — Любимое на GROMQ`,
+      text: `🎵 Любимое ${currentUser!.name} на GROMQ (${likedTracks.length} ${pluralizeTracks(likedTracks.length)})`,
       url: shareUrl,
     };
     if (navigator.share) {

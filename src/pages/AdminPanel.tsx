@@ -8,7 +8,7 @@ import {
   Search, Trash2, Edit3, Check, X, ChevronRight, ExternalLink,
   Activity, TrendingUp, Clock, Shield, ShieldOff, Image, Upload,
   Crown, User as UserIcon, Loader2, RefreshCw, AlertCircle, Link2, Unlink,
-  Play, BarChart3, Globe, Ban, Home, Plus, Save, ArrowLeft, Download,
+  Play, BarChart3, Globe, Ban, Home, Plus, Save, ArrowLeft, Download, Tag,
 } from 'lucide-react';
 
 type Tab = 'dashboard' | 'tracks' | 'artists' | 'users' | 'moderation' | 'settings' | 'spotify';
@@ -1524,6 +1524,36 @@ function SettingsTab() {
 
       {/* Rest of settings — constrained width */}
       <div className="max-w-2xl space-y-6">
+
+      {/* Genre normalization */}
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
+        <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+          <Tag className="w-5 h-5 text-amber-400" />
+          Нормализация жанров
+        </h3>
+        <p className="text-xs text-zinc-500 mb-4">Приведение жанров всех треков и артистов к стандартным значениям (Хип-хоп, Рэп, Trap, R&B, Pop, Rock, Electronic...)</p>
+        <button
+          onClick={async () => {
+            try {
+              const data = await adminFetch('/admin/normalize-genres', { method: 'POST' });
+              if (data.ok) {
+                const msg = `✅ Обновлено: ${data.tracksUpdated} треков, ${data.artistsUpdated} артистов из ${data.tracksTotal}\n\n` +
+                  (data.changes?.length
+                    ? data.changes.map((c: any) => `  ${c.from} → ${c.to} (${c.count})`).join('\n')
+                    : 'Все жанры уже в норме!');
+                alert(msg);
+                await fetchTracks();
+              }
+            } catch (err: any) {
+              alert(`Ошибка: ${err.message}`);
+            }
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium transition"
+        >
+          <RefreshCw className="w-4 h-4" /> Нормализовать жанры
+        </button>
+      </div>
+
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Главный трек (Hero)</h3>
         <p className="text-sm text-zinc-400 mb-4">

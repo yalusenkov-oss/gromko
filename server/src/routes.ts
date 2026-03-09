@@ -1447,6 +1447,80 @@ function formatArtistRow(row: any) {
 }
 
 // ═══════════════════════════════════════════════
+// GENRE NORMALIZATION (admin-only)
+// ═══════════════════════════════════════════════
+
+const KNOWN_GENRES = ['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic', 'Другое'];
+
+const GENRE_NORMALIZE_RULES: [RegExp, string][] = [
+  [/hip[\s\-_]*hop/i, 'Хип-хоп'], [/хип[\s\-_]*хоп/i, 'Хип-хоп'],
+  [/^rap$/i, 'Рэп'], [/^рэп$/i, 'Рэп'], [/^рап$/i, 'Рэп'], [/gangsta/i, 'Рэп'],
+  [/^trap$/i, 'Trap'], [/^трэп$/i, 'Trap'],
+  [/r\s*[&n]\s*b/i, 'R&B'], [/rhythm.*blues/i, 'R&B'], [/soul/i, 'R&B'], [/рнб/i, 'R&B'],
+  [/drill/i, 'Drill'], [/дрилл/i, 'Drill'],
+  [/phonk/i, 'Phonk'], [/фонк/i, 'Phonk'],
+  [/^pop$/i, 'Pop'], [/^поп$/i, 'Pop'], [/synth[\s\-]?pop/i, 'Pop'], [/indie[\s\-]?pop/i, 'Pop'], [/dance[\s\-]?pop/i, 'Pop'], [/k[\s\-]?pop/i, 'Pop'],
+  [/rock/i, 'Rock'], [/рок/i, 'Rock'], [/punk/i, 'Rock'], [/metal/i, 'Rock'], [/grunge/i, 'Rock'], [/alternative/i, 'Rock'],
+  [/electro/i, 'Electronic'], [/edm/i, 'Electronic'], [/techno/i, 'Electronic'], [/house/i, 'Electronic'],
+  [/trance/i, 'Electronic'], [/dubstep/i, 'Electronic'], [/drum\s*[&n]\s*bass/i, 'Electronic'], [/dnb/i, 'Electronic'],
+  [/ambient/i, 'Electronic'], [/synth/i, 'Electronic'], [/электрон/i, 'Electronic'],
+];
+
+function normalizeGenreServer(raw: string): string {
+  if (KNOWN_GENRES.includes(raw)) return raw;
+  for (const [re, genre] of GENRE_NORMALIZE_RULES) {
+    if (re.test(raw)) return genre;
+  }
+  return 'Другое';
+}
+
+/** POST /api/admin/normalize-genres — batch fix genres for all tracks */
+router.post('/admin/normalize-genres', adminRequired, async (_req: Request, res: Response) => {
+  try {
+    const rows = await query<{ id: string; genre: string }>('SELECT id, genre FROM tracks');
+    let updated = 0;
+    const changes: { from: string; to: string; count: number }[] = [];
+    const changeMap = new Map<string, { to: string; count: number }>();
+
+    for (const row of rows) {
+      const normalized = normalizeGenreServer(row.genre);
+      if (normalized !== row.genre) {
+        await execute('UPDATE tracks SET genre = $1 WHERE id = $2', [normalized, row.id]);
+        updated++;
+        const key = `${row.genre} → ${normalized}`;
+        if (!changeMap.has(key)) changeMap.set(key, { to: normalized, count: 0 });
+        changeMap.get(key)!.count++;
+      }
+    }
+
+    for (const [from, { to, count }] of changeMap) {
+      changes.push({ from: from.split(' → ')[0], to, count });
+    }
+
+    // Also normalize artist genres
+    const artistRows = await query<{ id: string; genre: string }>('SELECT id, genre FROM artists WHERE genre IS NOT NULL');
+    let artistUpdated = 0;
+    for (const row of artistRows) {
+      const normalized = normalizeGenreServer(row.genre);
+      if (normalized !== row.genre) {
+        await execute('UPDATE artists SET genre = $1 WHERE id = $2', [normalized, row.id]);
+        artistUpdated++;
+      }
+    }
+
+    res.json({
+      ok: true,
+      tracksTotal: rows.length,
+      tracksUpdated: updated,
+      artistsUpdated: artistUpdated,
+      changes: changes.sort((a, b) => b.count - a.count),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // S3 IMPORT (admin-only, runs as child process)
 // ═══════════════════════════════════════════════
 
