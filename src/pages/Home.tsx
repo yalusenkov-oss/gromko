@@ -129,22 +129,24 @@ export default function Home() {
               </div>
               <p className="text-zinc-500 text-xs md:text-sm mb-4 md:mb-6">{heroTrack.genre} · {heroTrack.year} · {formatPlays(heroTrack.plays)} прослушиваний</p>
 
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={handleHeroPlay}
-                  className="flex items-center gap-2 px-5 py-2.5 md:px-6 md:py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30 active:scale-95"
-                >
-                  {isHeroPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
-                  {isHeroPlaying ? 'Пауза' : 'Слушать'}
-                </button>
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={handleHeroPlay}
+                    className="flex items-center gap-2 px-5 py-2.5 md:px-6 md:py-3 bg-red-500 hover:bg-red-400 rounded-full font-semibold text-sm transition-all shadow-lg shadow-red-500/30 active:scale-95"
+                  >
+                    {isHeroPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
+                    {isHeroPlaying ? 'Пауза' : 'Слушать'}
+                  </button>
+                  <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
+                    Подробнее
+                  </Link>
+                </div>
                 <button onClick={handleShuffleAll}
-                  className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-xs md:text-sm transition-all active:scale-95">
-                  <Shuffle size={14} className="md:w-4 md:h-4" />
-                  Перемешать
+                  className="flex items-center gap-2 w-fit px-4 py-2 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all active:scale-95">
+                  <Shuffle size={16} />
+                  Перемешать всё
                 </button>
-                <Link to={`/track/${heroTrack.id}`} className="flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 bg-white/10 hover:bg-white/15 rounded-full font-medium text-sm transition-all">
-                  Подробнее
-                </Link>
               </div>
             </div>
           </div>
