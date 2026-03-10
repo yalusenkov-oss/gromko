@@ -1577,13 +1577,17 @@ router.post('/admin/s3-import', adminRequired, async (req: Request, res: Respons
 
   // Use compiled JS version (server/dist/s3-import.js)
   const runner = fs.existsSync(scriptPath) ? 'node' : 'npx';
-  const args = fs.existsSync(scriptPath) ? [scriptPath] : ['tsx', tsScriptPath];
+  const args = fs.existsSync(scriptPath)
+    ? ['--max-old-space-size=512', scriptPath]
+    : ['tsx', tsScriptPath];
 
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     LIMIT: String(limit || 0),
     SKIP_EXISTING: skipExisting ? '1' : '0',
-    WORKERS: String(workers || 2),
+    WORKERS: String(workers || 1),
+    // Limit Node.js memory for tsx runner too
+    NODE_OPTIONS: '--max-old-space-size=512',
   };
   if (genre) env.GENRE = genre;
   if (artist) env.ARTIST_FILTER = artist;

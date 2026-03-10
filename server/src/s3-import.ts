@@ -90,10 +90,10 @@ const s3 = new S3Client({
 // ─── Import Config ───
 
 const MAX_WORKERS = Math.max(1, Math.min(
-  Number(process.env.WORKERS) || 2,  // default 2 workers to avoid CPU overload on small VPS
+  Number(process.env.WORKERS) || 1,  // default 1 worker — sequential processing to avoid OOM on small VPS
   4
 ));
-const WORKER_DELAY_MS = Number(process.env.WORKER_DELAY) || 500; // delay between tracks per worker (ms)
+const WORKER_DELAY_MS = Number(process.env.WORKER_DELAY) || 1000; // delay between tracks per worker (ms)
 const DRY_RUN       = process.env.DRY_RUN === '1';
 const FORCE_GENRE   = process.env.GENRE || '';
 const SKIP_EXISTING = process.env.SKIP_EXISTING !== '0'; // default: on
@@ -101,6 +101,7 @@ const ARTIST_FILTER = process.env.ARTIST_FILTER || '';
 const ALBUM_FILTER  = process.env.ALBUM_FILTER || '';
 const IMPORT_LIMIT  = Number(process.env.LIMIT) || 0;
 const SHUFFLE       = process.env.SHUFFLE !== '0'; // default: on — shuffle for variety
+let   shuttingDown  = false; // set by signal handlers for graceful shutdown
 
 // ─── Audio extensions ───
 
@@ -643,7 +644,7 @@ async function processPool(tracks: S3Track[], existingFiles: Set<string>, existi
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
   async function worker(workerId: number) {
-    while (cursor < tracks.length && !limitReached) {
+    while (cursor < tracks.length && !limitReached && !shuttingDown) {
       // Check if we've reached the import limit (successful imports only)
       if (IMPORT_LIMIT > 0 && stats.processed >= IMPORT_LIMIT) {
         limitReached = true;
@@ -653,7 +654,7 @@ async function processPool(tracks: S3Track[], existingFiles: Set<string>, existi
       if (idx >= tracks.length) break;
       await importSingleTrack(tracks[idx], existingFiles, existingTracks);
 
-      // Throttle: small delay between tracks to reduce CPU spikes
+      // Throttle: delay between tracks to reduce CPU/memory pressure
       if (WORKER_DELAY_MS > 0) await delay(WORKER_DELAY_MS);
     }
   }
@@ -856,6 +857,18 @@ async function main() {
 
   await closeDb();
   process.exit(0);
+}
+
+// ─── Graceful shutdown ───
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(sig, async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n\n  ⛔ Получен сигнал ${sig}, завершение...`);
+    console.log(`  📊 Обработано: ${stats.processed}, Ошибок: ${stats.errors}, Дубликатов: ${stats.duplicates}`);
+    await closeDb().catch(() => {});
+    process.exit(0);
+  });
 }
 
 main().catch(async (err) => {
