@@ -1564,7 +1564,7 @@ router.post('/admin/s3-import', adminRequired, async (req: Request, res: Respons
     return res.status(409).json({ error: 'Импорт уже запущен', log: s3ImportLog.slice(-50) });
   }
 
-  const { limit = 30, genre, artist, album, dryRun, skipExisting = true } = req.body;
+  const { limit = 30, genre, artist, album, dryRun, skipExisting = true, workers } = req.body;
   s3ImportRunning = true;
   s3ImportLog = [`[${new Date().toISOString()}] Запуск S3 импорта (limit=${limit}${artist ? `, artist=${artist}` : ''}${album ? `, album=${album}` : ''})...`];
 
@@ -1583,6 +1583,7 @@ router.post('/admin/s3-import', adminRequired, async (req: Request, res: Respons
     ...process.env as Record<string, string>,
     LIMIT: String(limit || 0),
     SKIP_EXISTING: skipExisting ? '1' : '0',
+    WORKERS: String(workers || 2),
   };
   if (genre) env.GENRE = genre;
   if (artist) env.ARTIST_FILTER = artist;

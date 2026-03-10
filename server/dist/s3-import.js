@@ -37,7 +37,6 @@
 import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { pipeline } from 'stream/promises';
 import { v4 as uuid } from 'uuid';
 import { S3Client, ListObjectsV2Command, GetObjectCommand, } from '@aws-sdk/client-s3';
@@ -76,7 +75,9 @@ const s3 = new S3Client({
     forcePathStyle: true, // Yandex Object Storage requires path-style
 });
 // ─── Import Config ───
-const MAX_WORKERS = Math.max(1, Math.min(Number(process.env.WORKERS) || (os.cpus().length - 1), 6));
+const MAX_WORKERS = Math.max(1, Math.min(Number(process.env.WORKERS) || 2, // default 2 workers to avoid CPU overload on small VPS
+4));
+const WORKER_DELAY_MS = Number(process.env.WORKER_DELAY) || 500; // delay between tracks per worker (ms)
 const DRY_RUN = process.env.DRY_RUN === '1';
 const FORCE_GENRE = process.env.GENRE || '';
 const SKIP_EXISTING = process.env.SKIP_EXISTING !== '0'; // default: on
@@ -173,6 +174,7 @@ function normalizeGenre(raw) {
 const stats = {
     totalFound: 0,
     skipped: 0,
+    duplicates: 0,
     queued: 0,
     processed: 0,
     errors: 0,
@@ -211,7 +213,7 @@ function printProgress() {
         ? '█'.repeat(Math.floor(percent / 2.5)) + '░'.repeat(40 - Math.floor(percent / 2.5))
         : '░'.repeat(40);
     process.stdout.write(`\r  [${bar}] ${percent}%  ${done}/${total}  ` +
-        `✅ ${stats.processed}  ⏭ ${stats.skipped}  ❌ ${stats.errors}  ` +
+        `✅ ${stats.processed}  ⏭ ${stats.skipped}  🔁 ${stats.duplicates}  ❌ ${stats.errors}  ` +
         `📥 ${formatBytes(stats.totalBytes)}  ` +
         `⏱ ${formatTime(elapsed)}  ` +
         (done > 0 && done < total ? `≈ ${formatTime(remaining)} осталось  ` : '') +
@@ -438,7 +440,7 @@ async function linkTrackArtists(trackId, artists) {
     }
 }
 // ─── Import a single track from S3 ───
-async function importSingleTrack(track, existingFiles) {
+async function importSingleTrack(track, existingFiles, existingTracks) {
     // Skip if already imported (by S3 key as original_filename)
     const importKey = track.key; // use full S3 key as unique identifier
     if (SKIP_EXISTING && existingFiles.has(importKey)) {
@@ -479,6 +481,14 @@ async function importSingleTrack(track, existingFiles) {
         const genre = FORCE_GENRE || normalizeGenre(meta.genre) || 'Другое';
         const year = meta.year || albumYear || new Date().getFullYear();
         const explicit = isExplicit(track.album, track.filename);
+        // ── Duplicate check: same artist + title already exists → skip ──
+        const dedupKey = `${artist.toLowerCase().trim()}:::${title.toLowerCase().trim()}`;
+        if (existingTracks.has(dedupKey)) {
+            stats.duplicates++;
+            console.log(`  ⏭  Дубликат: ${artist} — ${title}`);
+            return;
+        }
+        existingTracks.add(dedupKey);
         const trackId = uuid();
         const { primarySlug, artists } = await ensureArtists(artist, genre);
         // ── Insert track into DB ──
@@ -520,9 +530,10 @@ async function importSingleTrack(track, existingFiles) {
     }
 }
 // ─── Parallel worker pool ───
-async function processPool(tracks, existingFiles) {
+async function processPool(tracks, existingFiles, existingTracks) {
     let cursor = 0;
     let limitReached = false;
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
     async function worker(workerId) {
         while (cursor < tracks.length && !limitReached) {
             // Check if we've reached the import limit (successful imports only)
@@ -533,7 +544,10 @@ async function processPool(tracks, existingFiles) {
             const idx = cursor++;
             if (idx >= tracks.length)
                 break;
-            await importSingleTrack(tracks[idx], existingFiles);
+            await importSingleTrack(tracks[idx], existingFiles, existingTracks);
+            // Throttle: small delay between tracks to reduce CPU spikes
+            if (WORKER_DELAY_MS > 0)
+                await delay(WORKER_DELAY_MS);
         }
     }
     const workers = [];
@@ -622,6 +636,10 @@ async function main() {
     // ── Step 3: Get existing filenames/keys to skip duplicates ──
     const existingRows = await query('SELECT original_filename FROM tracks');
     const existingFiles = new Set(existingRows.map((r) => r.original_filename).filter(Boolean));
+    // ── Step 3b: Load existing artist+title pairs for dedup ──
+    const existingTrackRows = await query('SELECT LOWER(TRIM(artist)) as artist, LOWER(TRIM(title)) as title FROM tracks');
+    const existingTracks = new Set(existingTrackRows.map((r) => `${r.artist}:::${r.title}`).filter((k) => k !== ':::'));
+    console.log(`  🔍 В БД уже ${existingTracks.size} уникальных треков (артист+название)`);
     // Filter out already imported
     let tracksToImport = SKIP_EXISTING
         ? allTracks.filter(t => !existingFiles.has(t.key) && !existingFiles.has(t.filename))
@@ -661,7 +679,7 @@ async function main() {
         }
     }, 30_000); // ping every 30s
     // ── Step 4: Process in parallel ──
-    await processPool(tracksToImport, existingFiles);
+    await processPool(tracksToImport, existingFiles, existingTracks);
     clearInterval(dbKeepalive);
     // ── Step 5: Summary ──
     const elapsed = Date.now() - stats.startTime;
@@ -671,6 +689,7 @@ async function main() {
     console.log('  ╠══════════════════════════════════════════════════════╣');
     console.log(`  ║  Найдено в S3:     ${String(stats.totalFound).padStart(6)}                          ║`);
     console.log(`  ║  Пропущено:        ${String(stats.skipped).padStart(6)}                          ║`);
+    console.log(`  ║  Дубликатов:       ${String(stats.duplicates).padStart(6)}  🔁                     ║`);
     console.log(`  ║  Скачано:          ${String(stats.downloaded).padStart(6)}  (${formatBytes(stats.totalBytes).padStart(10)})     ║`);
     console.log(`  ║  Обработано:       ${String(stats.processed).padStart(6)}  ✅                     ║`);
     console.log(`  ║  Ошибки:           ${String(stats.errors).padStart(6)}  ${stats.errors > 0 ? '❌' : '✅'}                     ║`);
