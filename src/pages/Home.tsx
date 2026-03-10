@@ -1,12 +1,36 @@
 import { useStore, Track } from '../store';
-import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3, Sparkles, Shuffle } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3, Sparkles, Shuffle, Heart, Clock, Zap } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { apiUrl } from '../lib/api';
+
+function useRecommendations(endpoint: string, enabled: boolean): Track[] {
+  const [data, setData] = useState<Track[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch(apiUrl(endpoint), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => Array.isArray(d) ? setData(d) : setData([]))
+      .catch(() => {});
+  }, [endpoint, enabled]);
+  return data;
+}
 
 export default function Home() {
   const { tracks, artists, heroTrackId, player, playTrack, togglePlay, toggleShuffle, currentUser, openAuthModal } = useStore();
+
+  // Personal recommendations (only when logged in)
+  const isLoggedIn = !!currentUser;
+  const forYouTracks = useRecommendations('/recommendations/for-you?limit=10', isLoggedIn);
+  const continueTracks = useRecommendations('/recommendations/continue?limit=6', isLoggedIn);
+  const newForYouTracks = useRecommendations('/recommendations/new-for-you?limit=6', isLoggedIn);
+  const rediscoverTracks = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
 
   const heroTrack = tracks.find(t => t.id === heroTrackId) || tracks[0];
   const isHeroPlaying = player.currentTrack?.id === heroTrack?.id && player.isPlaying;
@@ -152,6 +176,111 @@ export default function Home() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-12">
+
+        {/* === Personalised sections (logged in) === */}
+
+        {/* Continue Listening */}
+        {isLoggedIn && continueTracks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Clock size={20} className="text-red-400" />
+              <h2 className="text-xl font-bold">Продолжить слушать</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {continueTracks.map(track => (
+                <div key={track.id} className="group relative block rounded-xl overflow-hidden cursor-pointer" onClick={() => playTrack(track, continueTracks)}>
+                  <div className="aspect-square">
+                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
+                      <Play size={18} fill="white" className="text-white ml-0.5" />
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* For You — personal mix */}
+        {isLoggedIn && forYouTracks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Sparkles size={20} className="text-purple-400" />
+              <h2 className="text-xl font-bold">Для вас</h2>
+              <span className="text-xs text-zinc-500 ml-1">персональный микс</span>
+            </div>
+            <div className="space-y-1">
+              {forYouTracks.map((track, i) => (
+                <TrackCard key={track.id} track={track} queue={forYouTracks} showRank={i + 1} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* New For You */}
+        {isLoggedIn && newForYouTracks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Zap size={20} className="text-yellow-400" />
+              <h2 className="text-xl font-bold">Новинки для вас</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {newForYouTracks.map(track => (
+                <Link key={track.id} to={`/track/${track.id}`} className="group relative block rounded-xl overflow-hidden">
+                  <div className="aspect-square">
+                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute top-2 right-2">
+                    <span className="bg-yellow-500/90 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Rediscover — forgotten favorites */}
+        {isLoggedIn && rediscoverTracks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Heart size={20} className="text-pink-400" />
+              <h2 className="text-xl font-bold">Забытые хиты</h2>
+              <span className="text-xs text-zinc-500 ml-1">треки, которые вы давно не слушали</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {rediscoverTracks.map(track => (
+                <div key={track.id} className="group relative block rounded-xl overflow-hidden cursor-pointer" onClick={() => playTrack(track, rediscoverTracks)}>
+                  <div className="aspect-square">
+                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center shadow-lg">
+                      <Play size={18} fill="white" className="text-white ml-0.5" />
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Popular tracks */}
         <section>
           <div className="flex items-center justify-between mb-5">

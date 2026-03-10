@@ -19,6 +19,19 @@ import {
 import { parseArtistNames } from './parse-artists.js';
 import { findExistingTrackByArtistAndTitle } from './track-dedupe.js';
 import {
+  recordEvent,
+  rebuildTasteProfile,
+  forYou,
+  nextTrack,
+  similarTracks,
+  similarArtists,
+  continueListening,
+  newForYou,
+  trendingForYou,
+  rediscover,
+  getUserTasteSummary,
+} from './recommendations.js';
+import {
   checkSpotiflacHealth,
   fetchSpotifyMetadata,
   searchSpotify,
@@ -402,11 +415,12 @@ router.get('/tracks/:id/waveform', async (req: Request, res: Response) => {
 
 /** POST /api/tracks/:id/play — record a play event (called by frontend when track starts) */
 router.post('/tracks/:id/play', async (req: Request, res: Response) => {
-  const track = await queryOne(`SELECT id, artist_slug FROM tracks WHERE id = $1 AND status = 'ready'`, [req.params.id]);
+  const track = await queryOne(`SELECT id, artist_slug, genre FROM tracks WHERE id = $1 AND status = 'ready'`, [req.params.id]);
   if (!track) return res.status(404).json({ error: 'Трек не найден' });
 
   const userId = req.user?.id || null;
   const quality = (req.body?.quality as string) || 'medium';
+  const context = (req.body?.context as string) || undefined;
 
   // Increment plays counter
   execute('UPDATE tracks SET plays = plays + 1, updated_at = NOW() WHERE id = $1', [req.params.id]).catch(() => {});
@@ -418,6 +432,18 @@ router.post('/tracks/:id/play', async (req: Request, res: Response) => {
     WHERE id IN (SELECT artist_id FROM track_artists WHERE track_id = $1)
        OR slug = $2
   `, [req.params.id, track.artist_slug]).catch(() => {});
+
+  // Record user event for recommendation engine
+  if (userId) {
+    recordEvent({
+      userId,
+      eventType: 'play',
+      trackId: req.params.id as string,
+      artistSlug: track.artist_slug,
+      genre: track.genre,
+      context,
+    });
+  }
 
   res.json({ ok: true });
 });
@@ -615,9 +641,11 @@ router.post('/tracks/:id/like', authRequired, async (req: Request, res: Response
   if (isLiked) {
     await execute('UPDATE users SET liked_tracks = array_remove(liked_tracks, $1) WHERE id = $2', [trackId, userId]);
     await execute('UPDATE tracks SET likes = GREATEST(likes - 1, 0) WHERE id = $1', [trackId]);
+    recordEvent({ userId, eventType: 'unlike', trackId });
   } else {
     await execute('UPDATE users SET liked_tracks = array_append(liked_tracks, $1) WHERE id = $2', [trackId, userId]);
     await execute('UPDATE tracks SET likes = likes + 1 WHERE id = $1', [trackId]);
+    recordEvent({ userId, eventType: 'like', trackId });
   }
 
   res.json({ liked: !isLiked });
@@ -656,9 +684,154 @@ router.post('/artists/:slug/like', authRequired, async (req: Request, res: Respo
     await execute('UPDATE users SET liked_artists = array_remove(liked_artists, $1) WHERE id = $2', [artistSlug, userId]);
   } else {
     await execute('UPDATE users SET liked_artists = array_append(liked_artists, $1) WHERE id = $2', [artistSlug, userId]);
+    recordEvent({ userId, eventType: 'follow_artist', artistSlug });
   }
 
   res.json({ liked: !isLiked });
+});
+
+// ═══════════════════════════════════════════════
+// EVENT TRACKING & RECOMMENDATIONS
+// ═══════════════════════════════════════════════
+
+/** POST /api/events — record a user event for recommendation engine */
+router.post('/events', authRequired, async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+  const { eventType, trackId, artistSlug, genre, context, durationListened, trackDuration, sessionId } = req.body;
+
+  if (!eventType) return res.status(400).json({ error: 'eventType required' });
+
+  const validEvents = ['play', 'finish', 'skip', 'replay', 'like', 'unlike',
+    'add_to_playlist', 'share', 'follow_artist', 'open_track', 'open_artist',
+    'search', 'queue_next'];
+  if (!validEvents.includes(eventType)) {
+    return res.status(400).json({ error: 'Invalid eventType' });
+  }
+
+  recordEvent({
+    userId,
+    eventType,
+    trackId,
+    artistSlug,
+    genre,
+    context,
+    durationListened,
+    trackDuration,
+    sessionId,
+  });
+
+  res.json({ ok: true });
+});
+
+/** GET /api/recommendations/for-you — персональный микс */
+router.get('/recommendations/for-you', authRequired, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(50, Number(req.query.limit) || 20);
+    const tracks = await forYou(req.user!.id, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/next — что поставить после текущего трека */
+router.get('/recommendations/next', async (req: Request, res: Response) => {
+  try {
+    const trackId = req.query.trackId as string;
+    if (!trackId) return res.status(400).json({ error: 'trackId required' });
+
+    const recentIds = req.query.recent ? (req.query.recent as string).split(',') : [];
+    const userId = req.user?.id || null;
+    const track = await nextTrack(userId, trackId, recentIds);
+    if (!track) return res.json(null);
+
+    const [withArtists] = await attachArtists([track]);
+    res.json(formatTrackRow(withArtists));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/similar/:id — похожие треки */
+router.get('/recommendations/similar/:id', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 10);
+    const tracks = await similarTracks(req.params.id as string, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/similar-artists/:slug — похожие артисты */
+router.get('/recommendations/similar-artists/:slug', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 6);
+    const artists = await similarArtists(req.params.slug as string, limit);
+    res.json(artists.map(formatArtistRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/continue — продолжить слушать */
+router.get('/recommendations/continue', authRequired, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 10);
+    const tracks = await continueListening(req.user!.id, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/new-for-you — новинки под ваш вкус */
+router.get('/recommendations/new-for-you', authRequired, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 10);
+    const tracks = await newForYou(req.user!.id, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/trending — тренды в ваших жанрах */
+router.get('/recommendations/trending', authRequired, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 10);
+    const tracks = await trendingForYou(req.user!.id, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/rediscover — забытые любимые */
+router.get('/recommendations/rediscover', authRequired, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(20, Number(req.query.limit) || 10);
+    const tracks = await rediscover(req.user!.id, limit);
+    const withArtists = await attachArtists(tracks);
+    res.json(withArtists.map(formatTrackRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/recommendations/taste — ваш музыкальный профиль */
+router.get('/recommendations/taste', authRequired, async (req: Request, res: Response) => {
+  try {
+    const summary = await getUserTasteSummary(req.user!.id);
+    res.json(summary || { topGenres: [], topArtists: [], avgListenRatio: 0, skipRate: 0, explorationScore: 50, timePreferences: {}, eventsProcessed: 0, preferredBpm: { min: 80, max: 160 } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ═══════════════════════════════════════════════

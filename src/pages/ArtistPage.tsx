@@ -1,11 +1,22 @@
-import { useParams, useSearchParams, useLocation, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useStore, Track } from '../store';
-import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, Share2 } from 'lucide-react';
+import { Play, Pause, Music, Disc3, ChevronDown, ChevronUp, Clock, Heart, X, Share2, Users } from 'lucide-react';
 import { formatPlays, formatDuration } from '../utils/format';
 import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { apiUrl } from '../lib/api';
+
+interface SimilarArtist {
+  id: string;
+  name: string;
+  slug: string;
+  photo: string | null;
+  genre: string | null;
+  totalPlays: number;
+  tracksCount: number;
+  score: number;
+}
 
 interface Album {
   name: string;
@@ -31,6 +42,16 @@ export default function ArtistPage() {
   const passedAlbumData = (location.state as any)?.albumData as Album | undefined;
 
   const [mobileAlbum, setMobileAlbum] = useState<Album | null>(passedAlbumData ?? null);
+
+  // Similar artists from recommendation engine
+  const [similarArtistsData, setSimilarArtistsData] = useState<SimilarArtist[]>([]);
+  useEffect(() => {
+    if (!slug) return;
+    fetch(apiUrl(`/recommendations/similar-artists/${slug}?limit=6`))
+      .then(r => r.ok ? r.json() : [])
+      .then(d => Array.isArray(d) ? setSimilarArtistsData(d) : setSimilarArtistsData([]))
+      .catch(() => {});
+  }, [slug]);
 
   // Lock body scroll when album overlay is open
   useEffect(() => {
@@ -380,6 +401,33 @@ export default function ArtistPage() {
             </div>
             <div className="space-y-1">
               {singles.map((t, i) => <TrackCard key={t.id} track={t} queue={singles} showRank={i + 1} />)}
+            </div>
+          </section>
+        )}
+
+        {/* Similar Artists */}
+        {similarArtistsData.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Users size={18} className="text-cyan-400" />
+              <h2 className="text-lg font-bold">Похожие артисты</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {similarArtistsData.map(sa => (
+                <Link key={sa.slug} to={`/artist/${sa.slug}`} className="group flex flex-col items-center">
+                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden mb-2 ring-2 ring-transparent group-hover:ring-red-500 transition-all">
+                    {sa.photo ? (
+                      <img src={sa.photo} alt={sa.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    ) : (
+                      <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                        <Users size={24} className="text-zinc-600" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-white text-sm font-medium truncate max-w-full text-center">{sa.name}</p>
+                  {sa.genre && <p className="text-zinc-500 text-xs">{sa.genre}</p>}
+                </Link>
+              ))}
             </div>
           </section>
         )}

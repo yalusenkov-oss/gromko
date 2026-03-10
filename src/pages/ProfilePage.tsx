@@ -4,10 +4,21 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Send, Clock, CheckCircle, XCircle, Heart, LogOut,
   Settings, ChevronRight, Shield, Edit3, Camera, Save, X,
-  BarChart3, Play, Pause, Music, Users, Disc3
+  BarChart3, Play, Pause, Music, Users, Disc3, Radio
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { formatDuration } from '../utils/format';
+
+interface TasteSummary {
+  topGenres: { genre: string; score: number }[];
+  topArtists: { slug: string; score: number }[];
+  preferredBpm: { min: number; max: number };
+  avgListenRatio: number;  // already 0-100
+  skipRate: number;        // already 0-100
+  explorationScore: number; // already 0-100
+  eventsProcessed: number;
+  timePreferences: Record<string, number>;
+}
 
 type Tab = 'music' | 'submissions';
 
@@ -21,6 +32,20 @@ export default function ProfilePage() {
   const [editName, setEditName] = useState('');
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Taste profile from recommendation engine
+  const [tasteSummary, setTasteSummary] = useState<TasteSummary | null>(null);
+  useEffect(() => {
+    if (!currentUser) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch(apiUrl('/recommendations/taste'), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.topGenres) setTasteSummary(d); })
+      .catch(() => {});
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
@@ -316,13 +341,61 @@ export default function ProfilePage() {
                       <div className={`w-2.5 h-2.5 rounded-full ${genreColors[i]} shrink-0`} />
                       <span className="text-white text-sm truncate">{g}</span>
                       <span className="text-zinc-600 text-xs ml-auto">{Math.round((c / genreTotal) * 100)}%</span>
-                    </div>
-                  ))}
+                  </div>
+                ))}
                 </div>
               </div>
             )}
 
-            {/* Quick links */}
+            {/* Taste Profile from recommendation engine */}
+            {tasteSummary && tasteSummary.eventsProcessed > 0 && (
+              <div className="bg-white/5 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Radio size={14} />
+                  Ваш музыкальный профиль
+                </h3>
+
+                {/* Listening stats */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-white">{tasteSummary.avgListenRatio}%</p>
+                    <p className="text-zinc-500 text-[10px]">Дослушивание</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-white">{tasteSummary.skipRate}%</p>
+                    <p className="text-zinc-500 text-[10px]">Пропуски</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-white">{tasteSummary.explorationScore}%</p>
+                    <p className="text-zinc-500 text-[10px]">Исследование</p>
+                  </div>
+                </div>
+
+                {/* BPM range */}
+                {tasteSummary.preferredBpm.min > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-zinc-400 mb-3">
+                    <span className="text-zinc-600">BPM:</span>
+                    <span className="text-white font-medium">{tasteSummary.preferredBpm.min} — {tasteSummary.preferredBpm.max}</span>
+                  </div>
+                )}
+
+                {/* Top genres from taste engine */}
+                {tasteSummary.topGenres.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-zinc-600 text-xs mb-2">Топ жанры (по активности)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tasteSummary.topGenres.slice(0, 6).map(g => (
+                        <span key={g.genre} className="px-2.5 py-1 bg-white/5 rounded-full text-xs text-zinc-300">
+                          {g.genre}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-zinc-700 text-[10px] mt-2">На основе {tasteSummary.eventsProcessed} событий</p>
+              </div>
+            )}            {/* Quick links */}
             <div className="space-y-1.5">
               <Link to="/submit" className="flex items-center gap-4 px-4 py-3.5 bg-white/5 hover:bg-white/8 rounded-xl transition-colors group">
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center shrink-0">

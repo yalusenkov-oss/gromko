@@ -20,6 +20,7 @@ import { initSchema } from './db.js';
 import { authOptional } from './auth.js';
 import routes from './routes.js';
 import { slugify } from './slugify.js';
+import { initRecommendationSchema } from './recommendations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -321,6 +322,7 @@ startSpotiflac();
 let dbReady = false;
 try {
   await initSchema();
+  await initRecommendationSchema();
   dbReady = true;
   console.log('  ✅ Database connected');
 } catch (err) {

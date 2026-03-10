@@ -228,6 +228,42 @@ export async function initSchema(): Promise<void> {
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_path TEXT`);
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_id TEXT`);
+
+    // Migration: recommendation system tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_events (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        track_id TEXT,
+        artist_slug TEXT,
+        genre TEXT,
+        context TEXT,
+        duration_listened DOUBLE PRECISION DEFAULT 0,
+        track_duration DOUBLE PRECISION DEFAULT 0,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS user_taste_profile (
+        user_id TEXT PRIMARY KEY,
+        genre_scores JSONB NOT NULL DEFAULT '{}',
+        artist_scores JSONB NOT NULL DEFAULT '{}',
+        preferred_bpm_min DOUBLE PRECISION DEFAULT 80,
+        preferred_bpm_max DOUBLE PRECISION DEFAULT 160,
+        avg_listen_ratio DOUBLE PRECISION DEFAULT 0.7,
+        skip_rate DOUBLE PRECISION DEFAULT 0.2,
+        exploration_score DOUBLE PRECISION DEFAULT 0.5,
+        time_preferences JSONB NOT NULL DEFAULT '{}',
+        events_processed INTEGER DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_events_user ON user_events(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_events_track ON user_events(track_id);
+      CREATE INDEX IF NOT EXISTS idx_user_events_type ON user_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_user_events_created ON user_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_user_events_user_type ON user_events(user_id, event_type);
+    `);
+
     console.log('  ✅ Database schema initialized');
   } finally {
     client.release();

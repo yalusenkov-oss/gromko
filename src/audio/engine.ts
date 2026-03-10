@@ -196,6 +196,24 @@ class AudioEngine {
   next(): void {
     if (this.queue.length === 0) return;
 
+    // Detect skip vs natural finish for recommendation engine
+    if (this.currentTrack) {
+      const progress = this.audio.duration > 0 ? this.audio.currentTime / this.audio.duration : 0;
+      if (progress < 0.3 && this.audio.currentTime < 30) {
+        // Skipped early — negative signal
+        this.recordEvent('skip', {
+          durationListened: this.audio.currentTime,
+          trackDuration: this.audio.duration || this.currentTrack.duration || 0,
+        });
+      } else if (progress > 0.85) {
+        // Finished most of the track — positive signal
+        this.recordEvent('finish', {
+          durationListened: this.audio.currentTime,
+          trackDuration: this.audio.duration || this.currentTrack.duration || 0,
+        });
+      }
+    }
+
     if (this.shuffle) {
       const randomIndex = Math.floor(Math.random() * this.queue.length);
       this.queueIndex = randomIndex;
@@ -353,6 +371,25 @@ class AudioEngine {
     }).catch(() => {}); // fire & forget
   }
 
+  /** Record a user event for recommendation engine (fire & forget) */
+  private recordEvent(eventType: string, extra?: Record<string, any>): void {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!token) return; // not logged in — skip
+
+    fetch(`${API_BASE}/api/events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        eventType,
+        trackId: this.currentTrack?.id,
+        ...extra,
+      }),
+    }).catch(() => {}); // fire & forget
+  }
+
   private getStreamUrl(track: AudioTrack): string {
     // Choose quality
     let quality = this._quality;
@@ -483,9 +520,15 @@ class AudioEngine {
     this.audio.addEventListener('ended', () => {
       // Mark that ended fired, so timeupdate fallback doesn't double-advance
       this._endedFallbackFired = true;
+      // Record finish event for recommendation engine
+      this.recordEvent('finish', {
+        durationListened: this.audio.duration || this.currentTrack?.duration || 0,
+        trackDuration: this.audio.duration || this.currentTrack?.duration || 0,
+      });
       // Media Session: explicitly set paused before advancing
       this.syncPlaybackState();
       if (this.repeat === 'one') {
+        this.recordEvent('replay');
         this.audio.currentTime = 0;
         this.audio.play().catch(() => {});
       } else {

@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useStore, Track } from '../store';
-import { Play, Pause, Heart, Share2, Maximize2, Minimize2 } from 'lucide-react';
+import { Play, Pause, Heart, Share2, Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
 import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
@@ -25,6 +25,16 @@ export default function TrackPage() {
   }, [id, tracks]);
 
   const track = tracks.find(t => t.id === id) || fetchedTrack;
+
+  // Similar tracks from recommendation engine
+  const [similarTracks, setSimilarTracks] = useState<Track[]>([]);
+  useEffect(() => {
+    if (!id) return;
+    fetch(apiUrl(`/recommendations/similar/${id}?limit=6`))
+      .then(r => r.ok ? r.json() : [])
+      .then(d => Array.isArray(d) ? setSimilarTracks(d) : setSimilarTracks([]))
+      .catch(() => {});
+  }, [id]);
 
   // Other tracks by the same artist(s)
   const artistTracks = tracks.filter(t => {
@@ -154,6 +164,19 @@ export default function TrackPage() {
             <h2 className="text-lg font-bold mb-4">Другие треки исполнителя</h2>
             <div className="space-y-1">
               {artistTracks.map(t => <TrackCard key={t.id} track={t} queue={artistTracks} />)}
+            </div>
+          </section>
+        )}
+
+        {/* Recommended similar tracks */}
+        {similarTracks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles size={18} className="text-purple-400" />
+              <h2 className="text-lg font-bold">Похожие треки</h2>
+            </div>
+            <div className="space-y-1">
+              {similarTracks.map(t => <TrackCard key={t.id} track={t} queue={similarTracks} />)}
             </div>
           </section>
         )}
