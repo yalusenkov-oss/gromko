@@ -835,6 +835,129 @@ router.get('/recommendations/taste', authRequired, async (req: Request, res: Res
 });
 
 // ═══════════════════════════════════════════════
+// PROFILE STATS
+// ═══════════════════════════════════════════════
+
+/** GET /api/profile/stats — listening statistics for current user */
+router.get('/profile/stats', authRequired, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+
+    const [totalPlays, monthPlays, totalTime, monthTime, topArtists, playlists] = await Promise.all([
+      // Total plays
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM play_history WHERE user_id = $1`, [userId]),
+      // Plays this month
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM play_history WHERE user_id = $1 AND played_at > NOW() - INTERVAL '30 days'`, [userId]),
+      // Total listening time (from play_history duration or fallback to track duration)
+      queryOne<{ s: string }>(`
+        SELECT COALESCE(SUM(CASE WHEN ph.duration_listened > 0 THEN ph.duration_listened ELSE t.duration END), 0) as s
+        FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ph.user_id = $1
+      `, [userId]),
+      // This month listening time
+      queryOne<{ s: string }>(`
+        SELECT COALESCE(SUM(CASE WHEN ph.duration_listened > 0 THEN ph.duration_listened ELSE t.duration END), 0) as s
+        FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ph.user_id = $1 AND ph.played_at > NOW() - INTERVAL '30 days'
+      `, [userId]),
+      // Top listened artists (by play count)
+      query(`
+        SELECT a.name, a.slug, a.photo, COUNT(*) as plays
+        FROM play_history ph
+        JOIN tracks t ON t.id = ph.track_id
+        LEFT JOIN track_artists ta ON ta.track_id = t.id
+        LEFT JOIN artists a ON a.id = ta.artist_id OR a.slug = t.artist_slug
+        WHERE ph.user_id = $1 AND a.id IS NOT NULL
+        GROUP BY a.id, a.name, a.slug, a.photo
+        ORDER BY plays DESC
+        LIMIT 10
+      `, [userId]),
+      // Playlists count
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM playlists WHERE user_id = $1`, [userId]),
+    ]);
+
+    // Last active play
+    const lastActive = await queryOne<{ played_at: string }>(
+      `SELECT played_at FROM play_history WHERE user_id = $1 ORDER BY played_at DESC LIMIT 1`, [userId]
+    );
+
+    res.json({
+      totalPlays: Number(totalPlays?.c || 0),
+      monthPlays: Number(monthPlays?.c || 0),
+      totalTimeSeconds: Number(totalTime?.s || 0),
+      monthTimeSeconds: Number(monthTime?.s || 0),
+      topListenedArtists: (topArtists || []).map((a: any) => ({
+        name: a.name, slug: a.slug, photo: a.photo, plays: Number(a.plays),
+      })),
+      playlistsCount: Number(playlists?.c || 0),
+      lastActive: lastActive?.played_at || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/profile/history — recent listening history */
+router.get('/profile/history', authRequired, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const limit = Math.min(50, Number(req.query.limit) || 30);
+
+    const rows = await query(`
+      SELECT DISTINCT ON (t.id) t.*, ph.played_at
+      FROM play_history ph
+      JOIN tracks t ON t.id = ph.track_id AND t.status = 'ready'
+      WHERE ph.user_id = $1
+      ORDER BY t.id, ph.played_at DESC
+    `, [userId]);
+
+    // Re-sort by most recently played
+    rows.sort((a: any, b: any) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+    const limited = rows.slice(0, limit);
+    const withArtists = await attachArtists(limited);
+    res.json(withArtists.map((r: any) => ({
+      ...formatTrackRow(r),
+      playedAt: r.played_at,
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/profile/activity — recent activity feed */
+router.get('/profile/activity', authRequired, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const limit = Math.min(50, Number(req.query.limit) || 20);
+
+    const events = await query(`
+      SELECT ue.event_type, ue.track_id, ue.artist_slug, ue.created_at,
+             t.title as track_title, t.artist as track_artist, t.cover_path as track_cover,
+             a.name as artist_name, a.photo as artist_photo
+      FROM user_events ue
+      LEFT JOIN tracks t ON t.id = ue.track_id
+      LEFT JOIN artists a ON a.slug = ue.artist_slug
+      WHERE ue.user_id = $1
+        AND ue.event_type IN ('like', 'follow_artist', 'add_to_playlist', 'share', 'finish')
+      ORDER BY ue.created_at DESC
+      LIMIT $2
+    `, [userId, limit]);
+
+    res.json(events.map((e: any) => ({
+      type: e.event_type,
+      trackId: e.track_id,
+      trackTitle: e.track_title,
+      trackArtist: e.track_artist,
+      trackCover: e.track_cover,
+      artistSlug: e.artist_slug,
+      artistName: e.artist_name,
+      artistPhoto: e.artist_photo,
+      createdAt: e.created_at,
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // ARTISTS
 // ═══════════════════════════════════════════════
 

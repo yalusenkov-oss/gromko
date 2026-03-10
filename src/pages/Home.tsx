@@ -10,7 +10,7 @@ function useRecommendations(endpoint: string, enabled: boolean): Track[] {
   const [data, setData] = useState<Track[]>([]);
   useEffect(() => {
     if (!enabled) return;
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('gromko_token');
     if (!token) return;
     fetch(apiUrl(endpoint), {
       headers: { 'Authorization': `Bearer ${token}` },

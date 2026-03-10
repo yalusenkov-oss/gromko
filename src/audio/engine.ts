@@ -373,7 +373,7 @@ class AudioEngine {
 
   /** Record a user event for recommendation engine (fire & forget) */
   private recordEvent(eventType: string, extra?: Record<string, any>): void {
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('gromko_token') : null;
     if (!token) return; // not logged in — skip
 
     fetch(`${API_BASE}/api/events`, {
