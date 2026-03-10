@@ -1,18 +1,18 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore, Track, Playlist } from '../store';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Send, Clock, CheckCircle, XCircle, Heart, LogOut,
-  Settings, ChevronRight, Shield, Edit3, Camera, Save, X,
-  Play, Pause, Music, Disc3, Radio,
-  Activity, History, ListMusic, TrendingUp, Headphones,
-  Sparkles, Share2, UserPlus, Calendar, Plus, Globe, Lock, Trash2,
-  Copy,
+  Settings, ChevronRight, Shield, Edit3, Camera, Save,
+  Play, Pause, Music, Disc3,
+  Activity, History, ListMusic, Headphones,
+  Share2, Calendar, Plus, Globe, Lock, Trash2,
+  Copy, MapPin, ExternalLink,
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { formatDuration, formatPlays } from '../utils/format';
 
-/* ─── Types ─── */
+/* --- Types --- */
 
 interface TasteSummary {
   topGenres: { genre: string; score: number }[];
@@ -53,7 +53,7 @@ interface HistoryTrack extends Track {
 
 type Tab = 'playlists' | 'tracks' | 'albums' | 'history' | 'activity';
 
-/* ─── Helpers ─── */
+/* --- Helpers --- */
 
 function getToken() {
   return localStorage.getItem('gromko_token');
@@ -85,7 +85,7 @@ function activityLabel(type: string): { text: string; icon: React.ReactNode; col
     case 'like':
       return { text: 'поставил лайк', icon: <Heart size={14} fill="currentColor" />, color: 'text-red-400' };
     case 'follow_artist':
-      return { text: 'подписался на', icon: <UserPlus size={14} />, color: 'text-cyan-400' };
+      return { text: 'подписался на', icon: <ExternalLink size={14} />, color: 'text-cyan-400' };
     case 'add_to_playlist':
       return { text: 'добавил в плейлист', icon: <ListMusic size={14} />, color: 'text-purple-400' };
     case 'share':
@@ -97,12 +97,12 @@ function activityLabel(type: string): { text: string; icon: React.ReactNode; col
   }
 }
 
-/* ─── Component ─── */
+/* --- Component --- */
 
 export default function ProfilePage() {
   const {
     currentUser, submissions, fetchMySubmissions, logout,
-    updateProfile, tracks, player, playTrack, togglePlay,
+    updateProfile, tracks, player, playTrack, togglePlay, artists,
     playlists, fetchMyPlaylists, addPlaylist, updatePlaylist, deletePlaylist,
   } = useStore();
 
@@ -120,11 +120,9 @@ export default function ProfilePage() {
   const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
   const [historyTracks, setHistoryTracks] = useState<HistoryTrack[]>([]);
 
-  // Social stats
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
 
-  // Create playlist modal
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [newPlTitle, setNewPlTitle] = useState('');
   const [newPlDesc, setNewPlDesc] = useState('');
@@ -183,29 +181,28 @@ export default function ProfilePage() {
 
   if (!currentUser) return null;
 
-  /* ─── Computed data ─── */
+  /* Computed data */
 
   const likedAlbumsCount = currentUser.likedAlbums ? currentUser.likedAlbums.length : 0;
   const likedArtistsCount = currentUser.likedArtists ? currentUser.likedArtists.length : 0;
 
   const recentlyLiked = tracks.filter(t => currentUser.likedTracks.includes(t.id)).slice(0, 5);
 
-  const featuredTracks = useMemo(() => {
+  const featuredTracks = (() => {
     const liked = new Set(currentUser.likedTracks);
     return tracks
       .filter(t => liked.has(t.id))
       .sort((a, b) => b.plays - a.plays)
-      .slice(0, 6);
-  }, [tracks, currentUser.likedTracks]);
+      .slice(0, 5);
+  })();
 
-  const likedAlbums = useMemo(() => {
+  const likedAlbums = (() => {
     if (!currentUser.likedAlbums || currentUser.likedAlbums.length === 0) {
-      // Also build from liked tracks
       const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; year: number; tracks: Track[] }>();
       const likedSet = new Set(currentUser.likedTracks);
       for (const t of tracks) {
         if (!likedSet.has(t.id)) continue;
-        const albumName = t.meta?.album;
+        const albumName = (t as any).meta?.album;
         if (!albumName) continue;
         if (!albumMap.has(albumName)) {
           albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, year: t.year, tracks: [] });
@@ -216,7 +213,7 @@ export default function ProfilePage() {
     }
     const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; year: number; tracks: Track[] }>();
     for (const t of tracks) {
-      const albumName = t.meta?.album;
+      const albumName = (t as any).meta?.album;
       if (!albumName || !currentUser.likedAlbums.includes(albumName)) continue;
       if (!albumMap.has(albumName)) {
         albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, year: t.year, tracks: [] });
@@ -224,27 +221,53 @@ export default function ProfilePage() {
       albumMap.get(albumName)!.tracks.push(t);
     }
     return Array.from(albumMap.values()).slice(0, 4);
-  }, [tracks, currentUser.likedTracks, currentUser.likedAlbums]);
+  })();
 
-  const genreBreakdown = useMemo(() => {
+  const genreBreakdown = (() => {
     const map = new Map<string, number>();
     const likedSet = new Set(currentUser.likedTracks);
+    let total = 0;
     for (const t of tracks) {
       if (!likedSet.has(t.id) || !t.genre) continue;
       map.set(t.genre, (map.get(t.genre) || 0) + 1);
+      total++;
     }
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [tracks, currentUser.likedTracks]);
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([genre, count]) => ({ genre, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 }));
+  })();
 
-  const genreList = genreBreakdown.map(([g]) => g);
+  const genreList = genreBreakdown.map(g => g.genre);
 
-  const songsCount = useMemo(() => {
-    return tracks.filter(t => currentUser.likedTracks.includes(t.id)).length;
-  }, [tracks, currentUser.likedTracks]);
-
+  const songsCount = tracks.filter(t => currentUser.likedTracks.includes(t.id)).length;
   const albumsCount = likedAlbums.length || likedAlbumsCount;
 
-  /* ─── Handlers ─── */
+  const favoriteArtists = (() => {
+    if (tasteSummary?.topArtists && tasteSummary.topArtists.length > 0) {
+      return tasteSummary.topArtists.slice(0, 5).map(ta => {
+        const found = artists.find(a => a.slug === ta.slug);
+        return found ? { name: found.name, slug: found.slug, photo: found.photo } : { name: ta.name || ta.slug, slug: ta.slug, photo: '' };
+      });
+    }
+    if (profileStats?.topListenedArtists) {
+      return profileStats.topListenedArtists.slice(0, 5).map(a => ({ name: a.name, slug: a.slug, photo: a.photo }));
+    }
+    return [];
+  })();
+
+  const recentlyListened = historyTracks.slice(0, 6);
+
+  const genreColors: Record<string, string> = {
+    'Rap': 'bg-red-500', 'Хип-хоп': 'bg-red-500', 'Рэп': 'bg-red-500',
+    'Electronic': 'bg-purple-500', 'Pop': 'bg-pink-500', 'Rock': 'bg-blue-500',
+    'R&B': 'bg-indigo-500', 'Trap': 'bg-orange-500', 'Drill': 'bg-emerald-500',
+    'Phonk': 'bg-violet-500', 'Другое': 'bg-zinc-500',
+  };
+
+  const heroCover = featuredTracks[0]?.cover || recentlyLiked[0]?.cover || '';
+
+  /* Handlers */
 
   const statusIcon = (status: string) => {
     if (status === 'pending') return <Clock size={14} className="text-yellow-400" />;
@@ -318,7 +341,7 @@ export default function ProfilePage() {
     }
   };
 
-  /* ─── Track row helper ─── */
+  /* Track row helper */
   const TrackRow = ({ t, queue, showHeart = true }: { t: Track; queue: Track[]; showHeart?: boolean }) => {
     const isCurrent = player.currentTrack?.id === t.id;
     const isPlaying = isCurrent && player.isPlaying;
@@ -336,7 +359,7 @@ export default function ProfilePage() {
         </div>
         <div className="flex-1 min-w-0">
           <p className={`text-[13px] font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
-          <p className="text-zinc-500 text-[11px] truncate">{t.artist}{t.meta?.album ? ` \u2022 ${t.meta.album}` : ''}</p>
+          <p className="text-zinc-500 text-[11px] truncate">{t.artist}{(t as any).meta?.album ? ` · ${(t as any).meta.album}` : ''}</p>
         </div>
         {showHeart && (
           <Heart size={14} className={isLiked ? 'text-red-400' : 'text-zinc-700'} fill={isLiked ? 'currentColor' : 'none'} />
@@ -345,205 +368,217 @@ export default function ProfilePage() {
     );
   };
 
-  /* ─── Render ─── */
+  /* RENDER */
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-14 pb-28">
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-6">
-        {/* ═══ Two-column layout ═══ */}
-        <div className="flex flex-col md:flex-row gap-8">
+    <div className="min-h-screen bg-[#0b0b0b] text-white">
 
-          {/* ─── LEFT SIDEBAR ─── */}
-          <aside className="w-full md:w-72 shrink-0">
-            {/* Avatar */}
-            <div className="flex flex-col items-center md:items-start">
-              <div className="relative group mb-4">
-                <img
-                  src={currentUser.avatar || '/default-avatar.png'}
-                  alt={currentUser.name}
-                  className="w-36 h-36 md:w-44 md:h-44 rounded-full object-cover ring-4 ring-zinc-900"
-                />
-                {currentUser.role === 'admin' && (
-                  <div className="absolute bottom-2 right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center ring-2 ring-zinc-950">
-                    <Shield size={15} className="text-white" />
-                  </div>
-                )}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                >
-                  <Camera size={24} className="text-white" />
-                </button>
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
-              </div>
+      {/* HERO HEADER */}
+      <div className="relative w-full overflow-hidden" style={{ minHeight: 280 }}>
+        {heroCover && (
+          <img
+            src={heroCover}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40"
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-red-500/20 via-[#0b0b0b]/70 to-[#0b0b0b]" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b]/80 via-transparent to-[#0b0b0b]/60" />
 
-              {/* Name */}
-              {editing ? (
-                <div className="flex flex-col gap-2 mb-2 w-full">
-                  <input
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-xl font-bold text-white focus:outline-none focus:border-red-500/50 w-full"
-                    autoFocus
-                    placeholder="Имя"
-                    onKeyDown={e => { if (e.key === 'Enter') handleSaveProfile(); }}
-                  />
-                  <textarea
-                    value={editBio}
-                    onChange={e => setEditBio(e.target.value)}
-                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-red-500/50 w-full resize-none"
-                    rows={2}
-                    placeholder="О себе..."
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={handleSaveProfile} disabled={saving} className="p-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors">
-                      <Save size={16} />
-                    </button>
-                    <button onClick={() => { setEditing(false); setEditName(currentUser.name); setEditBio(currentUser.bio || ''); }} className="p-2 bg-white/10 hover:bg-white/15 text-zinc-400 rounded-lg transition-colors">
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mb-1 w-full">
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-black">{currentUser.name}</h1>
-                    <button onClick={() => setEditing(true)} className="p-1 text-zinc-600 hover:text-white transition-colors">
-                      <Edit3 size={14} />
-                    </button>
-                  </div>
-                  {currentUser.bio && (
-                    <p className="text-zinc-400 text-sm mt-1">{currentUser.bio}</p>
-                  )}
+        <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 pt-20 pb-8">
+          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6">
+            <div className="relative group shrink-0">
+              <img
+                src={currentUser.avatar || '/default-avatar.png'}
+                alt={currentUser.name}
+                className="w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover ring-4 ring-[#0b0b0b] shadow-2xl shadow-black/50"
+              />
+              {currentUser.role === 'admin' && (
+                <div className="absolute bottom-1 right-1 w-7 h-7 bg-red-500 rounded-full flex items-center justify-center ring-2 ring-[#0b0b0b]">
+                  <Shield size={13} className="text-white" />
                 </div>
               )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+              >
+                <Camera size={22} className="text-white" />
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+            </div>
 
-              {/* Role / email */}
-              <p className="text-zinc-500 text-sm mb-2 text-center md:text-left">{currentUser.email}</p>
+            <div className="flex-1 text-center sm:text-left pb-1">
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-0.5">{currentUser.name}</h1>
+              <p className="text-zinc-400 text-sm mb-3">@{currentUser.name.toLowerCase().replace(/\s+/g, '')}</p>
+              <div className="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
+                <button
+                  onClick={handleShareProfile}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 backdrop-blur-sm rounded-full text-sm font-medium transition-all"
+                >
+                  <Share2 size={14} />
+                  Поделиться
+                </button>
+                <button
+                  onClick={() => setEditing(!editing)}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 backdrop-blur-sm text-red-400 rounded-full text-sm font-medium transition-all"
+                >
+                  <Edit3 size={14} />
+                  Редактировать
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-              {/* Followers / Following */}
+      {/* Edit profile panel */}
+      {editing && (
+        <div className="max-w-7xl mx-auto px-4 md:px-6 mb-6">
+          <div className="bg-[#121212] border border-white/5 rounded-2xl p-5 max-w-lg">
+            <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Редактировать профиль</h3>
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-red-500/30 mb-3"
+              placeholder="Имя"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveProfile(); }}
+            />
+            <textarea
+              value={editBio}
+              onChange={e => setEditBio(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-red-500/30 mb-4 resize-none"
+              rows={2}
+              placeholder="О себе — статус, настроение, что слушаете..."
+            />
+            <div className="flex gap-2">
+              <button onClick={handleSaveProfile} disabled={saving} className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors">
+                <Save size={14} />
+                {saving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+              <button onClick={() => { setEditing(false); setEditName(currentUser.name); setEditBio(currentUser.bio || ''); }} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-400 text-sm rounded-xl transition-colors">
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MAIN 3-COLUMN LAYOUT */}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 pb-32">
+        <div className="flex flex-col lg:flex-row gap-6">
+
+          {/* LEFT SIDEBAR */}
+          <aside className="w-full lg:w-64 shrink-0 space-y-5">
+
+            <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-5">
+              <h2 className="text-lg font-bold mb-1">{currentUser.name}</h2>
+              {currentUser.bio && (
+                <p className="text-zinc-400 text-sm mb-3 leading-relaxed">{currentUser.bio}</p>
+              )}
+              <p className="text-zinc-600 text-xs mb-3">{currentUser.email}</p>
+
               <div className="flex items-center gap-4 text-sm mb-4">
                 <Link to={`/user/${currentUser.id}`} className="hover:text-white transition-colors">
                   <span className="text-white font-bold">{followersCount}</span>{' '}
-                  <span className="text-zinc-500">подписчиков</span>
+                  <span className="text-zinc-500 text-xs">подписчиков</span>
                 </Link>
                 <Link to={`/user/${currentUser.id}`} className="hover:text-white transition-colors">
                   <span className="text-white font-bold">{followingCount}</span>{' '}
-                  <span className="text-zinc-500">подписок</span>
+                  <span className="text-zinc-500 text-xs">подписок</span>
                 </Link>
               </div>
 
-              {/* Buttons */}
-              <div className="flex flex-col gap-2 w-full mb-5">
+              <div className="space-y-2">
                 <button
                   onClick={handleShareProfile}
-                  className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium text-white transition-colors"
                 >
                   <Share2 size={14} />
                   Поделиться профилем
                 </button>
-                <Link to="/submit" className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-zinc-400 hover:bg-white/5 hover:text-white transition-colors">
+                <Link to="/submit" className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium text-zinc-400 hover:text-white transition-colors">
                   <Send size={14} />
                   Предложить трек
                 </Link>
                 {currentUser.role === 'admin' && (
-                  <Link to="/admin" className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-zinc-400 hover:bg-white/5 hover:text-white transition-colors">
+                  <Link to="/admin" className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium text-zinc-400 hover:text-white transition-colors">
                     <Settings size={14} />
-                    Админ-панель
+                    Панель
                   </Link>
                 )}
               </div>
+            </div>
 
-              {/* Bio / taste description */}
-              {tasteSummary && tasteSummary.eventsProcessed > 0 && (
-                <div className="mb-5 text-sm text-zinc-400 leading-relaxed">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Headphones size={13} className="text-green-400" />
-                      <span className="text-white font-medium">{tasteSummary.avgListenRatio}%</span>
-                      <span className="text-zinc-600 text-xs">досл.</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles size={13} className="text-purple-400" />
-                      <span className="text-white font-medium">{tasteSummary.explorationScore}%</span>
-                      <span className="text-zinc-600 text-xs">иссл.</span>
-                    </div>
-                  </div>
-                  {tasteSummary.preferredBpm.min > 0 && (
-                    <p className="text-zinc-600 text-xs">BPM: {tasteSummary.preferredBpm.min}–{tasteSummary.preferredBpm.max} · {tasteSummary.eventsProcessed} событий</p>
-                  )}
+            <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-5">
+              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Музыкальный профиль</h3>
+
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-zinc-400">
+                    <Music size={14} className="text-red-400" />
+                    Треки
+                  </span>
+                  <span className="text-white font-bold">{songsCount}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-zinc-400">
+                    <Disc3 size={14} className="text-blue-400" />
+                    Альбомы
+                  </span>
+                  <span className="text-white font-bold">{albumsCount}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-zinc-400">
+                    <Heart size={14} className="text-pink-400" />
+                    Артисты
+                  </span>
+                  <span className="text-white font-bold">{likedArtistsCount}</span>
+                </div>
+              </div>
+
+              {genreList.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {genreList.map(g => (
+                    <span key={g} className="px-2.5 py-1 bg-white/5 border border-white/[0.06] rounded-full text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">
+                      {g}
+                    </span>
+                  ))}
                 </div>
               )}
 
-              {/* Stats rows */}
-              <div className="w-full space-y-0 border-t border-white/5 pt-4 mb-5">
-                <div className="flex justify-between py-1.5 text-sm">
-                  <span className="text-zinc-400">Треки</span>
-                  <span className="text-white font-semibold">{songsCount}</span>
+              <div className="space-y-1.5 text-xs text-zinc-600">
+                <div className="flex items-center gap-1.5">
+                  <Calendar size={12} />
+                  На платформе с {new Date(currentUser.joinedAt).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
                 </div>
-                <div className="flex justify-between py-1.5 text-sm">
-                  <span className="text-zinc-400">Альбомы</span>
-                  <span className="text-white font-semibold">{albumsCount}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm">
-                  <span className="text-zinc-400">Артисты</span>
-                  <span className="text-white font-semibold">{likedArtistsCount}</span>
-                </div>
-                {profileStats && (
-                  <>
-                    <div className="flex justify-between py-1.5 text-sm">
-                      <span className="text-zinc-400">Прослушивания</span>
-                      <span className="text-white font-semibold">{formatPlays(profileStats.totalPlays)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 text-sm">
-                      <span className="text-zinc-400">Время</span>
-                      <span className="text-white font-semibold">{formatTime(profileStats.totalTimeSeconds)}</span>
-                    </div>
-                    {profileStats.playlistsCount > 0 && (
-                      <div className="flex justify-between py-1.5 text-sm">
-                        <span className="text-zinc-400">Плейлисты</span>
-                        <span className="text-white font-semibold">{profileStats.playlistsCount}</span>
-                      </div>
-                    )}
-                  </>
+                {profileStats?.lastActive && (
+                  <div className="flex items-center gap-1.5">
+                    <MapPin size={12} />
+                    Был {timeAgo(profileStats.lastActive)}
+                  </div>
                 )}
               </div>
-
-              {/* Genres */}
-              {genreList.length > 0 && (
-                <div className="w-full mb-5">
-                  <h4 className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">Жанры</h4>
-                  <p className="text-zinc-300 text-sm leading-relaxed">{genreList.join(', ')}</p>
-                </div>
-              )}
-
-              {/* Member since */}
-              <div className="w-full text-zinc-600 text-xs flex items-center gap-1.5 mb-5">
-                <Calendar size={12} />
-                с {new Date(currentUser.joinedAt).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
-              </div>
-
-              {/* Logout */}
-              <button
-                onClick={() => { logout(); navigate('/'); }}
-                className="flex items-center gap-2 text-zinc-600 hover:text-red-400 transition-colors text-sm w-full"
-              >
-                <LogOut size={14} />
-                <span>Выйти</span>
-              </button>
             </div>
+
+            <button
+              onClick={() => { logout(); navigate('/'); }}
+              className="flex items-center gap-2 text-zinc-600 hover:text-red-400 transition-colors text-sm w-full px-2"
+            >
+              <LogOut size={14} />
+              <span>Выйти из аккаунта</span>
+            </button>
           </aside>
 
-          {/* ─── RIGHT CONTENT ─── */}
-          <main className="flex-1 min-w-0">
-            {/* Top section: Featured Tracks + Recently Liked side-by-side */}
-            <div className="flex flex-col lg:flex-row gap-6 mb-8">
-              {/* Featured Tracks */}
-              <div className="flex-1 min-w-0">
+          {/* CENTER CONTENT */}
+          <main className="flex-1 min-w-0 space-y-6">
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-bold">Любимые треки</h2>
+                  <h2 className="text-base font-bold">Любимые треки</h2>
                   {featuredTracks.length > 0 && (
-                    <Link to="/liked" className="text-zinc-500 hover:text-white text-xs flex items-center gap-1 transition-colors">
+                    <Link to="/liked" className="text-zinc-500 hover:text-white text-xs flex items-center gap-0.5 transition-colors">
                       Все <ChevronRight size={14} />
                     </Link>
                   )}
@@ -555,52 +590,39 @@ export default function ProfilePage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="py-10 text-center">
-                    <Heart size={28} className="text-zinc-800 mx-auto mb-2" />
-                    <p className="text-zinc-600 text-sm">Лайкайте треки, они появятся здесь</p>
+                  <div className="py-8 text-center">
+                    <Heart size={24} className="text-zinc-800 mx-auto mb-2" />
+                    <p className="text-zinc-600 text-xs">Лайкайте треки, чтобы они появились здесь</p>
                   </div>
                 )}
               </div>
 
-              {/* Recently Liked */}
-              <div className="w-full lg:w-64 shrink-0">
-                <h2 className="text-lg font-bold mb-3">Недавние лайки</h2>
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-base font-bold">Недавние лайки</h2>
+                  {recentlyLiked.length > 0 && (
+                    <Link to="/liked" className="text-zinc-500 hover:text-white text-xs flex items-center gap-0.5 transition-colors">
+                      Все <ChevronRight size={14} />
+                    </Link>
+                  )}
+                </div>
                 {recentlyLiked.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="space-y-0.5">
                     {recentlyLiked.map(t => (
-                      <button
-                        key={t.id}
-                        onClick={() => player.currentTrack?.id === t.id ? togglePlay() : playTrack(t, recentlyLiked)}
-                        className="flex items-center gap-2.5 w-full text-left group hover:bg-white/[0.04] rounded-lg p-1.5 transition-colors"
-                      >
-                        <div className="w-8 h-8 rounded-md overflow-hidden shrink-0 relative">
-                          <img src={t.cover} alt="" className="w-full h-full object-cover" />
-                          <div className={`absolute inset-0 bg-black/50 flex items-center justify-center ${player.currentTrack?.id === t.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                            {player.currentTrack?.id === t.id && player.isPlaying
-                              ? <Pause size={10} fill="white" className="text-white" />
-                              : <Play size={10} fill="white" className="text-white ml-0.5" />}
-                          </div>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className={`text-[12px] font-medium truncate ${player.currentTrack?.id === t.id ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
-                          <p className="text-zinc-600 text-[10px] truncate">{t.artist}</p>
-                        </div>
-                      </button>
+                      <TrackRow key={t.id} t={t} queue={recentlyLiked} showHeart />
                     ))}
                   </div>
                 ) : (
-                  <p className="text-zinc-700 text-sm">Пока пусто</p>
-                )}
-                {recentlyLiked.length > 0 && (
-                  <Link to="/liked" className="flex items-center gap-1 text-zinc-500 hover:text-white text-xs mt-3 transition-colors">
-                    Все лайки <ChevronRight size={14} />
-                  </Link>
+                  <div className="py-8 text-center">
+                    <Heart size={24} className="text-zinc-800 mx-auto mb-2" />
+                    <p className="text-zinc-600 text-xs">Пока пусто</p>
+                  </div>
                 )}
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="border-b border-white/5 mb-6">
+            <div className="border-b border-white/[0.04]">
               <div className="flex gap-0 overflow-x-auto scrollbar-hide">
                 {([
                   { key: 'playlists' as Tab, label: 'Плейлисты', icon: ListMusic },
@@ -614,7 +636,7 @@ export default function ProfilePage() {
                     <button
                       key={t.key}
                       onClick={() => setTab(t.key)}
-                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
+                      className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
                         tab === t.key
                           ? 'text-white border-red-500'
                           : 'text-zinc-500 border-transparent hover:text-zinc-300'
@@ -628,20 +650,18 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* ═══ Tab Content ═══ */}
+            {/* Tab Content */}
 
-            {/* Playlists tab */}
             {tab === 'playlists' && (
               <div>
-                {/* Create playlist */}
                 {showCreatePlaylist ? (
-                  <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 mb-5">
+                  <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-5 mb-5">
                     <h3 className="text-sm font-semibold mb-3">Новый плейлист</h3>
                     <input
                       value={newPlTitle}
                       onChange={e => setNewPlTitle(e.target.value)}
                       placeholder="Название плейлиста"
-                      className="w-full bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50 mb-2"
+                      className="w-full bg-white/5 border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/30 mb-2"
                       autoFocus
                       onKeyDown={e => { if (e.key === 'Enter') handleCreatePlaylist(); }}
                     />
@@ -649,7 +669,7 @@ export default function ProfilePage() {
                       value={newPlDesc}
                       onChange={e => setNewPlDesc(e.target.value)}
                       placeholder="Описание (необязательно)"
-                      className="w-full bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50 mb-3 resize-none"
+                      className="w-full bg-white/5 border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/30 mb-3 resize-none"
                       rows={2}
                     />
                     <div className="flex items-center justify-between">
@@ -658,7 +678,7 @@ export default function ProfilePage() {
                           type="checkbox"
                           checked={newPlPublic}
                           onChange={e => setNewPlPublic(e.target.checked)}
-                          className="rounded border-white/20"
+                          className="rounded border-white/20 bg-white/5"
                         />
                         <Globe size={13} />
                         Публичный
@@ -666,14 +686,14 @@ export default function ProfilePage() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => { setShowCreatePlaylist(false); setNewPlTitle(''); setNewPlDesc(''); }}
-                          className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
+                          className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
                         >
                           Отмена
                         </button>
                         <button
                           onClick={handleCreatePlaylist}
                           disabled={!newPlTitle.trim() || creating}
-                          className="px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+                          className="px-5 py-2 bg-red-500 hover:bg-red-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-xl transition-colors"
                         >
                           {creating ? 'Создание...' : 'Создать'}
                         </button>
@@ -683,69 +703,68 @@ export default function ProfilePage() {
                 ) : (
                   <button
                     onClick={() => setShowCreatePlaylist(true)}
-                    className="flex items-center gap-2 w-full px-4 py-3 border border-dashed border-white/10 rounded-xl text-sm text-zinc-400 hover:text-white hover:border-white/20 transition-colors mb-5"
+                    className="flex items-center gap-2 w-full px-4 py-3 bg-[#121212] border border-dashed border-white/[0.06] rounded-2xl text-sm text-zinc-400 hover:text-white hover:border-white/10 transition-colors mb-5"
                   >
                     <Plus size={16} />
                     Создать плейлист
                   </button>
                 )}
 
-                {/* Playlists list */}
                 {playlists.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {playlists.map(pl => (
-                      <div key={pl.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] transition-colors group">
-                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                          {pl.coverUrl ? (
-                            <img src={apiUrl(pl.coverUrl)} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-                              <ListMusic size={18} className="text-zinc-700" />
-                            </div>
-                          )}
-                        </div>
-                        <Link to={`/playlists/${pl.id}`} className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium text-white truncate group-hover:text-red-400 transition-colors">{pl.title}</p>
-                          <div className="flex items-center gap-2 text-zinc-600 text-[11px]">
-                            <span>{pl.tracksCount} треков</span>
-                            {pl.isPublic ? (
-                              <span className="flex items-center gap-0.5"><Globe size={10} /> Публичный</span>
+                      <div key={pl.id} className="group relative">
+                        <Link to={`/playlists/${pl.id}`} className="block">
+                          <div className="aspect-square rounded-xl overflow-hidden bg-[#181818] mb-2.5 relative">
+                            {pl.coverUrl ? (
+                              <img src={apiUrl(pl.coverUrl)} alt={pl.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                             ) : (
-                              <span className="flex items-center gap-0.5"><Lock size={10} /> Приватный</span>
+                              <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
+                                <ListMusic size={32} className="text-zinc-700" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center shadow-xl shadow-red-500/30 translate-y-2 group-hover:translate-y-0 transition-transform">
+                                <Play size={20} fill="white" className="text-white ml-0.5" />
+                              </div>
+                            </div>
+                            {!pl.isPublic && (
+                              <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-md px-1.5 py-0.5">
+                                <Lock size={10} className="text-zinc-400" />
+                              </div>
                             )}
                           </div>
+                          <p className="text-sm font-semibold truncate group-hover:text-red-400 transition-colors">{pl.title}</p>
+                          <p className="text-zinc-600 text-xs">{pl.tracksCount} Треков</p>
                         </Link>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                           <button
-                            onClick={() => handleTogglePlaylistVisibility(pl)}
-                            className="p-1.5 text-zinc-500 hover:text-white transition-colors"
+                            onClick={(e) => { e.preventDefault(); handleTogglePlaylistVisibility(pl); }}
+                            className="p-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-zinc-300 hover:text-white transition-colors"
                             title={pl.isPublic ? 'Сделать приватным' : 'Сделать публичным'}
                           >
-                            {pl.isPublic ? <Lock size={13} /> : <Globe size={13} />}
+                            {pl.isPublic ? <Lock size={12} /> : <Globe size={12} />}
                           </button>
                           <button
-                            onClick={() => {
-                              const url = `${window.location.origin}/playlists/${pl.id}`;
-                              navigator.clipboard.writeText(url).catch(() => {});
-                            }}
-                            className="p-1.5 text-zinc-500 hover:text-white transition-colors"
+                            onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(`${window.location.origin}/playlists/${pl.id}`).catch(() => {}); }}
+                            className="p-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-zinc-300 hover:text-white transition-colors"
                             title="Скопировать ссылку"
                           >
-                            <Copy size={13} />
+                            <Copy size={12} />
                           </button>
                           <button
-                            onClick={() => handleDeletePlaylist(pl.id)}
-                            className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors"
+                            onClick={(e) => { e.preventDefault(); handleDeletePlaylist(pl.id); }}
+                            className="p-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-zinc-300 hover:text-red-400 transition-colors"
                             title="Удалить"
                           >
-                            <Trash2 size={13} />
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : !showCreatePlaylist ? (
-                  <div className="py-12 text-center">
+                  <div className="py-14 text-center">
                     <ListMusic size={36} className="text-zinc-800 mx-auto mb-3" />
                     <p className="text-zinc-500 text-sm mb-1">У вас пока нет плейлистов</p>
                     <p className="text-zinc-700 text-xs">Создайте первый плейлист и добавьте треки</p>
@@ -754,7 +773,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Tracks tab — all liked tracks */}
             {tab === 'tracks' && (
               <div>
                 {(() => {
@@ -775,48 +793,43 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Albums tab */}
             {tab === 'albums' && (
               <div>
                 {likedAlbums.length > 0 ? (
-                  <div className="space-y-8">
+                  <div className="space-y-4">
                     {likedAlbums.map(album => (
-                      <div key={album.name} className="flex flex-col sm:flex-row gap-5">
-                        {/* Album cover */}
-                        <Link to={`/artist/${album.artistSlug}`} className="shrink-0 group">
-                          <div className="w-36 h-36 rounded-lg overflow-hidden">
-                            <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                          </div>
-                          <div className="mt-2 flex items-center gap-1.5">
-                            <Heart size={12} className="text-red-400" fill="currentColor" />
-                            <span className="text-zinc-600 text-xs">...</span>
-                          </div>
-                        </Link>
-                        {/* Album info + tracks */}
-                        <div className="flex-1 min-w-0">
-                          <Link to={`/artist/${album.artistSlug}`} className="hover:text-red-400 transition-colors">
-                            <h3 className="text-lg font-bold mb-0.5">{album.name}</h3>
+                      <div key={album.name} className="bg-[#121212] border border-white/[0.04] rounded-2xl p-5">
+                        <div className="flex flex-col sm:flex-row gap-5">
+                          <Link to={`/artist/${album.artistSlug}`} className="shrink-0 group">
+                            <div className="w-32 h-32 rounded-xl overflow-hidden">
+                              <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            </div>
                           </Link>
-                          <p className="text-zinc-500 text-sm mb-3">{album.year}</p>
-                          <div className="space-y-0">
-                            {album.tracks.map((t, i) => {
-                              const isCurrent = player.currentTrack?.id === t.id;
-                              const isPlaying = isCurrent && player.isPlaying;
-                              return (
-                                <button
-                                  key={t.id}
-                                  onClick={() => isCurrent ? togglePlay() : playTrack(t, album.tracks)}
-                                  className={`flex items-center gap-3 w-full px-2 py-1.5 rounded text-left transition-colors group ${isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'}`}
-                                >
-                                  <span className={`w-5 text-center text-xs tabular-nums ${isCurrent ? 'text-red-400' : 'text-zinc-600'}`}>
-                                    {isCurrent ? (isPlaying ? '▸' : '❚❚') : (i + 1)}
-                                  </span>
-                                  <span className={`flex-1 text-sm truncate ${isCurrent ? 'text-red-400 font-medium' : 'text-white'}`}>{t.title}</span>
-                                  <Heart size={12} className={currentUser!.likedTracks.includes(t.id) ? 'text-red-400' : 'text-zinc-700 opacity-0 group-hover:opacity-100'} fill={currentUser!.likedTracks.includes(t.id) ? 'currentColor' : 'none'} />
-                                  <span className="text-zinc-600 text-xs tabular-nums w-10 text-right">{t.duration ? formatDuration(t.duration) : ''}</span>
-                                </button>
-                              );
-                            })}
+                          <div className="flex-1 min-w-0">
+                            <Link to={`/artist/${album.artistSlug}`} className="hover:text-red-400 transition-colors">
+                              <h3 className="text-lg font-bold mb-0.5">{album.name}</h3>
+                            </Link>
+                            <p className="text-zinc-500 text-sm mb-3">{album.artist} · {album.year}</p>
+                            <div className="space-y-0">
+                              {album.tracks.map((t, i) => {
+                                const isCurrent = player.currentTrack?.id === t.id;
+                                const isPlaying = isCurrent && player.isPlaying;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => isCurrent ? togglePlay() : playTrack(t, album.tracks)}
+                                    className={`flex items-center gap-3 w-full px-2 py-1.5 rounded text-left transition-colors group ${isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'}`}
+                                  >
+                                    <span className={`w-5 text-center text-xs tabular-nums ${isCurrent ? 'text-red-400' : 'text-zinc-600'}`}>
+                                      {isCurrent ? (isPlaying ? '\u25B8' : '\u275A\u275A') : (i + 1)}
+                                    </span>
+                                    <span className={`flex-1 text-sm truncate ${isCurrent ? 'text-red-400 font-medium' : 'text-white'}`}>{t.title}</span>
+                                    <Heart size={12} className={currentUser!.likedTracks.includes(t.id) ? 'text-red-400' : 'text-zinc-700 opacity-0 group-hover:opacity-100'} fill={currentUser!.likedTracks.includes(t.id) ? 'currentColor' : 'none'} />
+                                    <span className="text-zinc-600 text-xs tabular-nums w-10 text-right">{t.duration ? formatDuration(t.duration) : ''}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -831,7 +844,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* History tab */}
             {tab === 'history' && (
               <div>
                 {historyTracks.length > 0 ? (
@@ -866,7 +878,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Activity tab */}
             {tab === 'activity' && (
               <div>
                 {activityFeed.length > 0 ? (
@@ -919,9 +930,9 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Submissions section (always visible at bottom if has any) */}
+            {/* Submissions */}
             {submissions.length > 0 && (
-              <div className="mt-10 border-t border-white/5 pt-6">
+              <div className="mt-6 bg-[#121212] border border-white/[0.04] rounded-2xl p-5">
                 <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                   <Send size={14} />
                   Мои заявки
@@ -929,7 +940,7 @@ export default function ProfilePage() {
                 </h3>
                 <div className="space-y-2">
                   {submissions.map(sub => (
-                    <div key={sub.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02]">
+                    <div key={sub.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
                       {sub.coverUrl ? (
                         <img src={apiUrl(sub.coverUrl)} alt="" className="w-10 h-10 rounded-md object-cover shrink-0" />
                       ) : (
@@ -954,76 +965,145 @@ export default function ProfilePage() {
                 </div>
               </div>
             )}
-
-            {/* Algorithmic profile section (bottom of right column) */}
-            {tasteSummary && tasteSummary.eventsProcessed > 0 && (
-              <div className="mt-10 border-t border-white/5 pt-6">
-                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <Radio size={14} />
-                  Музыкальный профиль
-                </h3>
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                    <p className="text-xl font-black text-white">{tasteSummary.avgListenRatio}<span className="text-xs text-zinc-500">%</span></p>
-                    <p className="text-zinc-500 text-[10px]">Дослушивание</p>
-                    <div className="mt-1.5 h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${tasteSummary.avgListenRatio}%` }} />
-                    </div>
-                  </div>
-                  <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                    <p className="text-xl font-black text-white">{tasteSummary.skipRate}<span className="text-xs text-zinc-500">%</span></p>
-                    <p className="text-zinc-500 text-[10px]">Пропуски</p>
-                    <div className="mt-1.5 h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className="h-full bg-red-500 rounded-full" style={{ width: `${tasteSummary.skipRate}%` }} />
-                    </div>
-                  </div>
-                  <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                    <p className="text-xl font-black text-white">{tasteSummary.explorationScore}<span className="text-xs text-zinc-500">%</span></p>
-                    <p className="text-zinc-500 text-[10px]">Исследование</p>
-                    <div className="mt-1.5 h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500 rounded-full" style={{ width: `${tasteSummary.explorationScore}%` }} />
-                    </div>
-                  </div>
-                </div>
-                {tasteSummary.topGenres.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {tasteSummary.topGenres.slice(0, 6).map(g => (
-                      <span key={g.genre} className="px-2.5 py-1 bg-white/5 rounded-full text-xs text-zinc-300 border border-white/5">
-                        {g.genre}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <p className="text-zinc-700 text-[10px]">Рассчитано на основе {tasteSummary.eventsProcessed} событий</p>
-              </div>
-            )}
-
-            {/* Listening stats at bottom */}
-            {profileStats && (
-              <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                  <Headphones size={18} className="text-green-400 mx-auto mb-1.5" />
-                  <p className="text-lg font-black text-white">{formatPlays(profileStats.monthPlays)}</p>
-                  <p className="text-zinc-600 text-[10px]">За месяц</p>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                  <Music size={18} className="text-blue-400 mx-auto mb-1.5" />
-                  <p className="text-lg font-black text-white">{formatPlays(profileStats.totalPlays)}</p>
-                  <p className="text-zinc-600 text-[10px]">Всего</p>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                  <Clock size={18} className="text-amber-400 mx-auto mb-1.5" />
-                  <p className="text-lg font-black text-white">{formatTime(profileStats.monthTimeSeconds)}</p>
-                  <p className="text-zinc-600 text-[10px]">Время/месяц</p>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-                  <TrendingUp size={18} className="text-red-400 mx-auto mb-1.5" />
-                  <p className="text-lg font-black text-white">{formatTime(profileStats.totalTimeSeconds)}</p>
-                  <p className="text-zinc-600 text-[10px]">Всего времени</p>
-                </div>
-              </div>
-            )}
           </main>
+
+          {/* RIGHT SIDEBAR */}
+          <aside className="w-full lg:w-72 shrink-0 space-y-5">
+
+            {player.currentTrack && player.isPlaying && (
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+                <p className="text-[10px] uppercase tracking-widest text-green-400 font-semibold mb-3 flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  Сейчас слушает
+                </p>
+                <button
+                  onClick={() => navigate(`/track/${player.currentTrack!.id}`)}
+                  className="flex items-center gap-3 w-full text-left hover:bg-white/[0.04] rounded-lg p-1 -m-1 transition-colors"
+                >
+                  <img src={player.currentTrack.cover} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate">{player.currentTrack.title}</p>
+                    <p className="text-zinc-500 text-xs truncate">{player.currentTrack.artist}</p>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">Недавно слушал</h3>
+                {recentlyListened.length > 0 && (
+                  <button onClick={() => setTab('history')} className="text-zinc-500 hover:text-white text-xs flex items-center gap-0.5 transition-colors">
+                    Все <ChevronRight size={14} />
+                  </button>
+                )}
+              </div>
+              {recentlyListened.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {recentlyListened.map((t, idx) => (
+                    <button
+                      key={`${t.id}-${idx}`}
+                      onClick={() => player.currentTrack?.id === t.id ? togglePlay() : playTrack(t, recentlyListened)}
+                      className="group"
+                    >
+                      <div className="aspect-square rounded-lg overflow-hidden relative mb-1">
+                        <img src={t.cover} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Play size={16} fill="white" className="text-white" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 truncate">{t.title}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-zinc-700 text-xs text-center py-4">Ещё нет истории</p>
+              )}
+            </div>
+
+            {genreBreakdown.length > 0 && (
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">Топ жанры</h3>
+                  <span className="text-zinc-600 text-[10px]">Все жанры</span>
+                </div>
+                <div className="space-y-3">
+                  {genreBreakdown.map(g => (
+                    <div key={g.genre}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-zinc-300 font-medium">{g.genre}</span>
+                        <span className="text-zinc-500">{g.pct}%</span>
+                      </div>
+                      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${genreColors[g.genre] || 'bg-zinc-500'}`}
+                          style={{ width: `${g.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {favoriteArtists.length > 0 && (
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">Любимые артисты</h3>
+                  <Link to="/artists" className="text-zinc-500 hover:text-white text-xs flex items-center gap-0.5 transition-colors">
+                    Все <ChevronRight size={14} />
+                  </Link>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {favoriteArtists.map(a => (
+                    <Link
+                      key={a.slug}
+                      to={`/artist/${a.slug}`}
+                      className="flex items-center gap-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-xl px-3 py-2 transition-colors group"
+                    >
+                      {a.photo ? (
+                        <img src={a.photo} alt="" className="w-7 h-7 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-zinc-400">
+                          {a.name[0]}
+                        </div>
+                      )}
+                      <span className="text-xs font-medium text-zinc-300 group-hover:text-white transition-colors">{a.name}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {profileStats && (
+              <div className="bg-[#121212] border border-white/[0.04] rounded-2xl p-4">
+                <h3 className="text-sm font-semibold mb-3">Статистика</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center">
+                    <Headphones size={16} className="text-green-400 mx-auto mb-1" />
+                    <p className="text-lg font-black">{formatPlays(profileStats.monthPlays)}</p>
+                    <p className="text-zinc-600 text-[10px]">За месяц</p>
+                  </div>
+                  <div className="text-center">
+                    <Music size={16} className="text-blue-400 mx-auto mb-1" />
+                    <p className="text-lg font-black">{formatPlays(profileStats.totalPlays)}</p>
+                    <p className="text-zinc-600 text-[10px]">Всего</p>
+                  </div>
+                  <div className="text-center">
+                    <Clock size={16} className="text-amber-400 mx-auto mb-1" />
+                    <p className="text-lg font-black">{formatTime(profileStats.monthTimeSeconds)}</p>
+                    <p className="text-zinc-600 text-[10px]">Время/мес</p>
+                  </div>
+                  <div className="text-center">
+                    <Heart size={16} className="text-red-400 mx-auto mb-1" />
+                    <p className="text-lg font-black">{currentUser.likedTracks.length}</p>
+                    <p className="text-zinc-600 text-[10px]">Лайков</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </aside>
+
         </div>
       </div>
     </div>
