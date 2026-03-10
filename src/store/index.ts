@@ -41,10 +41,15 @@ export interface Artist {
 export interface Playlist {
   id: string;
   title: string;
+  description: string | null;
   userId: string;
   trackIds: string[];
   isPublic: boolean;
+  coverUrl: string | null;
+  likesCount: number;
+  tracksCount: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Submission {
@@ -69,6 +74,7 @@ export interface User {
   email: string;
   role: Role;
   avatar: string;
+  bio: string;
   joinedAt: string;
   isBlocked: boolean;
   likedTracks: string[];
@@ -114,6 +120,7 @@ function mapUser(u: any): User {
     id: u.id, name: u.name, email: u.email,
     role: u.role || 'user',
     avatar: u.avatar || '',
+    bio: u.bio || '',
     joinedAt: u.createdAt || u.created_at || '',
     isBlocked: u.isBlocked ?? u.is_blocked ?? false,
     likedTracks: u.likedTracks || u.liked_tracks || [],
@@ -181,7 +188,7 @@ interface AppStore {
   logout: () => void;
   register: (name: string, email: string, password: string, country?: string) => Promise<boolean>;
   restoreSession: () => Promise<void>;
-  updateProfile: (data: { name?: string; avatar?: string }) => Promise<boolean>;
+  updateProfile: (data: { name?: string; avatar?: string; bio?: string }) => Promise<boolean>;
 
   tracks: Track[];
   artists: Artist[];
@@ -216,7 +223,13 @@ interface AppStore {
   toggleLike: (trackId: string) => void;
   toggleAlbumLike: (albumName: string) => void;
   toggleArtistLike: (artistSlug: string) => void;
-  addPlaylist: (title: string, trackIds: string[]) => void;
+  addPlaylist: (title: string, trackIds: string[], description?: string, isPublic?: boolean) => Promise<Playlist | null>;
+  updatePlaylist: (id: string, data: { title?: string; description?: string; isPublic?: boolean; trackIds?: string[] }) => Promise<void>;
+  deletePlaylist: (id: string) => Promise<void>;
+  addTrackToPlaylist: (playlistId: string, trackId: string) => Promise<void>;
+  removeTrackFromPlaylist: (playlistId: string, trackId: string) => Promise<void>;
+  fetchMyPlaylists: () => Promise<void>;
+  toggleFollow: (userId: string) => Promise<boolean>;
   submitTrack: (sub: Omit<Submission, 'id' | 'status' | 'createdAt'>) => void;
 
   updateTrack: (id: string, data: Partial<Track>) => Promise<void>;
@@ -488,11 +501,67 @@ export const useStore = create<AppStore>((set, get) => ({
     } catch (e) { console.error('toggleArtistLike:', e); }
   },
 
-  addPlaylist: (title, trackIds) => {
+  addPlaylist: async (title, trackIds, description, isPublic) => {
     const { currentUser } = get();
-    if (!currentUser) return;
-    const pl: Playlist = { id: `p${Date.now()}`, title, userId: currentUser.id, trackIds, isPublic: false, createdAt: new Date().toISOString().split('T')[0] };
-    set(s => ({ playlists: [...s.playlists, pl] }));
+    if (!currentUser) return null;
+    try {
+      const pl = await apiFetch('/playlists', {
+        method: 'POST',
+        body: JSON.stringify({ title, trackIds, description: description || '', isPublic: !!isPublic }),
+      });
+      set(s => ({ playlists: [pl, ...s.playlists] }));
+      return pl as Playlist;
+    } catch (e) { console.error('addPlaylist:', e); return null; }
+  },
+
+  updatePlaylist: async (id, data) => {
+    try {
+      const updated = await apiFetch(`/playlists/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      set(s => ({ playlists: s.playlists.map(p => p.id === id ? { ...p, ...updated } : p) }));
+    } catch (e) { console.error('updatePlaylist:', e); }
+  },
+
+  deletePlaylist: async (id) => {
+    try {
+      await apiFetch(`/playlists/${id}`, { method: 'DELETE' });
+      set(s => ({ playlists: s.playlists.filter(p => p.id !== id) }));
+    } catch (e) { console.error('deletePlaylist:', e); }
+  },
+
+  addTrackToPlaylist: async (playlistId, trackId) => {
+    try {
+      await apiFetch(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ trackId }) });
+      set(s => ({
+        playlists: s.playlists.map(p =>
+          p.id === playlistId ? { ...p, trackIds: [...p.trackIds, trackId], tracksCount: p.tracksCount + 1 } : p
+        ),
+      }));
+    } catch (e) { console.error('addTrackToPlaylist:', e); }
+  },
+
+  removeTrackFromPlaylist: async (playlistId, trackId) => {
+    try {
+      await apiFetch(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' });
+      set(s => ({
+        playlists: s.playlists.map(p =>
+          p.id === playlistId ? { ...p, trackIds: p.trackIds.filter(id => id !== trackId), tracksCount: Math.max(0, p.tracksCount - 1) } : p
+        ),
+      }));
+    } catch (e) { console.error('removeTrackFromPlaylist:', e); }
+  },
+
+  fetchMyPlaylists: async () => {
+    try {
+      const data = await apiFetch('/playlists/my');
+      set({ playlists: Array.isArray(data) ? data : [] });
+    } catch (e) { console.error('fetchMyPlaylists:', e); }
+  },
+
+  toggleFollow: async (userId) => {
+    try {
+      const data = await apiFetch(`/users/${userId}/follow`, { method: 'POST' });
+      return data.following as boolean;
+    } catch (e) { console.error('toggleFollow:', e); return false; }
   },
 
   submitTrack: (sub) => {

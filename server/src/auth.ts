@@ -30,6 +30,7 @@ export interface AuthUser {
   email: string;
   role: string;
   avatar: string | null;
+  bio: string | null;
   country: string | null;
   isBlocked: boolean;
   likedTracks: string[];
@@ -68,6 +69,7 @@ function formatUser(row: any): AuthUser {
     email: row.email,
     role: row.role,
     avatar: row.avatar,
+    bio: row.bio || null,
     country: row.country || null,
     isBlocked: row.is_blocked,
     likedTracks: row.liked_tracks || [],

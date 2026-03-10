@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useStore, Track } from '../store';
+import { useStore, Track, Playlist } from '../store';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Send, Clock, CheckCircle, XCircle, Heart, LogOut,
   Settings, ChevronRight, Shield, Edit3, Camera, Save, X,
   Play, Pause, Music, Disc3, Radio,
   Activity, History, ListMusic, TrendingUp, Headphones,
-  Sparkles, Share2, UserPlus, Calendar
+  Sparkles, Share2, UserPlus, Calendar, Plus, Globe, Lock, Trash2,
+  Copy,
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { formatDuration, formatPlays } from '../utils/format';
@@ -50,7 +51,7 @@ interface HistoryTrack extends Track {
   playedAt: string;
 }
 
-type Tab = 'tracks' | 'albums' | 'history' | 'activity';
+type Tab = 'playlists' | 'tracks' | 'albums' | 'history' | 'activity';
 
 /* ─── Helpers ─── */
 
@@ -101,14 +102,16 @@ function activityLabel(type: string): { text: string; icon: React.ReactNode; col
 export default function ProfilePage() {
   const {
     currentUser, submissions, fetchMySubmissions, logout,
-    updateProfile, tracks, player, playTrack, togglePlay
+    updateProfile, tracks, player, playTrack, togglePlay,
+    playlists, fetchMyPlaylists, addPlaylist, updatePlaylist, deletePlaylist,
   } = useStore();
 
-  const [tab, setTab] = useState<Tab>('tracks');
+  const [tab, setTab] = useState<Tab>('playlists');
   const navigate = useNavigate();
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editBio, setEditBio] = useState('');
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -116,6 +119,17 @@ export default function ProfilePage() {
   const [profileStats, setProfileStats] = useState<ProfileStats | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
   const [historyTracks, setHistoryTracks] = useState<HistoryTrack[]>([]);
+
+  // Social stats
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+
+  // Create playlist modal
+  const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
+  const [newPlTitle, setNewPlTitle] = useState('');
+  const [newPlDesc, setNewPlDesc] = useState('');
+  const [newPlPublic, setNewPlPublic] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const fetchProfileData = useCallback(() => {
     const token = getToken();
@@ -141,15 +155,27 @@ export default function ProfilePage() {
       .then(r => r.ok ? r.json() : [])
       .then(d => { if (Array.isArray(d)) setHistoryTracks(d); else setHistoryTracks([]); })
       .catch(() => {});
+
+    fetch(apiUrl('/profile/followers-stats'), { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) {
+          setFollowersCount(d.followersCount || 0);
+          setFollowingCount(d.followingCount || 0);
+        }
+      })
+      .catch(() => {});
   }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
       fetchMySubmissions();
+      fetchMyPlaylists();
       setEditName(currentUser.name);
+      setEditBio(currentUser.bio || '');
       fetchProfileData();
     }
-  }, [currentUser, fetchProfileData, fetchMySubmissions]);
+  }, [currentUser, fetchProfileData, fetchMySubmissions, fetchMyPlaylists]);
 
   useEffect(() => {
     if (!currentUser) navigate('/');
@@ -237,7 +263,7 @@ export default function ProfilePage() {
   const handleSaveProfile = async () => {
     if (!editName.trim()) return;
     setSaving(true);
-    await updateProfile({ name: editName.trim() });
+    await updateProfile({ name: editName.trim(), bio: editBio.trim() });
     setSaving(false);
     setEditing(false);
   };
@@ -260,6 +286,35 @@ export default function ProfilePage() {
       }
     } catch {
       // ignore
+    }
+  };
+
+  const handleCreatePlaylist = async () => {
+    if (!newPlTitle.trim() || creating) return;
+    setCreating(true);
+    await addPlaylist(newPlTitle.trim(), [], newPlDesc.trim(), newPlPublic);
+    setNewPlTitle('');
+    setNewPlDesc('');
+    setNewPlPublic(false);
+    setShowCreatePlaylist(false);
+    setCreating(false);
+  };
+
+  const handleDeletePlaylist = async (plId: string) => {
+    if (!confirm('Удалить плейлист?')) return;
+    await deletePlaylist(plId);
+  };
+
+  const handleTogglePlaylistVisibility = async (pl: Playlist) => {
+    await updatePlaylist(pl.id, { isPublic: !pl.isPublic });
+  };
+
+  const handleShareProfile = () => {
+    const url = `${window.location.origin}/user/${currentUser!.id}`;
+    if (navigator.share) {
+      navigator.share({ title: currentUser!.name, url }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url).catch(() => {});
     }
   };
 
@@ -324,36 +379,70 @@ export default function ProfilePage() {
 
               {/* Name */}
               {editing ? (
-                <div className="flex items-center gap-2 mb-2 w-full">
+                <div className="flex flex-col gap-2 mb-2 w-full">
                   <input
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
-                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-xl font-bold text-white focus:outline-none focus:border-red-500/50 flex-1"
+                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-xl font-bold text-white focus:outline-none focus:border-red-500/50 w-full"
                     autoFocus
+                    placeholder="Имя"
                     onKeyDown={e => { if (e.key === 'Enter') handleSaveProfile(); }}
                   />
-                  <button onClick={handleSaveProfile} disabled={saving} className="p-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors">
-                    <Save size={16} />
-                  </button>
-                  <button onClick={() => { setEditing(false); setEditName(currentUser.name); }} className="p-2 bg-white/10 hover:bg-white/15 text-zinc-400 rounded-lg transition-colors">
-                    <X size={16} />
-                  </button>
+                  <textarea
+                    value={editBio}
+                    onChange={e => setEditBio(e.target.value)}
+                    className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-red-500/50 w-full resize-none"
+                    rows={2}
+                    placeholder="О себе..."
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={handleSaveProfile} disabled={saving} className="p-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors">
+                      <Save size={16} />
+                    </button>
+                    <button onClick={() => { setEditing(false); setEditName(currentUser.name); setEditBio(currentUser.bio || ''); }} className="p-2 bg-white/10 hover:bg-white/15 text-zinc-400 rounded-lg transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-black">{currentUser.name}</h1>
-                  <button onClick={() => setEditing(true)} className="p-1 text-zinc-600 hover:text-white transition-colors">
-                    <Edit3 size={14} />
-                  </button>
+                <div className="mb-1 w-full">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-black">{currentUser.name}</h1>
+                    <button onClick={() => setEditing(true)} className="p-1 text-zinc-600 hover:text-white transition-colors">
+                      <Edit3 size={14} />
+                    </button>
+                  </div>
+                  {currentUser.bio && (
+                    <p className="text-zinc-400 text-sm mt-1">{currentUser.bio}</p>
+                  )}
                 </div>
               )}
 
               {/* Role / email */}
-              <p className="text-zinc-500 text-sm mb-4 text-center md:text-left">{currentUser.email}</p>
+              <p className="text-zinc-500 text-sm mb-2 text-center md:text-left">{currentUser.email}</p>
+
+              {/* Followers / Following */}
+              <div className="flex items-center gap-4 text-sm mb-4">
+                <Link to={`/user/${currentUser.id}`} className="hover:text-white transition-colors">
+                  <span className="text-white font-bold">{followersCount}</span>{' '}
+                  <span className="text-zinc-500">подписчиков</span>
+                </Link>
+                <Link to={`/user/${currentUser.id}`} className="hover:text-white transition-colors">
+                  <span className="text-white font-bold">{followingCount}</span>{' '}
+                  <span className="text-zinc-500">подписок</span>
+                </Link>
+              </div>
 
               {/* Buttons */}
               <div className="flex flex-col gap-2 w-full mb-5">
-                <Link to="/submit" className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-white hover:bg-white/5 transition-colors">
+                <button
+                  onClick={handleShareProfile}
+                  className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-white hover:bg-white/5 transition-colors"
+                >
+                  <Share2 size={14} />
+                  Поделиться профилем
+                </button>
+                <Link to="/submit" className="flex items-center justify-center gap-2 px-4 py-2 border border-white/10 rounded-full text-sm font-medium text-zinc-400 hover:bg-white/5 hover:text-white transition-colors">
                   <Send size={14} />
                   Предложить трек
                 </Link>
@@ -514,6 +603,7 @@ export default function ProfilePage() {
             <div className="border-b border-white/5 mb-6">
               <div className="flex gap-0 overflow-x-auto scrollbar-hide">
                 {([
+                  { key: 'playlists' as Tab, label: 'Плейлисты', icon: ListMusic },
                   { key: 'tracks' as Tab, label: 'Треки', icon: Music },
                   { key: 'albums' as Tab, label: 'Альбомы', icon: Disc3 },
                   { key: 'history' as Tab, label: 'История', icon: History },
@@ -539,6 +629,130 @@ export default function ProfilePage() {
             </div>
 
             {/* ═══ Tab Content ═══ */}
+
+            {/* Playlists tab */}
+            {tab === 'playlists' && (
+              <div>
+                {/* Create playlist */}
+                {showCreatePlaylist ? (
+                  <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 mb-5">
+                    <h3 className="text-sm font-semibold mb-3">Новый плейлист</h3>
+                    <input
+                      value={newPlTitle}
+                      onChange={e => setNewPlTitle(e.target.value)}
+                      placeholder="Название плейлиста"
+                      className="w-full bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50 mb-2"
+                      autoFocus
+                      onKeyDown={e => { if (e.key === 'Enter') handleCreatePlaylist(); }}
+                    />
+                    <textarea
+                      value={newPlDesc}
+                      onChange={e => setNewPlDesc(e.target.value)}
+                      placeholder="Описание (необязательно)"
+                      className="w-full bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50 mb-3 resize-none"
+                      rows={2}
+                    />
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={newPlPublic}
+                          onChange={e => setNewPlPublic(e.target.checked)}
+                          className="rounded border-white/20"
+                        />
+                        <Globe size={13} />
+                        Публичный
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setShowCreatePlaylist(false); setNewPlTitle(''); setNewPlDesc(''); }}
+                          className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
+                        >
+                          Отмена
+                        </button>
+                        <button
+                          onClick={handleCreatePlaylist}
+                          disabled={!newPlTitle.trim() || creating}
+                          className="px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+                        >
+                          {creating ? 'Создание...' : 'Создать'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCreatePlaylist(true)}
+                    className="flex items-center gap-2 w-full px-4 py-3 border border-dashed border-white/10 rounded-xl text-sm text-zinc-400 hover:text-white hover:border-white/20 transition-colors mb-5"
+                  >
+                    <Plus size={16} />
+                    Создать плейлист
+                  </button>
+                )}
+
+                {/* Playlists list */}
+                {playlists.length > 0 ? (
+                  <div className="space-y-2">
+                    {playlists.map(pl => (
+                      <div key={pl.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] transition-colors group">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0">
+                          {pl.coverUrl ? (
+                            <img src={apiUrl(pl.coverUrl)} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
+                              <ListMusic size={18} className="text-zinc-700" />
+                            </div>
+                          )}
+                        </div>
+                        <Link to={`/playlists/${pl.id}`} className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-white truncate group-hover:text-red-400 transition-colors">{pl.title}</p>
+                          <div className="flex items-center gap-2 text-zinc-600 text-[11px]">
+                            <span>{pl.tracksCount} треков</span>
+                            {pl.isPublic ? (
+                              <span className="flex items-center gap-0.5"><Globe size={10} /> Публичный</span>
+                            ) : (
+                              <span className="flex items-center gap-0.5"><Lock size={10} /> Приватный</span>
+                            )}
+                          </div>
+                        </Link>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleTogglePlaylistVisibility(pl)}
+                            className="p-1.5 text-zinc-500 hover:text-white transition-colors"
+                            title={pl.isPublic ? 'Сделать приватным' : 'Сделать публичным'}
+                          >
+                            {pl.isPublic ? <Lock size={13} /> : <Globe size={13} />}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const url = `${window.location.origin}/playlists/${pl.id}`;
+                              navigator.clipboard.writeText(url).catch(() => {});
+                            }}
+                            className="p-1.5 text-zinc-500 hover:text-white transition-colors"
+                            title="Скопировать ссылку"
+                          >
+                            <Copy size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlaylist(pl.id)}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors"
+                            title="Удалить"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : !showCreatePlaylist ? (
+                  <div className="py-12 text-center">
+                    <ListMusic size={36} className="text-zinc-800 mx-auto mb-3" />
+                    <p className="text-zinc-500 text-sm mb-1">У вас пока нет плейлистов</p>
+                    <p className="text-zinc-700 text-xs">Создайте первый плейлист и добавьте треки</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Tracks tab — all liked tracks */}
             {tab === 'tracks' && (

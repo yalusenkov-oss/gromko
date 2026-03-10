@@ -229,6 +229,24 @@ export async function initSchema(): Promise<void> {
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
     await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_id TEXT`);
 
+    // Migration: social features — user_follows + enhanced playlists
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_follows (
+        follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        following_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (follower_id, following_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_id);
+      CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_id);
+    `);
+    await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS description TEXT`);
+    await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS cover_url TEXT`);
+    await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`);
+    await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+    // Add bio column to users for public profiles
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+
     // Migration: recommendation system tables
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_events (

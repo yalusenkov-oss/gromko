@@ -1,17 +1,20 @@
 import { useParams, Link } from 'react-router-dom';
 import { useStore, Track } from '../store';
-import { Play, Pause, Heart, Share2, Maximize2, Minimize2, Sparkles } from 'lucide-react';
+import { Play, Pause, Heart, Share2, Maximize2, Minimize2, Sparkles, ListMusic, Check, Plus } from 'lucide-react';
 import { formatDuration, formatPlays } from '../utils/format';
 import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '../lib/api';
 
 export default function TrackPage() {
   const { id } = useParams();
-  const { tracks, player, playTrack, togglePlay, toggleLike, currentUser } = useStore();
+  const { tracks, player, playTrack, togglePlay, toggleLike, currentUser, playlists, addTrackToPlaylist, addPlaylist, fetchMyPlaylists } = useStore();
   const [isFullViz, setIsFullViz] = useState(false);
   const [fetchedTrack, setFetchedTrack] = useState<Track | null>(null);
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState(false);
+  const [quickName, setQuickName] = useState('');
+  const playlistMenuRef = useRef<HTMLDivElement>(null);
 
   // If track is not in store (direct URL visit), fetch it from API
   useEffect(() => {
@@ -48,6 +51,37 @@ export default function TrackPage() {
     }
     return t.artistSlug === track.artistSlug;
   }).slice(0, 6);
+
+  // Fetch playlists for "add to playlist" dropdown
+  useEffect(() => {
+    if (currentUser) fetchMyPlaylists();
+  }, [currentUser, fetchMyPlaylists]);
+
+  // Close playlist dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (playlistMenuRef.current && !playlistMenuRef.current.contains(e.target as Node)) {
+        setShowPlaylistMenu(false);
+      }
+    }
+    if (showPlaylistMenu) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showPlaylistMenu]);
+
+  const handleAddToPlaylist = async (plId: string) => {
+    if (!track) return;
+    await addTrackToPlaylist(plId, track.id);
+    setShowPlaylistMenu(false);
+  };
+
+  const handleQuickCreate = async () => {
+    if (!quickName.trim() || !track) return;
+    const pl = await addPlaylist(quickName.trim(), [track.id]);
+    if (pl) {
+      setQuickName('');
+      setShowPlaylistMenu(false);
+    }
+  };
 
   if (!track) return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-16">
@@ -148,6 +182,62 @@ export default function TrackPage() {
                 className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all">
                 <Share2 size={18} />
               </button>
+              {/* Add to Playlist */}
+              {currentUser && (
+                <div className="relative" ref={playlistMenuRef}>
+                  <button
+                    onClick={() => setShowPlaylistMenu(!showPlaylistMenu)}
+                    className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+                    title="Добавить в плейлист"
+                  >
+                    <ListMusic size={18} />
+                  </button>
+                  {showPlaylistMenu && (
+                    <div className="absolute right-0 top-12 w-64 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl shadow-black/50 z-50 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-white/5">
+                        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Добавить в плейлист</p>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {playlists.length > 0 ? playlists.map(pl => {
+                          const already = pl.trackIds.includes(track.id);
+                          return (
+                            <button
+                              key={pl.id}
+                              onClick={() => !already && handleAddToPlaylist(pl.id)}
+                              disabled={already}
+                              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${already ? 'text-zinc-600' : 'text-white hover:bg-white/5'}`}
+                            >
+                              {already ? <Check size={14} className="text-green-400" /> : <Plus size={14} className="text-zinc-500" />}
+                              <span className="truncate flex-1">{pl.title}</span>
+                              {already && <span className="text-[10px] text-zinc-600">уже добавлен</span>}
+                            </button>
+                          );
+                        }) : (
+                          <p className="px-3 py-3 text-zinc-600 text-xs text-center">Нет плейлистов</p>
+                        )}
+                      </div>
+                      <div className="border-t border-white/5 px-3 py-2">
+                        <div className="flex gap-2">
+                          <input
+                            value={quickName}
+                            onChange={e => setQuickName(e.target.value)}
+                            placeholder="Новый плейлист..."
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50"
+                            onKeyDown={e => { if (e.key === 'Enter') handleQuickCreate(); }}
+                          />
+                          <button
+                            onClick={handleQuickCreate}
+                            disabled={!quickName.trim()}
+                            className="px-2 py-1 bg-red-500 hover:bg-red-400 disabled:bg-zinc-700 text-white text-xs rounded-lg transition-colors"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -230,13 +230,14 @@ router.get('/auth/me', authRequired, (req: Request, res: Response) => {
 /** PUT /api/auth/me — update profile */
 router.put('/auth/me', authRequired, async (req: Request, res: Response) => {
   try {
-    const { name, avatar } = req.body;
+    const { name, avatar, bio } = req.body;
     const updates: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
     if (name) { updates.push(`name = $${idx++}`); params.push(name); }
     if (avatar) { updates.push(`avatar = $${idx++}`); params.push(avatar); }
+    if (bio !== undefined) { updates.push(`bio = $${idx++}`); params.push(bio); }
 
     if (updates.length === 0) {
       return res.status(400).json({ error: 'Нечего обновлять' });
@@ -1706,6 +1707,356 @@ router.put('/admin/submissions/:id/defer', adminRequired, async (req: Request, r
 });
 
 // ═══════════════════════════════════════════════
+// PLAYLISTS API
+// ═══════════════════════════════════════════════
+
+/** GET /api/playlists/my — current user's playlists */
+router.get('/playlists/my', authRequired, async (req: Request, res: Response) => {
+  try {
+    const rows = await query(
+      `SELECT * FROM playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
+      [req.user!.id]
+    );
+    res.json(rows.map(formatPlaylistRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/playlists — create playlist */
+router.post('/playlists', authRequired, async (req: Request, res: Response) => {
+  try {
+    const { title, description, isPublic = false, trackIds = [] } = req.body;
+    if (!title) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    await execute(
+      `INSERT INTO playlists (id, title, description, user_id, track_ids, is_public, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+      [id, title, description || null, req.user!.id, trackIds, !!isPublic]
+    );
+    const row = await queryOne('SELECT * FROM playlists WHERE id = $1', [id]);
+    res.status(201).json(formatPlaylistRow(row));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/playlists/:id — get playlist with tracks */
+router.get('/playlists/:id', authOptional, async (req: Request, res: Response) => {
+  try {
+    const pl = await queryOne('SELECT * FROM playlists WHERE id = $1', [req.params.id]);
+    if (!pl) return res.status(404).json({ error: 'Плейлист не найден' });
+    // If private, only owner can see
+    if (!pl.is_public && (!req.user || req.user.id !== pl.user_id)) {
+      return res.status(403).json({ error: 'Плейлист приватный' });
+    }
+    // Fetch tracks
+    const trackIds: string[] = Array.isArray(pl.track_ids) ? pl.track_ids : [];
+    let tracks: any[] = [];
+    if (trackIds.length > 0) {
+      const placeholders = trackIds.map((_: string, i: number) => `$${i + 1}`).join(',');
+      const rows = await query(
+        `SELECT * FROM tracks WHERE id IN (${placeholders}) AND status = 'ready'`, trackIds
+      );
+      const withArtists = await attachArtists(rows);
+      const mapped = withArtists.map(formatTrackRow);
+      // Preserve playlist order
+      tracks = trackIds.map(id => mapped.find((t: any) => t.id === id)).filter(Boolean);
+    }
+    // Fetch owner info
+    const owner = await queryOne('SELECT id, name, avatar FROM users WHERE id = $1', [pl.user_id]);
+    res.json({
+      ...formatPlaylistRow(pl),
+      tracks,
+      owner: owner ? { id: owner.id, name: owner.name, avatar: owner.avatar } : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PUT /api/playlists/:id — update playlist */
+router.put('/playlists/:id', authRequired, async (req: Request, res: Response) => {
+  try {
+    const pl = await queryOne('SELECT * FROM playlists WHERE id = $1', [req.params.id]);
+    if (!pl) return res.status(404).json({ error: 'Плейлист не найден' });
+    if (pl.user_id !== req.user!.id) return res.status(403).json({ error: 'Нет доступа' });
+
+    const { title, description, isPublic, trackIds } = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (title !== undefined) { updates.push(`title = $${idx++}`); params.push(title); }
+    if (description !== undefined) { updates.push(`description = $${idx++}`); params.push(description); }
+    if (isPublic !== undefined) { updates.push(`is_public = $${idx++}`); params.push(!!isPublic); }
+    if (trackIds !== undefined) { updates.push(`track_ids = $${idx++}`); params.push(trackIds); }
+    if (updates.length === 0) return res.status(400).json({ error: 'Нечего обновлять' });
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    await execute(`UPDATE playlists SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+    const updated = await queryOne('SELECT * FROM playlists WHERE id = $1', [req.params.id]);
+    res.json(formatPlaylistRow(updated));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/playlists/:id — delete playlist */
+router.delete('/playlists/:id', authRequired, async (req: Request, res: Response) => {
+  try {
+    const pl = await queryOne('SELECT user_id FROM playlists WHERE id = $1', [req.params.id]);
+    if (!pl) return res.status(404).json({ error: 'Плейлист не найден' });
+    if (pl.user_id !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Нет доступа' });
+    }
+    await execute('DELETE FROM playlists WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/playlists/:id/tracks — add track to playlist */
+router.post('/playlists/:id/tracks', authRequired, async (req: Request, res: Response) => {
+  try {
+    const pl = await queryOne('SELECT * FROM playlists WHERE id = $1', [req.params.id]);
+    if (!pl) return res.status(404).json({ error: 'Плейлист не найден' });
+    if (pl.user_id !== req.user!.id) return res.status(403).json({ error: 'Нет доступа' });
+    const { trackId } = req.body;
+    if (!trackId) return res.status(400).json({ error: 'trackId обязателен' });
+    const current: string[] = Array.isArray(pl.track_ids) ? pl.track_ids : [];
+    if (current.includes(trackId)) return res.json({ ok: true, message: 'Уже в плейлисте' });
+    await execute(
+      `UPDATE playlists SET track_ids = array_append(track_ids, $1), updated_at = NOW() WHERE id = $2`,
+      [trackId, req.params.id]
+    );
+    // Record event for recommendations
+    recordEvent({ userId: req.user!.id, eventType: 'add_to_playlist', trackId });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/playlists/:id/tracks/:trackId — remove track from playlist */
+router.delete('/playlists/:id/tracks/:trackId', authRequired, async (req: Request, res: Response) => {
+  try {
+    const pl = await queryOne('SELECT user_id FROM playlists WHERE id = $1', [req.params.id]);
+    if (!pl) return res.status(404).json({ error: 'Плейлист не найден' });
+    if (pl.user_id !== req.user!.id) return res.status(403).json({ error: 'Нет доступа' });
+    await execute(
+      `UPDATE playlists SET track_ids = array_remove(track_ids, $1), updated_at = NOW() WHERE id = $2`,
+      [req.params.trackId, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/playlists/:id/cover — upload playlist cover */
+router.post('/playlists/:id/cover', authRequired, (req: Request, res: Response) => {
+  const pl_check = queryOne('SELECT user_id FROM playlists WHERE id = $1', [req.params.id]);
+  const coverStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(PATHS.uploads, { recursive: true });
+      cb(null, PATHS.uploads);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `playlist-${req.params.id}${ext}`);
+    },
+  });
+  const upload = multer({
+    storage: coverStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) cb(null, true);
+      else cb(new Error('Только изображения'));
+    },
+  }).single('cover');
+
+  upload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+    const pl = await pl_check;
+    if (!pl || pl.user_id !== req.user!.id) return res.status(403).json({ error: 'Нет доступа' });
+    const coverUrl = `/uploads/${req.file.filename}`;
+    await execute('UPDATE playlists SET cover_url = $1, updated_at = NOW() WHERE id = $2', [coverUrl, req.params.id]);
+    res.json({ coverUrl });
+  });
+});
+
+// ═══════════════════════════════════════════════
+// SOCIAL — FOLLOW/UNFOLLOW & PUBLIC PROFILES
+// ═══════════════════════════════════════════════
+
+/** GET /api/users/:id — public user profile */
+router.get('/users/:id', authOptional, async (req: Request, res: Response) => {
+  try {
+    const user = await queryOne(
+      `SELECT id, name, avatar, bio, created_at FROM users WHERE id = $1 AND is_blocked = false`,
+      [req.params.id]
+    );
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    // Follower / following counts
+    const [followers, following] = await Promise.all([
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM user_follows WHERE following_id = $1`, [req.params.id]),
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM user_follows WHERE follower_id = $1`, [req.params.id]),
+    ]);
+
+    // Is current user following this user?
+    let isFollowing = false;
+    if (req.user) {
+      const f = await queryOne(
+        `SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = $2`,
+        [req.user.id, req.params.id]
+      );
+      isFollowing = !!f;
+    }
+
+    // Public playlists
+    const playlists = await query(
+      `SELECT * FROM playlists WHERE user_id = $1 AND is_public = true ORDER BY updated_at DESC`,
+      [req.params.id]
+    );
+
+    // Liked tracks count
+    const likedRow = await queryOne<{ liked_tracks: string[] }>(
+      `SELECT liked_tracks FROM users WHERE id = $1`, [req.params.id]
+    );
+    const likedCount = Array.isArray(likedRow?.liked_tracks) ? likedRow!.liked_tracks.length : 0;
+
+    // Play stats
+    const [totalPlays, totalTime] = await Promise.all([
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM play_history WHERE user_id = $1`, [req.params.id]),
+      queryOne<{ s: string }>(`
+        SELECT COALESCE(SUM(CASE WHEN ph.duration_listened > 0 THEN ph.duration_listened ELSE t.duration END), 0) as s
+        FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ph.user_id = $1
+      `, [req.params.id]),
+    ]);
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      avatar: user.avatar,
+      bio: user.bio || null,
+      joinedAt: user.created_at,
+      followersCount: Number(followers?.c || 0),
+      followingCount: Number(following?.c || 0),
+      isFollowing,
+      playlists: playlists.map(formatPlaylistRow),
+      likedTracksCount: likedCount,
+      totalPlays: Number(totalPlays?.c || 0),
+      totalTimeSeconds: Number(totalTime?.s || 0),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/users/:id/follow — toggle follow */
+router.post('/users/:id/follow', authRequired, async (req: Request, res: Response) => {
+  try {
+    const targetId = req.params.id as string;
+    const userId = req.user!.id;
+    if (targetId === userId) return res.status(400).json({ error: 'Нельзя подписаться на себя' });
+
+    // Check target exists
+    const target = await queryOne('SELECT id FROM users WHERE id = $1 AND is_blocked = false', [targetId]);
+    if (!target) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    const existing = await queryOne(
+      `SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = $2`,
+      [userId, targetId]
+    );
+
+    if (existing) {
+      await execute(`DELETE FROM user_follows WHERE follower_id = $1 AND following_id = $2`, [userId, targetId]);
+      res.json({ following: false });
+    } else {
+      await execute(
+        `INSERT INTO user_follows (follower_id, following_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [userId, targetId]
+      );
+      res.json({ following: true });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/users/:id/followers — list followers */
+router.get('/users/:id/followers', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(50, Number(req.query.limit) || 20);
+    const rows = await query(`
+      SELECT u.id, u.name, u.avatar, uf.created_at as followed_at
+      FROM user_follows uf
+      JOIN users u ON u.id = uf.follower_id
+      WHERE uf.following_id = $1
+      ORDER BY uf.created_at DESC
+      LIMIT $2
+    `, [req.params.id, limit]);
+    res.json(rows.map((r: any) => ({
+      id: r.id, name: r.name, avatar: r.avatar, followedAt: r.followed_at,
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/users/:id/following — list following */
+router.get('/users/:id/following', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(50, Number(req.query.limit) || 20);
+    const rows = await query(`
+      SELECT u.id, u.name, u.avatar, uf.created_at as followed_at
+      FROM user_follows uf
+      JOIN users u ON u.id = uf.following_id
+      WHERE uf.follower_id = $1
+      ORDER BY uf.created_at DESC
+      LIMIT $2
+    `, [req.params.id, limit]);
+    res.json(rows.map((r: any) => ({
+      id: r.id, name: r.name, avatar: r.avatar, followedAt: r.followed_at,
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/users/:id/playlists — get user's public playlists */
+router.get('/users/:id/playlists', async (req: Request, res: Response) => {
+  try {
+    const rows = await query(
+      `SELECT * FROM playlists WHERE user_id = $1 AND is_public = true ORDER BY updated_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows.map(formatPlaylistRow));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/profile/followers-stats — current user's follower/following count */
+router.get('/profile/followers-stats', authRequired, async (req: Request, res: Response) => {
+  try {
+    const [followers, following] = await Promise.all([
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM user_follows WHERE following_id = $1`, [req.user!.id]),
+      queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM user_follows WHERE follower_id = $1`, [req.user!.id]),
+    ]);
+    res.json({
+      followersCount: Number(followers?.c || 0),
+      followingCount: Number(following?.c || 0),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════
 
@@ -1769,6 +2120,22 @@ function formatArtistRow(row: any) {
     photo: row.photo, banner: row.banner || null, bio: row.bio, genre: row.genre,
     tracksCount: row.tracks_count, totalPlays: row.total_plays,
     socials: { vk: row.socials_vk, instagram: row.socials_instagram, telegram: row.socials_telegram },
+  };
+}
+
+function formatPlaylistRow(row: any) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description || null,
+    userId: row.user_id,
+    trackIds: Array.isArray(row.track_ids) ? row.track_ids : [],
+    isPublic: !!row.is_public,
+    coverUrl: row.cover_url || null,
+    likesCount: Number(row.likes_count || 0),
+    tracksCount: Array.isArray(row.track_ids) ? row.track_ids.length : 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
   };
 }
 
