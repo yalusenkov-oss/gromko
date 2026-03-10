@@ -626,7 +626,7 @@ export default function Player() {
               }}
             >
               <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${player.volume * 100}%` }} />
-              <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `${player.volume * 100}%`, transform: 'translate(-50%, -50%)' }} />
+              <div className="absolute top-1/2 w-3 h-3 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `${player.volume * 100}%`, transform: 'translate(-50%, -50%)' }} />
             </div>
           </div>
           <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white transition-colors"><Maximize2 size={18} /></button>

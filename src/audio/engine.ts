@@ -82,6 +82,8 @@ class AudioEngine {
   private networkMonitorId: ReturnType<typeof setInterval> | null = null;
   private _lastMediaSessionTrackId: string | null = null; // track metadata dedup
   private _positionSyncInterval: ReturnType<typeof setInterval> | null = null;
+  private _endedFallbackFired: boolean = false; // prevent double-advance from ended + timeupdate
+  private _playRetryPending: boolean = false; // retry play on canplay if autoplay was blocked
 
   constructor() {
     this.audio = new Audio();
@@ -113,6 +115,7 @@ class AudioEngine {
     this.currentTrack = track;
     this._state = 'loading';
     this._switching = true; // flag to suppress abort errors during switch
+    this._endedFallbackFired = false; // reset for new track
     this.notify();
     this.updateMediaSessionMetadata(); // update track info for lock screen
 
@@ -128,7 +131,9 @@ class AudioEngine {
     requestAnimationFrame(() => { this._switching = false; });
 
     this.audio.play().catch(() => {
-      // Autoplay blocked by browser — expected, user needs to click
+      // Autoplay blocked by browser — expected on first interaction
+      // Don't set to paused immediately — wait a bit and retry once on canplay
+      this._playRetryPending = true;
       this._state = 'paused';
       this.notify();
       this.syncPlaybackState();
@@ -143,7 +148,17 @@ class AudioEngine {
     if (!this.currentTrack) return;
 
     if (this.audio.paused) {
-      this.audio.play().catch(() => {});
+      // If src is empty or errored, reload the track
+      if (!this.audio.src || this._state === 'error') {
+        this.play(this.currentTrack);
+        return;
+      }
+      this.audio.play().catch(() => {
+        // If play fails, try reloading the source
+        if (this.currentTrack) {
+          this.play(this.currentTrack);
+        }
+      });
     } else {
       this.audio.pause();
     }
@@ -455,9 +470,19 @@ class AudioEngine {
         this._retryCount = 0; // successful load — reset retries
         this.notify();
       }
+      // If play() was blocked by autoplay policy, retry now that data is loaded
+      if (this._playRetryPending && this.audio.paused && this.currentTrack) {
+        this._playRetryPending = false;
+        this.audio.play().catch(() => {
+          this._state = 'paused';
+          this.notify();
+        });
+      }
     });
 
     this.audio.addEventListener('ended', () => {
+      // Mark that ended fired, so timeupdate fallback doesn't double-advance
+      this._endedFallbackFired = true;
       // Media Session: explicitly set paused before advancing
       this.syncPlaybackState();
       if (this.repeat === 'one') {
@@ -528,6 +553,38 @@ class AudioEngine {
 
     this.audio.addEventListener('timeupdate', () => {
       this.notify();
+
+      // Fallback auto-advance: if within 0.5s of the end and not repeating one,
+      // trigger next() in case 'ended' event doesn't fire (background tabs, S3 streams)
+      const dur = this.audio.duration;
+      const cur = this.audio.currentTime;
+      if (dur > 0 && cur > 0 && dur - cur < 0.5 && !this._endedFallbackFired) {
+        this._endedFallbackFired = true;
+        // Small delay to let 'ended' fire naturally first
+        setTimeout(() => {
+          // Only advance if audio really ended (still at the end position)
+          if (this.audio.ended || (this.audio.duration > 0 && this.audio.duration - this.audio.currentTime < 0.5)) {
+            if (this.repeat === 'one') {
+              this.audio.currentTime = 0;
+              this.audio.play().catch(() => {});
+            } else {
+              this.next();
+            }
+          }
+        }, 800);
+      }
+      // Reset flag when not near end (e.g. new track or seek)
+      if (dur > 0 && dur - cur > 2) {
+        this._endedFallbackFired = false;
+      }
+    });
+
+    // Handle stalled playback — if audio is stalled for too long, attempt recovery
+    this.audio.addEventListener('stalled', () => {
+      if (this._state === 'playing' || this._state === 'loading') {
+        this._state = 'buffering';
+        this.notify();
+      }
     });
 
     // Volume sync

@@ -1932,6 +1932,11 @@ function SpotifyImportTab() {
                 type="text"
                 value={url}
                 onChange={e => setUrl(e.target.value)}
+                onPaste={e => {
+                  e.preventDefault();
+                  const pasted = e.clipboardData.getData('text').trim();
+                  setUrl(pasted);
+                }}
                 placeholder="https://open.spotify.com/album/... или /track/..."
                 className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-green-500/50"
                 onKeyDown={e => e.key === 'Enter' && handlePreview()}

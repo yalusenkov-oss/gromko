@@ -121,7 +121,7 @@ export default function AuthModal() {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
       {/* Modal */}
-      <div className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 p-6 animate-in max-h-[90vh] overflow-y-auto ${step === 'artists' ? 'max-w-lg' : 'max-w-sm'}`}>
+      <div className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 animate-in ${step === 'artists' ? 'max-w-lg flex flex-col max-h-[85vh]' : 'max-w-sm p-6 max-h-[90vh] overflow-y-auto'}`}>
         {/* Close button */}
         <button
           onClick={step === 'artists' ? handleFinishOnboarding : closeAuthModal}
@@ -131,68 +131,75 @@ export default function AuthModal() {
         </button>
 
         {step === 'artists' ? (
-          /* Artist preference picker */
+          /* Artist preference picker — fixed header/footer, scrollable grid */
           <>
-            <div className="text-center mb-5">
-              <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center mx-auto mb-3">
-                <Music2 size={24} className="text-white" />
+            {/* Fixed header */}
+            <div className="shrink-0 p-6 pb-0">
+              <div className="text-center mb-4">
+                <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Music2 size={24} className="text-white" />
+                </div>
+                <h2 className="text-xl font-black text-white">Выберите артистов</h2>
+                <p className="text-zinc-500 text-sm mt-1">
+                  Выберите исполнителей, которые вам нравятся
+                </p>
               </div>
-              <h2 className="text-xl font-black text-white">Выберите артистов</h2>
-              <p className="text-zinc-500 text-sm mt-1">
-                Выберите исполнителей, которые вам нравятся
-              </p>
+
+              {/* Search */}
+              <div className="relative mb-4">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  value={artistSearch}
+                  onChange={e => setArtistSearch(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                  placeholder="Поиск артистов..."
+                />
+              </div>
             </div>
 
-            {/* Search */}
-            <div className="relative mb-4">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input
-                value={artistSearch}
-                onChange={e => setArtistSearch(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-                placeholder="Поиск артистов..."
-              />
+            {/* Scrollable artist grid */}
+            <div className="flex-1 overflow-y-auto px-6 min-h-0">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pb-2">
+                {displayArtists.map(artist => {
+                  const isSelected = selectedArtists.includes(artist.slug);
+                  return (
+                    <button
+                      key={artist.id}
+                      onClick={() => toggleArtistSelect(artist.slug)}
+                      className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-red-500/20 ring-2 ring-red-500' : 'bg-white/5 hover:bg-white/10'}`}
+                    >
+                      <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden mb-1.5">
+                        {artist.photo ? (
+                          <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                            <Music2 size={20} className="text-zinc-600" />
+                          </div>
+                        )}
+                        {isSelected && (
+                          <div className="absolute inset-0 bg-red-500/40 flex items-center justify-center">
+                            <Check size={20} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-white text-xs font-medium truncate w-full text-center">{artist.name}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Artist grid */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-5 max-h-[50vh] overflow-y-auto pr-1">
-              {displayArtists.map(artist => {
-                const isSelected = selectedArtists.includes(artist.slug);
-                return (
-                  <button
-                    key={artist.id}
-                    onClick={() => toggleArtistSelect(artist.slug)}
-                    className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-red-500/20 ring-2 ring-red-500' : 'bg-white/5 hover:bg-white/10'}`}
-                  >
-                    <div className="relative w-16 h-16 rounded-full overflow-hidden mb-1.5">
-                      {artist.photo ? (
-                        <img src={artist.photo} alt={artist.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                          <Music2 size={20} className="text-zinc-600" />
-                        </div>
-                      )}
-                      {isSelected && (
-                        <div className="absolute inset-0 bg-red-500/40 flex items-center justify-center">
-                          <Check size={20} className="text-white" />
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-white text-xs font-medium truncate w-full text-center">{artist.name}</p>
-                  </button>
-                );
-              })}
+            {/* Fixed footer — always visible */}
+            <div className="shrink-0 p-6 pt-4 border-t border-white/5">
+              <button
+                onClick={handleFinishOnboarding}
+                className="w-full py-3 bg-red-500 hover:bg-red-400 text-white font-semibold rounded-xl transition-all text-sm"
+              >
+                {selectedArtists.length > 0
+                  ? `Готово (${selectedArtists.length} выбрано)`
+                  : 'Пропустить'}
+              </button>
             </div>
-
-            {/* Done button */}
-            <button
-              onClick={handleFinishOnboarding}
-              className="w-full py-3 bg-red-500 hover:bg-red-400 text-white font-semibold rounded-xl transition-all text-sm"
-            >
-              {selectedArtists.length > 0
-                ? `Готово (${selectedArtists.length} выбрано)`
-                : 'Пропустить'}
-            </button>
           </>
         ) : (
           /* Login / Register form */
