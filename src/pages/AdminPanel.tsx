@@ -213,6 +213,9 @@ function DashboardTab() {
 
       {/* Maintenance: fix covers */}
       <FixCoversCard />
+
+      {/* Maintenance: fix metadata */}
+      <FixMetadataCard />
     </div>
   );
 }
@@ -269,6 +272,75 @@ function FixCoversCard() {
             className="rounded border-zinc-600 bg-zinc-800 text-purple-500 focus:ring-purple-500 cursor-pointer"
           />
           Пересканировать все (включая имеющиеся)
+        </label>
+      </div>
+      {result && (
+        <div className={`mt-3 px-4 py-2.5 rounded-lg text-sm ${
+          result.fixing && result.fixing > 0
+            ? 'bg-emerald-950/40 border border-emerald-800/50 text-emerald-300'
+            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-300'
+        }`}>
+          {result.message}
+          {result.fixing && result.fixing > 0 && (
+            <span className="block text-xs text-emerald-400/70 mt-1">Прогресс виден в логах сервера (pm2 logs)</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  FIX METADATA CARD (maintenance tool)           */
+/* ═══════════════════════════════════════════════ */
+
+function FixMetadataCard() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [result, setResult] = useState<{ message: string; fixing?: number; fixed?: number; total?: number } | null>(null);
+  const [force, setForce] = useState(false);
+
+  const runFixMetadata = async () => {
+    setStatus('loading');
+    setResult(null);
+    try {
+      const data = await adminFetch('/admin/tracks/fix-metadata', {
+        method: 'POST',
+        body: JSON.stringify({ force }),
+      });
+      setResult(data);
+      setStatus('done');
+    } catch (err: any) {
+      setResult({ message: 'Ошибка: ' + err.message });
+      setStatus('done');
+    }
+  };
+
+  return (
+    <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+      <div className="flex items-center gap-3 mb-3">
+        <Tag className="w-5 h-5 text-amber-400" />
+        <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide">Метаданные треков</h3>
+      </div>
+      <p className="text-xs text-zinc-500 mb-4">
+        Обогащение недостающих данных через iTunes и Deezer: жанр, explicit, год, BPM, альбом, лейбл, ISRC и дата релиза.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={runFixMetadata}
+          disabled={status === 'loading'}
+          className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition"
+        >
+          {status === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
+          {status === 'loading' ? 'Сканирование...' : 'Обогатить метаданные'}
+        </button>
+        <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={e => setForce(e.target.checked)}
+            className="rounded border-zinc-600 bg-zinc-800 text-amber-500 focus:ring-amber-500 cursor-pointer"
+          />
+          Пересканировать все (включая заполненные)
         </label>
       </div>
       {result && (

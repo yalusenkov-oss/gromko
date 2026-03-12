@@ -245,6 +245,51 @@ export default function TrackPage() {
           </div>
         </div>
 
+        {/* Track metadata details */}
+        {(track.genre || track.meta?.album || track.meta?.label || track.meta?.bpm || track.meta?.releaseDate || track.meta?.isrc) && (
+          <div className="mb-12">
+            <h3 className="text-zinc-500 text-xs uppercase tracking-widest mb-3">Информация</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {track.genre && track.genre !== 'Другое' && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Жанр</div>
+                  <div className="text-sm text-white font-medium">{track.genre}</div>
+                </div>
+              )}
+              {track.meta?.album && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Альбом</div>
+                  <div className="text-sm text-white font-medium truncate">{track.meta.album}</div>
+                </div>
+              )}
+              {track.meta?.releaseDate && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Дата релиза</div>
+                  <div className="text-sm text-white font-medium">{new Date(track.meta.releaseDate).toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                </div>
+              )}
+              {track.meta?.label && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Лейбл</div>
+                  <div className="text-sm text-white font-medium truncate">{track.meta.label}</div>
+                </div>
+              )}
+              {track.meta?.bpm && track.meta.bpm > 0 && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">BPM</div>
+                  <div className="text-sm text-white font-medium">{track.meta.bpm}</div>
+                </div>
+              )}
+              {track.meta?.isrc && (
+                <div className="bg-white/5 rounded-lg px-3 py-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">ISRC</div>
+                  <div className="text-sm text-white font-mono text-xs">{track.meta.isrc}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Waveform */}
         <div className="mb-12">
           <h3 className="text-zinc-500 text-xs uppercase tracking-widest mb-3">Визуализация</h3>

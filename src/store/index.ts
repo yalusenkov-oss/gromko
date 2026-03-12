@@ -22,7 +22,7 @@ export interface Track {
   streams?: { low?: string; medium?: string; high?: string; lossless?: string };
   hlsMaster?: string;
   waveform?: number[];
-  meta?: { album?: string; bpm?: number; loudness?: number };
+  meta?: { album?: string; bpm?: number; loudness?: number; label?: string; isrc?: string; releaseDate?: string };
   createdAt?: string;
 }
 

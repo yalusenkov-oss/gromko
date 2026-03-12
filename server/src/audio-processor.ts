@@ -202,6 +202,318 @@ export async function fetchExternalCover(artist?: string, title?: string, album?
   return undefined;
 }
 
+// ─────────────────────────────────────────────
+// External Metadata Enrichment (iTunes + Deezer)
+// ─────────────────────────────────────────────
+
+export interface ExternalMeta {
+  genre?: string;
+  explicit?: boolean;
+  year?: number;
+  releaseDate?: string;   // ISO date e.g. "2023-03-15"
+  album?: string;
+  bpm?: number;
+  isrc?: string;
+  label?: string;
+  deezerBpm?: number;
+  source: 'itunes' | 'deezer';
+}
+
+/** Genre mapping from iTunes/Deezer genres to our supported GENRES */
+const EXTERNAL_GENRE_MAP: [RegExp, string][] = [
+  [/hip[\s\-]*hop|хип[\s\-]*хоп/i, 'Хип-хоп'],
+  [/^rap$|рэп|рап/i, 'Рэп'],
+  [/^trap$|трэп/i, 'Trap'],
+  [/r\s*[&n]\s*b|rhythm.*blues|soul|рнб/i, 'R&B'],
+  [/drill|дрилл/i, 'Drill'],
+  [/phonk|фонк/i, 'Phonk'],
+  [/pop|поп/i, 'Pop'],
+  [/rock|рок|punk|metal|grunge|alternative/i, 'Rock'],
+  [/electro|edm|techno|house|trance|dubstep|drum.*bass|dnb|ambient|synth|idm|bass.*music|future|электрон/i, 'Electronic'],
+];
+
+function mapExternalGenre(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const t = raw.trim();
+  // Direct match to our genres
+  const GENRES_SET = new Set(['Хип-хоп', 'Рэп', 'Trap', 'R&B', 'Drill', 'Phonk', 'Pop', 'Rock', 'Electronic', 'Другое']);
+  if (GENRES_SET.has(t)) return t;
+  for (const [re, genre] of EXTERNAL_GENRE_MAP) {
+    if (re.test(t)) return genre;
+  }
+  return undefined;
+}
+
+/**
+ * Fetch metadata from external APIs (iTunes + Deezer) for a given track.
+ * Returns enriched metadata or undefined if nothing found.
+ */
+export async function fetchExternalMetadata(
+  artist?: string,
+  title?: string,
+  album?: string,
+): Promise<ExternalMeta | undefined> {
+  if (!artist && !title) return undefined;
+
+  const queries: string[] = [];
+  if (artist && title) queries.push(`${artist} ${title}`);
+  if (artist && album) queries.push(`${artist} ${album}`);
+  if (artist) queries.push(artist);
+
+  let itunesResult: any = null;
+  let deezerResult: any = null;
+
+  // ── Try iTunes Search API ──
+  for (const q of queries) {
+    if (itunesResult) break;
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=10`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+          // Find best match: prefer exact artist + title match
+          if (artist && title) {
+            const aLower = artist.toLowerCase().trim();
+            const tLower = title.toLowerCase().trim();
+            const exact = data.results.find((r: any) =>
+              r.artistName?.toLowerCase().trim() === aLower &&
+              r.trackName?.toLowerCase().trim() === tLower
+            );
+            if (exact) { itunesResult = exact; break; }
+            // Try just artist match
+            const artistMatch = data.results.find((r: any) =>
+              r.artistName?.toLowerCase().trim() === aLower
+            );
+            if (artistMatch) { itunesResult = artistMatch; break; }
+          }
+          itunesResult = data.results[0];
+        }
+      }
+    } catch { /* continue */ }
+  }
+
+  // ── Try Deezer API ──
+  for (const q of queries) {
+    if (deezerResult) break;
+    try {
+      const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=10`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          if (artist && title) {
+            const aLower = artist.toLowerCase().trim();
+            const tLower = title.toLowerCase().trim();
+            const exact = data.data.find((r: any) =>
+              r.artist?.name?.toLowerCase().trim() === aLower &&
+              r.title?.toLowerCase().trim() === tLower
+            );
+            if (exact) { deezerResult = exact; break; }
+            const artistMatch = data.data.find((r: any) =>
+              r.artist?.name?.toLowerCase().trim() === aLower
+            );
+            if (artistMatch) { deezerResult = artistMatch; break; }
+          }
+          deezerResult = data.data[0];
+        }
+      }
+    } catch { /* continue */ }
+  }
+
+  if (!itunesResult && !deezerResult) return undefined;
+
+  // Merge results: iTunes is better for genre/explicit/label/year, Deezer for BPM/ISRC
+  const meta: ExternalMeta = { source: itunesResult ? 'itunes' : 'deezer' };
+
+  // ── Genre ──
+  if (itunesResult?.primaryGenreName) {
+    meta.genre = mapExternalGenre(itunesResult.primaryGenreName) || undefined;
+  }
+  if (!meta.genre && deezerResult) {
+    // Deezer: need to fetch track details for genre info
+    // For now, genre from album data or artist
+  }
+
+  // ── Explicit ──
+  if (itunesResult) {
+    // iTunes: trackExplicitness = "explicit" | "notExplicit" | "cleaned"
+    meta.explicit = itunesResult.trackExplicitness === 'explicit' ||
+                    itunesResult.collectionExplicitness === 'explicit';
+  }
+  if (meta.explicit === undefined && deezerResult) {
+    meta.explicit = deezerResult.explicit_lyrics === true;
+  }
+
+  // ── Year & Release Date ──
+  if (itunesResult?.releaseDate) {
+    // iTunes releaseDate: "2023-03-15T12:00:00Z"
+    const d = new Date(itunesResult.releaseDate);
+    if (!isNaN(d.getTime())) {
+      meta.year = d.getFullYear();
+      meta.releaseDate = d.toISOString().slice(0, 10); // "2023-03-15"
+    }
+  }
+
+  // ── Album ──
+  if (itunesResult?.collectionName) {
+    meta.album = itunesResult.collectionName;
+  } else if (deezerResult?.album?.title) {
+    meta.album = deezerResult.album.title;
+  }
+
+  // ── Label ──
+  // iTunes doesn't return label in search, but does in lookup
+  // We can try lookup if we have a trackId from iTunes
+  if (itunesResult?.trackId) {
+    try {
+      const lookupUrl = `https://itunes.apple.com/lookup?id=${itunesResult.trackId}`;
+      const lookupRes = await fetch(lookupUrl, { signal: AbortSignal.timeout(5000) });
+      if (lookupRes.ok) {
+        const lookupData = await lookupRes.json();
+        const r = lookupData.results?.[0];
+        if (r?.copyright) {
+          // Extract label from copyright: "℗ 2023 Label Name" → "Label Name"
+          const labelMatch = r.copyright.match(/(?:℗|©|\(P\))\s*\d{4}\s+(.+)/);
+          if (labelMatch) meta.label = labelMatch[1].trim();
+          else meta.label = r.copyright;
+        }
+      }
+    } catch { /* no label */ }
+  }
+
+  // ── Deezer: BPM + ISRC ──
+  if (deezerResult?.id) {
+    try {
+      const trackUrl = `https://api.deezer.com/track/${deezerResult.id}`;
+      const dRes = await fetch(trackUrl, { signal: AbortSignal.timeout(5000) });
+      if (dRes.ok) {
+        const detail = await dRes.json();
+        if (detail.bpm && detail.bpm > 0) meta.bpm = Math.round(detail.bpm);
+        if (detail.isrc) meta.isrc = detail.isrc;
+        // If no genre yet, try Deezer genre from album
+        if (!meta.genre && detail.album?.genre_id) {
+          // Map Deezer genre IDs
+          const deezerGenreMap: Record<number, string> = {
+            116: 'Рэп',   // Rap/Hip Hop
+            152: 'Рэп',   // Rap
+            85: 'Pop',
+            132: 'Pop',
+            106: 'Electronic',
+            113: 'Rock',
+            165: 'R&B',
+            169: 'R&B',   // Soul & Funk
+          };
+          meta.genre = deezerGenreMap[detail.album.genre_id] || undefined;
+        }
+        // Also check explicit from Deezer if not yet set
+        if (meta.explicit === undefined) {
+          meta.explicit = detail.explicit_lyrics === true;
+        }
+      }
+    } catch { /* no Deezer details */ }
+  }
+
+  // Only return if we have at least something useful
+  const hasUseful = meta.genre || meta.explicit !== undefined || meta.year ||
+                    meta.bpm || meta.album || meta.label || meta.isrc || meta.releaseDate;
+  return hasUseful ? meta : undefined;
+}
+
+/**
+ * Fix metadata for an existing track — fetches from external APIs and updates DB.
+ * Returns the updated fields or null if nothing found.
+ */
+export async function fixTrackMetadata(
+  trackId: string,
+  artist: string,
+  title: string,
+  currentGenre?: string,
+  currentExplicit?: boolean,
+  currentYear?: number,
+  currentAlbum?: string,
+  currentBpm?: number,
+): Promise<Record<string, any> | null> {
+  const extMeta = await fetchExternalMetadata(artist, title, currentAlbum);
+  if (!extMeta) return null;
+
+  const updates: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+  const changed: Record<string, any> = {};
+
+  // Genre: only update if current is "Другое" (the default placeholder)
+  if (extMeta.genre && (!currentGenre || currentGenre === 'Другое')) {
+    updates.push(`genre = $${idx++}`);
+    params.push(extMeta.genre);
+    changed.genre = extMeta.genre;
+  }
+
+  // Explicit: only update if currently false (default)
+  if (extMeta.explicit === true && !currentExplicit) {
+    updates.push(`explicit = $${idx++}`);
+    params.push(true);
+    changed.explicit = true;
+  }
+
+  // Year: only update if current is this year or next year (likely a default)
+  const thisYear = new Date().getFullYear();
+  if (extMeta.year && (!currentYear || currentYear >= thisYear - 1)) {
+    // Only update if the API year differs significantly
+    if (extMeta.year !== currentYear) {
+      updates.push(`year = $${idx++}`);
+      params.push(extMeta.year);
+      changed.year = extMeta.year;
+    }
+  }
+
+  // Album: only update if empty
+  if (extMeta.album && !currentAlbum) {
+    updates.push(`meta_album = $${idx++}`);
+    params.push(extMeta.album);
+    changed.album = extMeta.album;
+  }
+
+  // BPM: only update if empty
+  if (extMeta.bpm && !currentBpm) {
+    updates.push(`meta_bpm = $${idx++}`);
+    params.push(extMeta.bpm);
+    changed.bpm = extMeta.bpm;
+  }
+
+  // Release date: always update if available and column exists
+  if (extMeta.releaseDate) {
+    updates.push(`release_date = $${idx++}`);
+    params.push(extMeta.releaseDate);
+    changed.releaseDate = extMeta.releaseDate;
+  }
+
+  // Label
+  if (extMeta.label) {
+    updates.push(`meta_label = $${idx++}`);
+    params.push(extMeta.label);
+    changed.label = extMeta.label;
+  }
+
+  // ISRC
+  if (extMeta.isrc) {
+    updates.push(`meta_isrc = $${idx++}`);
+    params.push(extMeta.isrc);
+    changed.isrc = extMeta.isrc;
+  }
+
+  if (updates.length === 0) return null;
+
+  updates.push(`updated_at = NOW()`);
+  params.push(trackId);
+  await execute(
+    `UPDATE tracks SET ${updates.join(', ')} WHERE id = $${idx}`,
+    params
+  );
+
+  return changed;
+}
+
 export async function processCoverArt(
   trackId: string,
   coverBuffer?: Buffer,
