@@ -4,7 +4,7 @@ import { formatDuration } from '../utils/format';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
   Volume2, VolumeX, Heart, Maximize2, ChevronDown, MoreHorizontal,
-  Disc3, Mic2, Share2, ListPlus, Info, X as XIcon
+  Disc3, Mic2, Share2, ListPlus, Info, X as XIcon, ThumbsDown
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -181,8 +181,8 @@ export default function Player() {
 
   // Compute prev/next tracks for mini-player carousel
   const queueIdx = player.queue.findIndex(q => q.id === t.id);
-  const prevTrackData = queueIdx > 0 ? player.queue[queueIdx - 1] : player.queue[player.queue.length - 1];
-  const nextTrackData = queueIdx < player.queue.length - 1 ? player.queue[queueIdx + 1] : player.queue[0];
+  const prevTrackData = queueIdx > 0 ? player.queue[queueIdx - 1] : null;
+  const nextTrackData = queueIdx < player.queue.length - 1 ? player.queue[queueIdx + 1] : null;
 
   // Swipe-down handlers for the fullscreen header area
   const handleSwipeStart = (e: React.TouchEvent) => {
@@ -369,6 +369,18 @@ export default function Player() {
             >
               <Heart size={18} className={isLiked ? 'text-red-500' : 'text-zinc-400'} fill={isLiked ? 'currentColor' : 'none'} />
               <span className="text-white text-sm">{isLiked ? 'Убрать из любимого' : 'Нравится'}</span>
+            </button>
+            <button
+              onClick={() => {
+                trackEvent('dislike', { trackId: t.id });
+                // Skip to next track
+                audioEngine.next();
+                setShowMenu(false);
+              }}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+            >
+              <ThumbsDown size={18} className="text-zinc-400" />
+              <span className="text-white text-sm">Не нравится</span>
             </button>
             <button
               onClick={() => { useStore.getState().queueNext(t); setShowMenu(false); }}

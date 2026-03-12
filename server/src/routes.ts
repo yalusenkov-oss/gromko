@@ -711,7 +711,7 @@ router.post('/events', authRequired, async (req: Request, res: Response) => {
 
   if (!eventType) return res.status(400).json({ error: 'eventType required' });
 
-  const validEvents = ['play', 'finish', 'skip', 'replay', 'like', 'unlike',
+  const validEvents = ['play', 'finish', 'skip', 'replay', 'like', 'unlike', 'dislike',
     'add_to_playlist', 'share', 'follow_artist', 'open_track', 'open_artist',
     'search', 'queue_next'];
   if (!validEvents.includes(eventType)) {
@@ -2825,6 +2825,16 @@ router.get('/admin/spotify/jobs/:id', adminRequired, async (req: Request, res: R
 // LISTENING ROOMS — in-memory real-time sync
 // ═══════════════════════════════════════════════
 
+interface RoomSuggestion {
+  trackId: string;
+  trackTitle: string;
+  trackArtist: string;
+  trackCover: string;
+  suggestedBy: string;
+  suggestedByName: string;
+  suggestedAt: number;
+}
+
 interface ListeningRoom {
   hostId: string;
   trackId: string;
@@ -2836,6 +2846,7 @@ interface ListeningRoom {
   isPublic: boolean; // true = visible to everyone, false = invite-only (by link)
   updatedAt: number;
   listeners: Map<string, { userId: string; name: string; avatar: string; joinedAt: number }>;
+  suggestions: RoomSuggestion[];
 }
 
 const listeningRooms = new Map<string, ListeningRoom>();
@@ -2866,12 +2877,13 @@ router.put('/listening-room', authRequired, async (req: Request, res: Response) 
       isPublic: isPublic ?? existing?.isPublic ?? true,
       updatedAt: Date.now(),
       listeners: existing?.listeners || new Map(),
+      suggestions: existing?.suggestions || [],
     };
     listeningRooms.set(hostId, room);
     const listeners = Array.from(room.listeners.values()).map(l => ({
       userId: l.userId, name: l.name, avatar: l.avatar,
     }));
-    res.json({ ok: true, listenersCount: listeners.length, listeners });
+    res.json({ ok: true, listenersCount: listeners.length, listeners, suggestions: room.suggestions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2901,6 +2913,7 @@ router.get('/listening-room/:hostId', authOptional, (req: Request, res: Response
     isPlaying: room.isPlaying,
     listenersCount: listeners.length,
     listeners,
+    suggestions: room.suggestions,
   });
 });
 
@@ -2930,6 +2943,62 @@ router.post('/listening-room/:hostId/leave', authRequired, (req: Request, res: R
   const room = listeningRooms.get(hostId);
   if (room) room.listeners.delete(req.user!.id);
   res.json({ ok: true });
+});
+
+/** POST /api/listening-room/:hostId/suggest — suggest a track to play next */
+router.post('/listening-room/:hostId/suggest', authRequired, async (req: Request, res: Response) => {
+  try {
+    const hostId = req.params.hostId as string;
+    const room = listeningRooms.get(hostId);
+    if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+
+    const { trackId } = req.body;
+    if (!trackId) return res.status(400).json({ error: 'trackId обязателен' });
+
+    // Prevent duplicates
+    if (room.suggestions.some(s => s.trackId === trackId)) {
+      return res.status(409).json({ error: 'Трек уже предложен' });
+    }
+
+    // Limit to 20 suggestions
+    if (room.suggestions.length >= 20) {
+      return res.status(400).json({ error: 'Слишком много предложений' });
+    }
+
+    // Get track info
+    const track = await queryOne<{ id: string; title: string; artist: string; cover: string }>(
+      'SELECT id, title, artist, cover FROM tracks WHERE id = $1', [trackId]
+    );
+    if (!track) return res.status(404).json({ error: 'Трек не найден' });
+
+    // Get suggester name
+    const user = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.id]);
+
+    room.suggestions.push({
+      trackId: track.id,
+      trackTitle: track.title,
+      trackArtist: track.artist,
+      trackCover: track.cover || '',
+      suggestedBy: req.user!.id,
+      suggestedByName: user?.name || 'Unknown',
+      suggestedAt: Date.now(),
+    });
+
+    res.json({ ok: true, suggestions: room.suggestions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/listening-room/:hostId/suggest/:trackId — host removes a suggestion (or accept it) */
+router.delete('/listening-room/:hostId/suggest/:trackId', authRequired, (req: Request, res: Response) => {
+  const hostId = req.params.hostId as string;
+  const room = listeningRooms.get(hostId);
+  if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+  // Only host can remove suggestions
+  if (req.user!.id !== hostId) return res.status(403).json({ error: 'Только хост может управлять предложениями' });
+  room.suggestions = room.suggestions.filter(s => s.trackId !== req.params.trackId);
+  res.json({ ok: true, suggestions: room.suggestions });
 });
 
 // ═══════════════════════════════════════════════

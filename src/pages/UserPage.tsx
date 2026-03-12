@@ -14,7 +14,7 @@ import { Equalizer } from '../components/lk/Equalizer';
 
 import {
   UserPlus, UserMinus, Users, ListMusic, Share2,
-  Radio, Headphones, LogOut, RotateCcw,
+  Radio, Headphones, LogOut, RotateCcw, ListPlus, Search,
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════
@@ -68,9 +68,15 @@ interface HistoryTrack extends Track {
   playedAt?: string;
 }
 
+type RoomSuggestion = {
+  trackId: string; trackTitle: string; trackArtist: string; trackCover: string;
+  suggestedBy: string; suggestedByName: string;
+};
+
 type RoomState = {
   trackId: string; trackTitle: string; trackArtist: string; trackCover: string;
   progress: number; isPlaying: boolean; listenersCount: number;
+  suggestions?: RoomSuggestion[];
 };
 
 /* ═══════════════════════════════════════════════════════
@@ -264,6 +270,9 @@ export default function UserPage() {
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [joinedRoom, setJoinedRoom] = useState(false);
   const [roomDesync, setRoomDesync] = useState(false); // true when listener manually paused/seeked/changed track
+  const [suggestQuery, setSuggestQuery] = useState('');
+  const [suggestResults, setSuggestResults] = useState<Track[]>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Recommendation picks (for this user) ──
   const [recPicks, setRecPicks] = useState<{ trackOfWeek: Track | null; discovery: Track | null }>({ trackOfWeek: null, discovery: null });
@@ -532,6 +541,41 @@ export default function UserPage() {
     } catch { /* ignore */ }
   };
 
+  const handleSuggestTrack = async (trackId: string) => {
+    if (!id) return;
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(apiUrl(`/listening-room/${id}/suggest`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoomState(prev => prev ? { ...prev, suggestions: data.suggestions } : prev);
+        setSuggestQuery('');
+        setSuggestResults([]);
+        addToast('🎵 Трек предложен');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        addToast(err.error || 'Не удалось предложить трек');
+      }
+    } catch { addToast('Ошибка сети'); }
+  };
+
+  const handleSuggestSearch = (q: string) => {
+    setSuggestQuery(q);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!q.trim()) { setSuggestResults([]); return; }
+    suggestTimer.current = setTimeout(() => {
+      fetch(apiUrl(`/search?q=${encodeURIComponent(q.trim())}`))
+        .then(r => r.ok ? r.json() : { tracks: [] })
+        .then(d => setSuggestResults((d.tracks || []).slice(0, 6)))
+        .catch(() => {});
+    }, 300);
+  };
+
   const handleShare = () => {
     if (!id) return;
     const url = `${window.location.origin}/user/${id}`;
@@ -664,6 +708,60 @@ export default function UserPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Suggest track — when joined */}
+            {joinedRoom && roomState && (
+              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <ListPlus size={16} className="text-gromq-green" />
+                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Предложить трек</h2>
+                </div>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gromq-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    value={suggestQuery}
+                    onChange={e => handleSuggestSearch(e.target.value)}
+                    placeholder="Поиск трека..."
+                    className="w-full bg-gromq-surface border border-gromq-border rounded-lg pl-9 pr-3 py-2 text-sm text-gromq-text placeholder:text-gromq-muted focus:outline-none focus:border-gromq-green/50"
+                  />
+                </div>
+                {suggestResults.length > 0 && (
+                  <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                    {suggestResults.map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleSuggestTrack(t.id)}
+                        className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gromq-surface transition-colors text-left"
+                      >
+                        <img src={t.cover} alt="" className="w-8 h-8 rounded object-cover" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gromq-text truncate">{t.title}</p>
+                          <p className="text-xs text-gromq-muted truncate">{t.artist}</p>
+                        </div>
+                        <ListPlus size={14} className="text-gromq-green shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Suggestions list */}
+                {roomState.suggestions && roomState.suggestions.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gromq-border space-y-1.5">
+                    <p className="text-xs text-gromq-muted font-medium">Предложенные треки:</p>
+                    {roomState.suggestions.map(s => (
+                      <div key={s.trackId} className="flex items-center gap-3 p-2 rounded-lg bg-gromq-surface">
+                        <img src={s.trackCover} alt="" className="w-8 h-8 rounded object-cover" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gromq-text truncate">{s.trackTitle}</p>
+                          <p className="text-xs text-gromq-muted truncate">{s.trackArtist}</p>
+                        </div>
+                        <span className="text-[10px] text-gromq-muted shrink-0">{s.suggestedByName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -802,6 +900,58 @@ export default function UserPage() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+          {/* Mobile: suggest track */}
+          {joinedRoom && roomState && (
+            <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ListPlus size={16} className="text-gromq-green" />
+                <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Предложить трек</h2>
+              </div>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gromq-muted pointer-events-none" />
+                <input
+                  type="text"
+                  value={suggestQuery}
+                  onChange={e => handleSuggestSearch(e.target.value)}
+                  placeholder="Поиск трека..."
+                  className="w-full bg-gromq-surface border border-gromq-border rounded-lg pl-9 pr-3 py-2 text-base sm:text-sm text-gromq-text placeholder:text-gromq-muted focus:outline-none focus:border-gromq-green/50"
+                />
+              </div>
+              {suggestResults.length > 0 && (
+                <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                  {suggestResults.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => handleSuggestTrack(t.id)}
+                      className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gromq-surface transition-colors text-left"
+                    >
+                      <img src={t.cover} alt="" className="w-8 h-8 rounded object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-gromq-text truncate">{t.title}</p>
+                        <p className="text-xs text-gromq-muted truncate">{t.artist}</p>
+                      </div>
+                      <ListPlus size={14} className="text-gromq-green shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {roomState.suggestions && roomState.suggestions.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gromq-border space-y-1.5">
+                  <p className="text-xs text-gromq-muted font-medium">Предложенные треки:</p>
+                  {roomState.suggestions.map(s => (
+                    <div key={s.trackId} className="flex items-center gap-3 p-2 rounded-lg bg-gromq-surface">
+                      <img src={s.trackCover} alt="" className="w-8 h-8 rounded object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-gromq-text truncate">{s.trackTitle}</p>
+                        <p className="text-xs text-gromq-muted truncate">{s.trackArtist}</p>
+                      </div>
+                      <span className="text-[10px] text-gromq-muted shrink-0">{s.suggestedByName}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <Playlists

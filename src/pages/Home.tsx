@@ -6,19 +6,21 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState, useEffect } from 'react';
 import { apiUrl } from '../lib/api';
 
-function useRecommendations(endpoint: string, enabled: boolean): Track[] {
+function useRecommendations(endpoint: string, enabled: boolean): { data: Track[]; loading: boolean } {
   const [data, setData] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(enabled);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) { setLoading(false); return; }
+    setLoading(true);
     const token = localStorage.getItem('gromko_token');
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     fetch(apiUrl(endpoint), { headers })
       .then(r => r.ok ? r.json() : [])
-      .then(d => Array.isArray(d) ? setData(d) : setData([]))
-      .catch(() => {});
+      .then(d => { Array.isArray(d) ? setData(d) : setData([]); setLoading(false); })
+      .catch(() => setLoading(false));
   }, [endpoint, enabled]);
-  return data;
+  return { data, loading };
 }
 
 interface PopularUser {
@@ -44,9 +46,9 @@ export default function Home() {
 
   // Personal recommendations (only when logged in)
   const isLoggedIn = !!currentUser;
-  const forYouTracks = useRecommendations('/recommendations/for-you?limit=5', isLoggedIn);
-  const newForYouTracks = useRecommendations('/recommendations/new-for-you?limit=6', true);
-  const rediscoverTracks = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
+  const { data: forYouTracks, loading: forYouLoading } = useRecommendations('/recommendations/for-you?limit=5', isLoggedIn);
+  const { data: newForYouTracks } = useRecommendations('/recommendations/new-for-you?limit=6', true);
+  const { data: rediscoverTracks } = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
 
   // Popular users & public rooms
   const [popularUsers, setPopularUsers] = useState<PopularUser[]>([]);
@@ -165,7 +167,27 @@ export default function Home() {
         {/* === Personalised sections === */}
 
         {/* For You — personal mix (limited to 5) */}
-        {isLoggedIn && forYouTracks.length > 0 ? (
+        {isLoggedIn && forYouLoading ? (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Sparkles size={20} className="text-purple-400" />
+              <h2 className="text-xl font-bold">Для вас</h2>
+              <span className="text-xs text-zinc-500 ml-1">персональный микс</span>
+            </div>
+            <div className="space-y-1">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl animate-pulse">
+                  <div className="w-5 text-center text-sm text-zinc-700">{i + 1}</div>
+                  <div className="w-10 h-10 rounded-md bg-zinc-800" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3.5 w-32 bg-zinc-800 rounded" />
+                    <div className="h-3 w-20 bg-zinc-800/60 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : isLoggedIn && forYouTracks.length > 0 ? (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Sparkles size={20} className="text-purple-400" />
@@ -314,18 +336,21 @@ export default function Home() {
           </section>
         )}
 
-        {/* Популярные открытые комнаты (скрыть если < 4) */}
-        {publicRooms.length >= 4 && (
+        {/* Популярные открытые комнаты */}
+        {publicRooms.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Radio size={20} className="text-green-400" />
-              <h2 className="text-xl font-bold">Популярные комнаты</h2>
+              <h2 className="text-xl font-bold">Слушают сейчас</h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {publicRooms.slice(0, 8).map(room => (
-                <Link key={room.hostId} to={`/user/${room.hostId}`} className="group bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-all">
+                <Link key={room.hostId} to={`/user/${room.hostId}`} className="group bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-green-500/40 transition-all">
                   <div className="flex items-center gap-3 mb-3">
-                    <img src={roomHostAvatar(room)} alt={room.hostName} className="w-10 h-10 rounded-full object-cover" />
+                    <div className="relative">
+                      <img src={roomHostAvatar(room)} alt={room.hostName} className="w-10 h-10 rounded-full object-cover" />
+                      {room.isPlaying && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-zinc-900 animate-pulse" />}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-white text-sm font-medium truncate">{room.hostName}</p>
                       <p className="text-zinc-500 text-xs flex items-center gap-1">
@@ -333,7 +358,6 @@ export default function Home() {
                         {room.listenersCount} {room.listenersCount === 1 ? 'слушатель' : room.listenersCount < 5 ? 'слушателя' : 'слушателей'}
                       </p>
                     </div>
-                    {room.isPlaying && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
                   </div>
                   <div className="flex items-center gap-3">
                     <img src={room.trackCover} alt={room.trackTitle} className="w-10 h-10 rounded-lg object-cover" />
