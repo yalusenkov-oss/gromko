@@ -28,9 +28,11 @@ function formatUser(row) {
     return {
         id: row.id,
         name: row.name,
+        username: row.username || null,
         email: row.email,
         role: row.role,
         avatar: row.avatar,
+        bio: row.bio || null,
         country: row.country || null,
         isBlocked: row.is_blocked,
         likedTracks: row.liked_tracks || [],
@@ -40,7 +42,7 @@ function formatUser(row) {
     };
 }
 // ─── Auth functions ───
-export async function registerUser(name, email, password, country) {
+export async function registerUser(name, email, password, country, username) {
     // Check if email taken
     const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
     if (existing) {
@@ -49,11 +51,23 @@ export async function registerUser(name, email, password, country) {
     if (password.length < 6) {
         throw new Error('Пароль должен содержать минимум 6 символов');
     }
+    // Validate and check username uniqueness
+    const finalUsername = username?.trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || name.toLowerCase().replace(/[^a-z0-9_]/g, '') || uuid().slice(0, 8);
+    if (finalUsername.length < 3) {
+        throw new Error('Имя пользователя должно содержать минимум 3 символа');
+    }
+    if (finalUsername.length > 30) {
+        throw new Error('Имя пользователя не должно превышать 30 символов');
+    }
+    const existingUsername = await queryOne('SELECT id FROM users WHERE username = $1', [finalUsername]);
+    if (existingUsername) {
+        throw new Error('Это имя пользователя уже занято');
+    }
     const id = uuid();
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const avatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=ef4444`;
-    await execute(`INSERT INTO users (id, name, email, password_hash, role, avatar, country)
-     VALUES ($1, $2, $3, $4, 'user', $5, $6)`, [id, name, email, passwordHash, avatar, country || null]);
+    await execute(`INSERT INTO users (id, name, username, email, password_hash, role, avatar, country)
+     VALUES ($1, $2, $3, $4, $5, 'user', $6, $7)`, [id, name, finalUsername, email, passwordHash, avatar, country || null]);
     const user = await queryOne('SELECT * FROM users WHERE id = $1', [id]);
     const token = signToken({ userId: id, email, role: 'user' });
     return { user: formatUser(user), token };

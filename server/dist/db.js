@@ -223,6 +223,70 @@ export async function initSchema() {
         await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_path TEXT`);
         await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
         await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS release_id TEXT`);
+        // Migration: social features — user_follows + enhanced playlists
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS user_follows (
+        follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        following_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (follower_id, following_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_id);
+      CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_id);
+    `);
+        await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS description TEXT`);
+        await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS cover_url TEXT`);
+        await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`);
+        await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+        // Add bio column to users for public profiles
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+        // Add username column for unique user IDs
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL`);
+        // Backfill username from name for existing users
+        await client.query(`
+      UPDATE users SET username = LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9_]', '', 'g'))
+      WHERE username IS NULL
+    `);
+        // Handle potential collisions by appending id suffix
+        await client.query(`
+      UPDATE users u SET username = u.username || '_' || LEFT(u.id, 4)
+      WHERE (SELECT COUNT(*) FROM users u2 WHERE u2.username = u.username) > 1
+    `);
+        // Migration: recommendation system tables
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS user_events (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        track_id TEXT,
+        artist_slug TEXT,
+        genre TEXT,
+        context TEXT,
+        duration_listened DOUBLE PRECISION DEFAULT 0,
+        track_duration DOUBLE PRECISION DEFAULT 0,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS user_taste_profile (
+        user_id TEXT PRIMARY KEY,
+        genre_scores JSONB NOT NULL DEFAULT '{}',
+        artist_scores JSONB NOT NULL DEFAULT '{}',
+        preferred_bpm_min DOUBLE PRECISION DEFAULT 80,
+        preferred_bpm_max DOUBLE PRECISION DEFAULT 160,
+        avg_listen_ratio DOUBLE PRECISION DEFAULT 0.7,
+        skip_rate DOUBLE PRECISION DEFAULT 0.2,
+        exploration_score DOUBLE PRECISION DEFAULT 0.5,
+        time_preferences JSONB NOT NULL DEFAULT '{}',
+        events_processed INTEGER DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_events_user ON user_events(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_events_track ON user_events(track_id);
+      CREATE INDEX IF NOT EXISTS idx_user_events_type ON user_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_user_events_created ON user_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_user_events_user_type ON user_events(user_id, event_type);
+    `);
         console.log('  ✅ Database schema initialized');
     }
     finally {

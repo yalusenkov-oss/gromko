@@ -11,9 +11,11 @@ export interface JwtPayload {
 export interface AuthUser {
     id: string;
     name: string;
+    username: string | null;
     email: string;
     role: string;
     avatar: string | null;
+    bio: string | null;
     country: string | null;
     isBlocked: boolean;
     likedTracks: string[];
@@ -28,7 +30,7 @@ declare global {
         }
     }
 }
-export declare function registerUser(name: string, email: string, password: string, country?: string): Promise<{
+export declare function registerUser(name: string, email: string, password: string, country?: string, username?: string): Promise<{
     user: AuthUser;
     token: string;
 }>;
