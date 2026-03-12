@@ -127,7 +127,7 @@ interface FriendsListProps {
 export function FriendsList({ friends }: FriendsListProps) {
   return (
     <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
-      <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider mb-3 sm:mb-4">Друзья</h2>
+      <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider mb-3 sm:mb-4">Подписчики</h2>
       {friends.length === 0 ? (
         <p className="text-sm text-gromq-muted py-4 text-center">Вы ещё ни на кого не подписаны</p>
       ) : (

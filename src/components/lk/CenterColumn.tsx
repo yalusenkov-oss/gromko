@@ -9,7 +9,7 @@ import {
   Sparkles,
   Star,
   ChevronRight,
-  Headphones,
+  RefreshCw,
 } from "lucide-react";
 import { Equalizer } from "./Equalizer";
 import { useStore, type Track, type Playlist } from "../../store";
@@ -24,13 +24,10 @@ function coverUrl(src: string) {
 /* ── Now Playing ── */
 interface NowPlayingProps {
   addToast: (msg: string) => void;
-  roomActive?: boolean;
-  roomListeners?: { userId: string; name: string; avatar: string }[];
-  onToggleRoom?: () => void;
 }
 
-export function NowPlaying({ addToast, roomActive, roomListeners, onToggleRoom }: NowPlayingProps) {
-  const { player, queueNext } = useStore();
+export function NowPlaying({ addToast }: NowPlayingProps) {
+  const { player } = useStore();
   const np = player.currentTrack;
 
   if (!np) {
@@ -47,7 +44,6 @@ export function NowPlaying({ addToast, roomActive, roomListeners, onToggleRoom }
 
   const progress = player.progress || 0;
   const pct = np.duration > 0 ? (progress / np.duration) * 100 : 0;
-  const listeners = roomListeners || [];
 
   return (
     <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
@@ -76,48 +72,12 @@ export function NowPlaying({ addToast, roomActive, roomListeners, onToggleRoom }
               <span className="text-[11px] text-gromq-muted">{formatDuration(np.duration)}</span>
             </div>
           </div>
-          {/* Action buttons — "Слушать вместе" + "+ В очередь" */}
           <div className="flex gap-2 mt-2">
-            {onToggleRoom && (
-              <button
-                onClick={onToggleRoom}
-                className={`flex-1 font-semibold text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.97] ${
-                  roomActive
-                    ? 'bg-gromq-surface border border-gromq-border text-gromq-text hover:bg-gromq-border'
-                    : 'bg-gromq-red hover:bg-gromq-red-dim text-white shadow-lg shadow-gromq-red/20'
-                }`}
-              >
-                <Headphones size={15} />
-                {roomActive ? 'Закрыть комнату' : 'Слушать вместе'}
-              </button>
-            )}
-            <button
-              onClick={() => { queueNext(np); addToast('Трек добавлен в очередь'); }}
-              className="bg-gromq-surface hover:bg-gromq-border transition-colors border border-gromq-border text-gromq-muted text-xs py-2 px-2.5 sm:px-3 rounded-xl flex items-center gap-1.5 active:scale-[0.97]"
-            >
+            <button onClick={() => addToast("Трек добавлен в очередь")} className="bg-gromq-surface hover:bg-gromq-border transition-colors border border-gromq-border text-gromq-muted text-xs py-2 px-2.5 sm:px-3 rounded-lg flex items-center gap-1.5 active:scale-[0.97]">
               <Plus size={14} />
-              <span className="hidden sm:inline">В очередь</span>
+              <span>В очередь</span>
             </button>
           </div>
-          {/* Listener avatars when room is active */}
-          {roomActive && listeners.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-2.5">
-              <div className="flex -space-x-2">
-                {listeners.slice(0, 5).map((l) => (
-                  <img
-                    key={l.userId}
-                    src={l.avatar ? (l.avatar.startsWith('http') ? l.avatar : `/uploads/${l.avatar.replace(/^\/uploads\//, '')}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(l.name)}&background=2a2a2a&color=fff&size=32`}
-                    alt={l.name}
-                    className="w-6 h-6 rounded-full object-cover border-2 border-gromq-card"
-                    title={l.name}
-                  />
-                ))}
-              </div>
-              <span className="text-[11px] text-gromq-muted ml-1">
-                {listeners.length} {listeners.length === 1 ? 'слушает' : 'слушают'} синхронно
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -134,19 +94,6 @@ interface PlaylistsProps {
 }
 
 export function Playlists({ playlists, onCreatePlaylist, onOpenPlaylist, addToast, hideCreate }: PlaylistsProps) {
-  const { tracks } = useStore();
-
-  /** Build up to 4 cover URLs from playlist's trackIds */
-  function mosaicCovers(pl: Playlist): string[] {
-    if (pl.coverUrl) return [pl.coverUrl];
-    const out: string[] = [];
-    for (const tid of pl.trackIds) {
-      const t = tracks.find((tr) => tr.id === tid);
-      if (t?.cover) out.push(t.cover);
-      if (out.length >= 4) break;
-    }
-    return out;
-  }
   return (
     <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
       <div className="flex items-center justify-between mb-3">
@@ -162,17 +109,11 @@ export function Playlists({ playlists, onCreatePlaylist, onOpenPlaylist, addToas
       ) : (
         <div className="space-y-1.5">
           {playlists.map((pl) => {
-            const covers = mosaicCovers(pl);
+            const covers = pl.coverUrl ? [pl.coverUrl] : [];
             return (
               <div key={pl.id} onClick={() => onOpenPlaylist(pl)} className="group flex items-center gap-3 bg-gromq-surface/60 border border-transparent hover:border-gromq-border active:border-gromq-border rounded-xl p-2 cursor-pointer hover:bg-gromq-surface active:bg-gromq-surface transition-all">
                 <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-lg overflow-hidden shrink-0 bg-gromq-border flex items-center justify-center">
-                  {covers.length >= 4 ? (
-                    <div className="grid grid-cols-2 w-full h-full">
-                      {covers.slice(0, 4).map((c, ci) => (
-                        <img key={ci} src={coverUrl(c)} alt="" className="w-full h-full object-cover" />
-                      ))}
-                    </div>
-                  ) : covers.length > 0 ? (
+                  {covers.length > 0 ? (
                     <img src={coverUrl(covers[0])} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <Music size={18} className="text-gromq-muted" />
@@ -227,12 +168,21 @@ export function Recommendations({ recPicks, onPickTrackOfWeek, onPickDiscovery, 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Track of the Week */}
         {recPicks.trackOfWeek ? (
-          <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 hover:border-gromq-red/30 transition-all cursor-pointer group relative active:scale-[0.98]" onClick={() => playTrack(recPicks.trackOfWeek!)}>
+          <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 hover:border-gromq-red/30 transition-all group relative active:scale-[0.98]">
             <div className="flex items-center gap-1.5 mb-2">
               <Star size={12} className="text-gromq-amber" fill="currentColor" />
               <span className="text-[11px] text-gromq-amber font-semibold uppercase tracking-wider">Трек недели</span>
+              {!readOnly && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onPickTrackOfWeek(); }}
+                  className="ml-auto w-6 h-6 rounded-md bg-gromq-border/50 hover:bg-gromq-border flex items-center justify-center text-gromq-muted hover:text-gromq-text transition-colors"
+                  title="Изменить"
+                >
+                  <RefreshCw size={11} />
+                </button>
+              )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 cursor-pointer" onClick={() => playTrack(recPicks.trackOfWeek!)}>
               <div className="relative shrink-0">
                 <img src={coverUrl(recPicks.trackOfWeek.cover)} alt="" className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-lg flex items-center justify-center transition-all">
@@ -254,12 +204,21 @@ export function Recommendations({ recPicks, onPickTrackOfWeek, onPickDiscovery, 
 
         {/* Discovery */}
         {recPicks.discovery ? (
-          <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 hover:border-gromq-red/30 transition-all cursor-pointer group relative active:scale-[0.98]" onClick={() => playTrack(recPicks.discovery!)}>
+          <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 hover:border-gromq-red/30 transition-all group relative active:scale-[0.98]">
             <div className="flex items-center gap-1.5 mb-2">
               <Sparkles size={12} className="text-gromq-red" />
               <span className="text-[11px] text-gromq-red font-semibold uppercase tracking-wider">Моя находка</span>
+              {!readOnly && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onPickDiscovery(); }}
+                  className="ml-auto w-6 h-6 rounded-md bg-gromq-border/50 hover:bg-gromq-border flex items-center justify-center text-gromq-muted hover:text-gromq-text transition-colors"
+                  title="Изменить"
+                >
+                  <RefreshCw size={11} />
+                </button>
+              )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 cursor-pointer" onClick={() => playTrack(recPicks.discovery!)}>
               <div className="relative shrink-0">
                 <img src={coverUrl(recPicks.discovery.cover)} alt="" className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-lg flex items-center justify-center transition-all">
@@ -427,15 +386,12 @@ interface CenterColumnProps {
   onPickTrackOfWeek: () => void;
   onPickDiscovery: () => void;
   addToast: (msg: string) => void;
-  roomActive?: boolean;
-  roomListeners?: { userId: string; name: string; avatar: string }[];
-  onToggleRoom?: () => void;
 }
 
 export function CenterColumn(props: CenterColumnProps) {
   return (
     <div className="flex-1 min-w-0 space-y-4">
-      <NowPlaying addToast={props.addToast} roomActive={props.roomActive} roomListeners={props.roomListeners} onToggleRoom={props.onToggleRoom} />
+      <NowPlaying addToast={props.addToast} />
       <Playlists playlists={props.playlists} onCreatePlaylist={props.onCreatePlaylist} onOpenPlaylist={props.onOpenPlaylist} addToast={props.addToast} />
       <Recommendations recPicks={props.recPicks} onPickTrackOfWeek={props.onPickTrackOfWeek} onPickDiscovery={props.onPickDiscovery} />
       <ActivityFeed feed={props.feed} />

@@ -232,9 +232,6 @@ export default function ProfilePage() {
             onPickTrackOfWeek={() => { setPickTarget('trackOfWeek'); setActiveModal('pick-track'); }}
             onPickDiscovery={() => { setPickTarget('discovery'); setActiveModal('pick-track'); }}
             addToast={addToast}
-            roomActive={roomActive}
-            roomListeners={roomListeners}
-            onToggleRoom={handleToggleRoom}
           />
           <RightColumn
             roomActive={roomActive}
@@ -261,9 +258,6 @@ export default function ProfilePage() {
           />
           <NowPlaying
             addToast={addToast}
-            roomActive={roomActive}
-            roomListeners={roomListeners}
-            onToggleRoom={handleToggleRoom}
           />
           <LiveRoomWidget
             roomActive={roomActive}

@@ -11,8 +11,8 @@ export function Backdrop({
 }) {
   const maxW = {
     sm: "max-w-sm",
-    md: "max-w-md",
-    lg: "max-w-lg",
+    md: "max-w-lg",
+    lg: "max-w-xl",
     full: "max-w-2xl",
   }[size];
 
@@ -63,7 +63,7 @@ export function Backdrop({
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" />
       <div
         ref={sheetRef}
-        className={`relative z-10 w-full ${maxW} sm:mx-4 animate-modal-in max-h-[85vh] sm:max-h-[85vh] overflow-y-auto`}
+        className={`relative z-10 w-full ${maxW} sm:mx-4 animate-modal-in max-h-[92vh] sm:max-h-[85vh] overflow-y-auto overscroll-contain`}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
