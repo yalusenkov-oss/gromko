@@ -664,11 +664,12 @@ router.post('/events', authRequired, async (req, res) => {
     });
     res.json({ ok: true });
 });
-/** GET /api/recommendations/for-you — персональный микс */
-router.get('/recommendations/for-you', authRequired, async (req, res) => {
+/** GET /api/recommendations/for-you — персональный микс (works without auth too — falls back to popularity) */
+router.get('/recommendations/for-you', async (req, res) => {
     try {
         const limit = Math.min(50, Number(req.query.limit) || 20);
-        const tracks = await forYou(req.user.id, limit);
+        const userId = req.user?.id || null;
+        const tracks = await forYou(userId, limit);
         const withArtists = await attachArtists(tracks);
         res.json(withArtists.map(formatTrackRow));
     }
@@ -729,11 +730,12 @@ router.get('/recommendations/continue', authRequired, async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-/** GET /api/recommendations/new-for-you — новинки под ваш вкус */
-router.get('/recommendations/new-for-you', authRequired, async (req, res) => {
+/** GET /api/recommendations/new-for-you — новинки (персонализированные если авторизован) */
+router.get('/recommendations/new-for-you', async (req, res) => {
     try {
         const limit = Math.min(20, Number(req.query.limit) || 10);
-        const tracks = await newForYou(req.user.id, limit);
+        const userId = req.user?.id || null;
+        const tracks = await newForYou(userId, limit);
         const withArtists = await attachArtists(tracks);
         res.json(withArtists.map(formatTrackRow));
     }

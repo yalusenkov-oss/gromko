@@ -384,9 +384,12 @@ async function getRecentHistory(userId: string): Promise<{ played: Set<string>; 
 // 1. FOR YOU (главная: персональный микс)
 // ────────────────────────────────────────────
 
-export async function forYou(userId: string, limit = 20): Promise<any[]> {
-  const profile = await getTasteProfile(userId);
-  const { played, skipped } = await getRecentHistory(userId);
+export async function forYou(userId: string | null, limit = 20): Promise<any[]> {
+  const profile = userId ? await getTasteProfile(userId) : null;
+  const history = userId
+    ? await getRecentHistory(userId)
+    : { played: new Set<string>(), skipped: new Set<string>() };
+  const { played, skipped } = history;
 
   // Get candidate tracks
   const candidates = await query(`
@@ -640,36 +643,50 @@ export async function continueListening(userId: string, limit = 10): Promise<any
 // 6. NEW FOR YOU (новинки под ваш вкус)
 // ────────────────────────────────────────────
 
-export async function newForYou(userId: string, limit = 10): Promise<any[]> {
-  const profile = await getTasteProfile(userId);
+export async function newForYou(userId: string | null, limit = 10): Promise<any[]> {
+  const profile = userId ? await getTasteProfile(userId) : null;
+
+  let candidates: any[];
   if (!profile) {
-    // No profile yet — return general new releases
-    return query(`
+    // No profile — return general new releases
+    candidates = await query(`
       SELECT * FROM tracks WHERE status = 'ready'
       ORDER BY created_at DESC LIMIT $1
-    `, [limit]);
+    `, [limit * 4]);
+  } else {
+    // Get user's top genres
+    const genreScores: Record<string, number> = profile.genre_scores || {};
+    const topGenres = Object.entries(genreScores)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([g]) => g);
+
+    if (topGenres.length === 0) {
+      candidates = await query('SELECT * FROM tracks WHERE status = \'ready\' ORDER BY created_at DESC LIMIT $1', [limit * 4]);
+    } else {
+      const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
+      candidates = await query(`
+        SELECT * FROM tracks
+        WHERE status = 'ready'
+          AND genre IN (${placeholders})
+          AND created_at > NOW() - INTERVAL '30 days'
+        ORDER BY created_at DESC
+        LIMIT $${topGenres.length + 1}
+      `, [...topGenres, limit * 4]);
+    }
   }
 
-  // Get user's top genres
-  const genreScores: Record<string, number> = profile.genre_scores || {};
-  const topGenres = Object.entries(genreScores)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([g]) => g);
-
-  if (topGenres.length === 0) {
-    return query('SELECT * FROM tracks WHERE status = \'ready\' ORDER BY created_at DESC LIMIT $1', [limit]);
+  // Deduplicate: max 1 track per album (meta_album or artist_slug fallback)
+  const result: any[] = [];
+  const seenAlbums = new Set<string>();
+  for (const t of candidates) {
+    const albumKey = (t.meta_album && t.meta_album.trim()) ? `${t.artist_slug}::${t.meta_album}` : '';
+    if (albumKey && seenAlbums.has(albumKey)) continue;
+    if (albumKey) seenAlbums.add(albumKey);
+    result.push(t);
+    if (result.length >= limit) break;
   }
-
-  const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
-  return query(`
-    SELECT * FROM tracks
-    WHERE status = 'ready'
-      AND genre IN (${placeholders})
-      AND created_at > NOW() - INTERVAL '30 days'
-    ORDER BY created_at DESC
-    LIMIT $${topGenres.length + 1}
-  `, [...topGenres, limit]);
+  return result;
 }
 
 // ────────────────────────────────────────────

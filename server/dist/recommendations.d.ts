@@ -41,12 +41,12 @@ export declare function recordEvent(event: UserEvent): Promise<void>;
  * Can be called periodically or on-demand.
  */
 export declare function rebuildTasteProfile(userId: string): Promise<void>;
-export declare function forYou(userId: string, limit?: number): Promise<any[]>;
+export declare function forYou(userId: string | null, limit?: number): Promise<any[]>;
 export declare function nextTrack(userId: string | null, currentTrackId: string, recentIds?: string[]): Promise<any | null>;
 export declare function similarTracks(trackId: string, limit?: number): Promise<any[]>;
 export declare function similarArtists(artistSlug: string, limit?: number): Promise<any[]>;
 export declare function continueListening(userId: string, limit?: number): Promise<any[]>;
-export declare function newForYou(userId: string, limit?: number): Promise<any[]>;
+export declare function newForYou(userId: string | null, limit?: number): Promise<any[]>;
 export declare function trendingForYou(userId: string, limit?: number): Promise<any[]>;
 export declare function rediscover(userId: string, limit?: number): Promise<any[]>;
 export declare function getUserTasteSummary(userId: string): Promise<{

@@ -1,5 +1,5 @@
 import { useStore, Track } from '../store';
-import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Sparkles, Shuffle, Heart, Zap, Radio, Headphones } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Sparkles, Shuffle, Heart, Zap, Radio, Headphones, Lock } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
@@ -11,10 +11,9 @@ function useRecommendations(endpoint: string, enabled: boolean): Track[] {
   useEffect(() => {
     if (!enabled) return;
     const token = localStorage.getItem('gromko_token');
-    if (!token) return;
-    fetch(apiUrl(endpoint), {
-      headers: { 'Authorization': `Bearer ${token}` },
-    })
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(apiUrl(endpoint), { headers })
       .then(r => r.ok ? r.json() : [])
       .then(d => Array.isArray(d) ? setData(d) : setData([]))
       .catch(() => {});
@@ -46,7 +45,7 @@ export default function Home() {
   // Personal recommendations (only when logged in)
   const isLoggedIn = !!currentUser;
   const forYouTracks = useRecommendations('/recommendations/for-you?limit=5', isLoggedIn);
-  const newForYouTracks = useRecommendations('/recommendations/new-for-you?limit=6', isLoggedIn);
+  const newForYouTracks = useRecommendations('/recommendations/new-for-you?limit=6', true);
   const rediscoverTracks = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
 
   // Popular users & public rooms
@@ -163,10 +162,10 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-12">
 
-        {/* === Personalised sections (logged in) === */}
+        {/* === Personalised sections === */}
 
         {/* For You — personal mix (limited to 5) */}
-        {isLoggedIn && forYouTracks.length > 0 && (
+        {isLoggedIn && forYouTracks.length > 0 ? (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Sparkles size={20} className="text-purple-400" />
@@ -179,15 +178,29 @@ export default function Home() {
               ))}
             </div>
           </section>
+        ) : !isLoggedIn && (
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={20} className="text-purple-400" />
+              <h2 className="text-xl font-bold">Для вас</h2>
+            </div>
+            <button
+              onClick={() => openAuthModal('login')}
+              className="w-full flex items-center justify-center gap-3 py-6 rounded-2xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+            >
+              <Lock size={18} className="text-purple-400" />
+              <span className="text-zinc-400 text-sm">Войдите, чтобы получить персональные рекомендации</span>
+            </button>
+          </section>
         )}
 
-        {/* New For You — personal new releases */}
-        {isLoggedIn && newForYouTracks.length > 0 && (
+        {/* New For You — new releases (personalized when logged in, general otherwise) */}
+        {newForYouTracks.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Zap size={20} className="text-yellow-400" />
-              <h2 className="text-xl font-bold">Новинки для вас</h2>
-              <span className="text-xs text-zinc-500 ml-1">персональные новинки</span>
+              <h2 className="text-xl font-bold">{isLoggedIn ? 'Новинки для вас' : 'Новинки'}</h2>
+              <span className="text-xs text-zinc-500 ml-1">{isLoggedIn ? 'персональные новинки' : 'недавно добавленные'}</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {newForYouTracks.map(track => (
