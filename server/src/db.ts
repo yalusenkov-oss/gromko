@@ -20,13 +20,30 @@ function isLocalHost(host?: string): boolean {
 
 function hostFromUrl(url?: string): string | undefined {
   if (!url) return undefined;
-  try { return new URL(url).hostname; } catch { return undefined; }
+  try { return new URL(url).hostname; } catch { /* ignore */ }
+  // Fallback: extract host via regex when URL has unescaped special chars
+  const m = url.match(/@([^:/]+)/);
+  return m ? m[1] : undefined;
+}
+
+/**
+ * Fix DATABASE_URL that contains un-encoded special characters in the password.
+ * e.g. postgresql://user:p@ss>w*rd@host:5432/db → properly encoded password
+ */
+function sanitizeConnectionString(raw: string): string {
+  // Match: scheme://user:password@host:port/db?params
+  const m = raw.match(/^(postgresql|postgres):\/\/([^:]+):(.+)@([^@]+)$/);
+  if (!m) return raw; // can't parse — return as-is
+  const [, scheme, user, password, hostAndRest] = m;
+  const encodedPassword = encodeURIComponent(password);
+  return `${scheme}://${encodeURIComponent(user)}:${encodedPassword}@${hostAndRest}`;
 }
 
 function buildPoolOptions(): pg.PoolConfig {
-  const connectionString = process.env.DATABASE_URL;
+  const rawConnectionString = process.env.DATABASE_URL;
+  const connectionString = rawConnectionString ? sanitizeConnectionString(rawConnectionString) : undefined;
   const hasDiscretePgVars = Boolean(process.env.PGHOST || process.env.PGUSER || process.env.PGDATABASE);
-  const host = process.env.PGHOST || hostFromUrl(connectionString);
+  const host = process.env.PGHOST || hostFromUrl(rawConnectionString);
 
   const shouldUseSsl = process.env.DATABASE_SSL === 'false'
     ? false
