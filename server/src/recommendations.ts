@@ -646,33 +646,71 @@ export async function continueListening(userId: string, limit = 10): Promise<any
 export async function newForYou(userId: string | null, limit = 10): Promise<any[]> {
   const profile = userId ? await getTasteProfile(userId) : null;
 
+  let topGenres: string[] = [];
+
+  if (profile) {
+    const genreScores: Record<string, number> = profile.genre_scores || {};
+    topGenres = Object.entries(genreScores)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([g]) => g);
+  }
+
+  // If no taste profile genres, try to infer from liked tracks / play history
+  if (topGenres.length === 0 && userId) {
+    const liked = await query(`
+      SELECT DISTINCT t.genre FROM tracks t
+      JOIN users u ON t.id = ANY(u.liked_tracks)
+      WHERE u.id = $1 AND t.genre IS NOT NULL
+      LIMIT 5
+    `, [userId]);
+    if (liked.length > 0) {
+      topGenres = liked.map((r: any) => r.genre);
+    } else {
+      // Fallback: genres from play history
+      const played = await query(`
+        SELECT t.genre, COUNT(*) as cnt FROM user_events ue
+        JOIN tracks t ON t.id = ue.track_id
+        WHERE ue.user_id = $1 AND ue.event_type IN ('play','finish')
+          AND t.genre IS NOT NULL
+        GROUP BY t.genre ORDER BY cnt DESC LIMIT 5
+      `, [userId]);
+      topGenres = played.map((r: any) => r.genre);
+    }
+  }
+
   let candidates: any[];
-  if (!profile) {
-    // No profile — return general new releases
+  if (topGenres.length === 0) {
+    // Truly no data — general new releases
     candidates = await query(`
       SELECT * FROM tracks WHERE status = 'ready'
       ORDER BY created_at DESC LIMIT $1
     `, [limit * 4]);
   } else {
-    // Get user's top genres
-    const genreScores: Record<string, number> = profile.genre_scores || {};
-    const topGenres = Object.entries(genreScores)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([g]) => g);
+    const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
+    // Personalized: new in user's genres (last 30 days)
+    candidates = await query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready'
+        AND genre IN (${placeholders})
+        AND created_at > NOW() - INTERVAL '30 days'
+      ORDER BY created_at DESC
+      LIMIT $${topGenres.length + 1}
+    `, [...topGenres, limit * 4]);
 
-    if (topGenres.length === 0) {
-      candidates = await query('SELECT * FROM tracks WHERE status = \'ready\' ORDER BY created_at DESC LIMIT $1', [limit * 4]);
-    } else {
-      const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
-      candidates = await query(`
-        SELECT * FROM tracks
-        WHERE status = 'ready'
-          AND genre IN (${placeholders})
-          AND created_at > NOW() - INTERVAL '30 days'
-        ORDER BY created_at DESC
-        LIMIT $${topGenres.length + 1}
-      `, [...topGenres, limit * 4]);
+    // If not enough personalized results, pad with general new releases
+    if (candidates.length < limit) {
+      const existingIds = new Set(candidates.map((t: any) => t.id));
+      const padding = await query(`
+        SELECT * FROM tracks WHERE status = 'ready'
+        ORDER BY created_at DESC LIMIT $1
+      `, [limit * 4]);
+      for (const t of padding) {
+        if (!existingIds.has(t.id)) {
+          candidates.push(t);
+          if (candidates.length >= limit * 4) break;
+        }
+      }
     }
   }
 
