@@ -1354,8 +1354,6 @@ router.post('/admin/tracks/bulk-delete', adminRequired, async (req: Request, res
 /** POST /api/admin/tracks/fix-covers — fetch missing covers from external APIs (iTunes/Deezer) */
 router.post('/admin/tracks/fix-covers', adminRequired, async (req: Request, res: Response) => {
   try {
-    // Find all tracks that have a placeholder cover (local path or S3 URL with our generated cover)
-    // A placeholder cover is one that was auto-generated (small file, or cover_path is null/empty)
     const tracks = await query(`
       SELECT id, title, artist, meta_album, cover_path
       FROM tracks
@@ -1365,27 +1363,45 @@ router.post('/admin/tracks/fix-covers', adminRequired, async (req: Request, res:
 
     // Filter tracks with missing/placeholder covers
     const needsFix: typeof tracks = [];
+    const forceAll = req.body.force === true;
+
     for (const t of tracks) {
       if (!t.cover_path) {
         needsFix.push(t);
         continue;
       }
-      // Check if cover_path points to a local placeholder (the red square)
-      // Local covers: /covers/{id}/medium.webp — check if file is < 5KB (placeholder is ~1KB)
+
+      if (forceAll) {
+        needsFix.push(t);
+        continue;
+      }
+
+      // Local covers: /covers/{id}/medium.webp — check if file is < 5KB (placeholder is ~1-3KB)
       if (t.cover_path.startsWith('/covers/')) {
         const localPath = path.join(process.cwd(), 'data', t.cover_path);
         try {
           const stat = fs.statSync(localPath);
-          if (stat.size < 5000) { // placeholder red square is ~1-3KB
+          if (stat.size < 5000) needsFix.push(t);
+        } catch {
+          needsFix.push(t); // file doesn't exist locally
+        }
+        continue;
+      }
+
+      // S3 covers (https://...) — check Content-Length via HEAD request
+      if (t.cover_path.startsWith('http')) {
+        try {
+          const headRes = await fetch(t.cover_path, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+          const contentLength = Number(headRes.headers.get('content-length') || 0);
+          if (!headRes.ok || contentLength < 5000) {
+            // Placeholder cover is ~1-3KB, real covers are 20KB+
             needsFix.push(t);
           }
         } catch {
-          needsFix.push(t); // file doesn't exist
+          needsFix.push(t); // can't reach S3 — assume broken
         }
+        continue;
       }
-      // S3 covers — check the cover_path URL for known placeholder pattern
-      // We can't easily check S3 file size, so we'll skip those for now
-      // unless explicitly requested via `force` param
     }
 
     // If `ids` param is provided, only fix those specific tracks
