@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { Search, Upload, Settings, Heart } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { apiUrl } from '../lib/api';
+import { trackEvent } from '../utils/trackEvent';
 
 interface SearchUser {
   id: string;
@@ -57,6 +58,7 @@ export default function Navbar() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchVal.trim()) {
+      trackEvent('search', { context: searchVal.trim() });
       navigate(`/search?q=${encodeURIComponent(searchVal.trim())}`);
       setShowSuggestions(false);
     }

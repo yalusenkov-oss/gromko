@@ -84,6 +84,8 @@ class AudioEngine {
   private _positionSyncInterval: ReturnType<typeof setInterval> | null = null;
   private _endedFallbackFired: boolean = false; // prevent double-advance from ended + timeupdate
   private _playRetryPending: boolean = false; // retry play on canplay if autoplay was blocked
+  private _autoRadioLoading: boolean = false; // prevent double-fetch for auto-radio
+  private _recentTrackIds: string[] = []; // last N tracks for recommendation context
 
   constructor() {
     this.audio = new Audio();
@@ -108,6 +110,9 @@ class AudioEngine {
     // Reset retry count when user explicitly plays a new track
     if (track.id !== this.currentTrack?.id) {
       this._retryCount = 0;
+      // Track recent IDs for auto-radio context
+      this._recentTrackIds.push(track.id);
+      if (this._recentTrackIds.length > 20) this._recentTrackIds.shift();
       // Record play event on server (fire & forget)
       this.recordPlay(track.id);
     }
@@ -223,8 +228,8 @@ class AudioEngine {
         if (this.repeat === 'all') {
           this.queueIndex = 0;
         } else {
-          this._state = 'idle';
-          this.notify();
+          // Auto-radio: fetch next recommended track instead of going idle
+          this.fetchAutoRadio();
           return;
         }
       }
@@ -391,6 +396,66 @@ class AudioEngine {
         ...extra,
       }),
     }).catch(() => {}); // fire & forget
+  }
+
+  /**
+   * Auto-radio: when queue is exhausted, fetch a recommended next track
+   * from the server and keep playing automatically (like Spotify autoplay).
+   */
+  private fetchAutoRadio(): void {
+    if (this._autoRadioLoading) return; // already fetching
+    if (!this.currentTrack) {
+      this._state = 'idle';
+      this.notify();
+      return;
+    }
+
+    this._autoRadioLoading = true;
+    this._state = 'loading';
+    this.notify();
+
+    const trackId = this.currentTrack.id;
+    const recentParam = this._recentTrackIds.slice(-15).join(',');
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('gromko_token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${API_BASE}/api/recommendations/next?trackId=${trackId}&recent=${recentParam}`, { headers })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        this._autoRadioLoading = false;
+        if (!data || !data.id) {
+          // No recommendation available — go idle
+          this._state = 'idle';
+          this.notify();
+          return;
+        }
+
+        // Convert server response to AudioTrack
+        const radioTrack: AudioTrack = {
+          id: data.id,
+          title: data.title,
+          artist: data.artist,
+          cover: data.cover || '',
+          duration: data.duration || 0,
+          streams: data.streams || undefined,
+          hlsMaster: data.hlsMaster || undefined,
+          waveform: data.waveform || undefined,
+        };
+
+        // Append to queue and play
+        this.queue.push(radioTrack);
+        this.queueIndex = this.queue.length - 1;
+        this.play(radioTrack);
+      })
+      .catch(() => {
+        this._autoRadioLoading = false;
+        this._state = 'idle';
+        this.notify();
+      });
   }
 
   private getStreamUrl(track: AudioTrack): string {

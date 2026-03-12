@@ -260,9 +260,10 @@ async function getTasteProfile(userId) {
  */
 function scoreTrack(track, profile, recentTrackIds, skippedTrackIds) {
     if (!profile)
-        return track.plays * 0.001; // fallback: popularity
+        return track.plays * 0.001 + Math.random() * 0.05; // fallback: popularity + jitter
     const genreScores = profile.genre_scores || {};
     const artistScores = profile.artist_scores || {};
+    const exploration = profile.exploration_score ?? 0.5;
     // Base components
     const genreAffinity = (genreScores[track.genre] || 0) / 100; // 0-1
     const artistAffinity = (artistScores[track.artist_slug] || 0) / 100; // 0-1
@@ -281,16 +282,29 @@ function scoreTrack(track, profile, recentTrackIds, skippedTrackIds) {
             bpmFit = Math.max(0, 1 - dist / 60);
         }
     }
+    // Discovery bonus: tracks from genres/artists user hasn't explored much
+    // High exploration_score → more weight to unknown genres
+    const isUnknownGenre = !genreScores[track.genre];
+    const isUnknownArtist = !artistScores[track.artist_slug];
+    const discoveryBonus = (isUnknownGenre ? 0.5 : 0) + (isUnknownArtist ? 0.3 : 0);
+    // Likes bonus: if user liked many tracks from this artist, boost
+    const artistLikeness = (artistScores[track.artist_slug] || 0) > 70 ? 0.1 : 0;
     // Penalties
     const repetitionPenalty = recentTrackIds.has(track.id) ? 0.6 : 0;
     const skipPenalty = skippedTrackIds.has(track.id) ? 0.4 : 0;
+    // Dynamic weights based on exploration score:
+    // High exploration → less genre/artist weight, more discovery/random
+    // Low exploration → strong genre/artist preference
+    const explorationFactor = exploration; // 0-1
+    const familiarWeight = 1 - explorationFactor * 0.4; // 0.6-1.0
+    const discoveryWeight = explorationFactor * 0.3; // 0-0.3
     // Final score
-    const score = 0.30 * genreAffinity +
-        0.25 * artistAffinity +
-        0.15 * bpmFit +
-        0.10 * popularity +
-        0.10 * freshness +
-        0.10 * Math.random() // slight randomness for variety
+    const score = familiarWeight * (0.30 * genreAffinity + 0.25 * artistAffinity + 0.15 * bpmFit) +
+        0.08 * popularity +
+        0.07 * freshness +
+        discoveryWeight * discoveryBonus +
+        0.03 * artistLikeness +
+        0.12 * Math.random() // randomness for variety
         - repetitionPenalty
         - skipPenalty;
     return score;
@@ -323,26 +337,78 @@ export async function forYou(userId, limit = 20) {
         ? await getRecentHistory(userId)
         : { played: new Set(), skipped: new Set() };
     const { played, skipped } = history;
-    // Get candidate tracks
-    const candidates = await query(`
-    SELECT * FROM tracks WHERE status = 'ready'
-    ORDER BY created_at DESC LIMIT 500
-  `);
+    // Get candidate tracks from multiple pools for diversity
+    const [recent, popular, random] = await Promise.all([
+        // Pool 1: Recent tracks (fresh content)
+        query(`SELECT * FROM tracks WHERE status = 'ready' ORDER BY created_at DESC LIMIT 200`),
+        // Pool 2: Popular tracks (proven quality)
+        query(`SELECT * FROM tracks WHERE status = 'ready' ORDER BY plays DESC LIMIT 200`),
+        // Pool 3: Random tracks (exploration / long tail)
+        query(`SELECT * FROM tracks WHERE status = 'ready' ORDER BY RANDOM() LIMIT 100`),
+    ]);
+    // Merge + deduplicate
+    const seen = new Set();
+    const candidates = [];
+    for (const pool of [recent, popular, random]) {
+        for (const t of pool) {
+            if (!seen.has(t.id)) {
+                seen.add(t.id);
+                candidates.push(t);
+            }
+        }
+    }
+    // Collaborative filtering: if user exists, find tracks liked by similar users
+    let collabBoost = new Set();
+    if (userId) {
+        try {
+            const collabTracks = await query(`
+        SELECT DISTINCT ue2.track_id FROM user_events ue1
+        JOIN user_events ue2 ON ue2.user_id = ue1.user_id
+          AND ue2.track_id IS NOT NULL
+          AND ue2.event_type IN ('like', 'finish', 'replay', 'add_to_playlist')
+        WHERE ue1.user_id IN (
+          -- Find users with similar taste (same top artists/genres)
+          SELECT DISTINCT ue3.user_id FROM user_events ue3
+          WHERE ue3.user_id != $1
+            AND ue3.artist_slug IN (
+              SELECT artist_slug FROM user_events
+              WHERE user_id = $1 AND event_type IN ('like','finish')
+              AND artist_slug IS NOT NULL
+              GROUP BY artist_slug ORDER BY COUNT(*) DESC LIMIT 5
+            )
+            AND ue3.created_at > NOW() - INTERVAL '30 days'
+          LIMIT 20
+        )
+        AND ue2.created_at > NOW() - INTERVAL '30 days'
+        LIMIT 50
+      `, [userId]);
+            collabBoost = new Set(collabTracks.map((r) => r.track_id));
+        }
+        catch { /* collaborative filtering is best-effort */ }
+    }
     // Score each candidate
-    const scored = candidates.map((t) => ({
-        ...t,
-        score: scoreTrack(t, profile, played, skipped),
-    }));
-    // Sort by score, take top N
+    const scored = candidates.map((t) => {
+        let score = scoreTrack(t, profile, played, skipped);
+        // Collaborative boost: tracks that similar users enjoy
+        if (collabBoost.has(t.id))
+            score += 0.15;
+        return { ...t, score };
+    });
+    // Sort by score
     scored.sort((a, b) => b.score - a.score);
-    // Ensure diversity: don't show more than 3 tracks from same artist
+    // Ensure diversity: max 2 tracks per artist, max 3 per genre
     const result = [];
     const artistCount = new Map();
+    const genreCount = new Map();
     for (const t of scored) {
-        const count = artistCount.get(t.artist_slug) || 0;
-        if (count >= 3)
+        const ac = artistCount.get(t.artist_slug) || 0;
+        const gc = genreCount.get(t.genre) || 0;
+        if (ac >= 2)
             continue;
-        artistCount.set(t.artist_slug, count + 1);
+        if (gc >= Math.max(3, Math.ceil(limit * 0.4)))
+            continue; // max 40% from one genre
+        artistCount.set(t.artist_slug, ac + 1);
+        genreCount.set(t.genre, gc + 1);
         result.push(t);
         if (result.length >= limit)
             break;
@@ -359,55 +425,91 @@ export async function nextTrack(userId, currentTrackId, recentIds = []) {
         return null;
     const recentSet = new Set(recentIds);
     recentSet.add(currentTrackId);
-    // Find candidates: same genre, similar BPM, not recently played
-    const candidates = await query(`
-    SELECT * FROM tracks
-    WHERE status = 'ready'
-      AND id != $1
-      AND genre = $2
-    ORDER BY plays DESC
-    LIMIT 100
-  `, [currentTrackId, current.genre]);
-    // Also add some cross-genre tracks for variety
-    const crossGenre = await query(`
-    SELECT * FROM tracks
-    WHERE status = 'ready'
-      AND id != $1
-      AND genre != $2
-    ORDER BY plays DESC
-    LIMIT 30
-  `, [currentTrackId, current.genre]);
-    const all = [...candidates, ...crossGenre];
-    // Score based on similarity to current track
+    // Analyse session context: what genres have been playing?
+    let sessionGenres = new Map();
+    if (recentIds.length > 0) {
+        const placeholders = recentIds.slice(-10).map((_, i) => `$${i + 1}`).join(',');
+        const sessionTracks = await query(`SELECT genre FROM tracks WHERE id IN (${placeholders})`, recentIds.slice(-10));
+        for (const st of sessionTracks) {
+            sessionGenres.set(st.genre, (sessionGenres.get(st.genre) || 0) + 1);
+        }
+    }
+    // Determine if we should introduce variety (avoid genre fatigue)
+    const currentGenreCount = sessionGenres.get(current.genre) || 0;
+    const shouldDiversify = currentGenreCount >= 3; // 3+ same genre in a row → mix it up
+    // Find candidates from multiple pools
+    const [sameGenre, sameArtist, crossGenre] = await Promise.all([
+        // Pool 1: Same genre (continuity)
+        query(`
+      SELECT * FROM tracks WHERE status = 'ready' AND id != $1 AND genre = $2
+      ORDER BY plays DESC LIMIT 80
+    `, [currentTrackId, current.genre]),
+        // Pool 2: Same artist (flow)
+        query(`
+      SELECT * FROM tracks WHERE status = 'ready' AND id != $1 AND artist_slug = $2
+      ORDER BY RANDOM() LIMIT 20
+    `, [currentTrackId, current.artist_slug]),
+        // Pool 3: Cross-genre (variety)
+        query(`
+      SELECT * FROM tracks WHERE status = 'ready' AND id != $1 AND genre != $2
+      ORDER BY plays DESC LIMIT 50
+    `, [currentTrackId, current.genre]),
+    ]);
+    // Merge + deduplicate
+    const seen = new Set();
+    const all = [];
+    for (const pool of [sameGenre, sameArtist, crossGenre]) {
+        for (const t of pool) {
+            if (!seen.has(t.id)) {
+                seen.add(t.id);
+                all.push(t);
+            }
+        }
+    }
+    // Score based on similarity + session context
     const scored = all.map((t) => {
         let sim = 0;
-        // Same genre = strong signal
-        if (t.genre === current.genre)
-            sim += 0.35;
+        // Same genre = strong signal (reduced if session has genre fatigue)
+        if (t.genre === current.genre) {
+            sim += shouldDiversify ? 0.15 : 0.35;
+        }
+        else if (shouldDiversify) {
+            sim += 0.15; // bonus for different genre when diversifying
+        }
         // Same artist bonus
         if (t.artist_slug === current.artist_slug)
-            sim += 0.15;
-        // BPM proximity
+            sim += 0.12;
+        // BPM proximity (smooth energy transition)
         if (t.meta_bpm && current.meta_bpm) {
             const bpmDiff = Math.abs(t.meta_bpm - current.meta_bpm);
             sim += Math.max(0, 0.15 * (1 - bpmDiff / 40));
         }
-        // Same album bonus
+        // Same album: next track from album (natural album flow)
         if (t.meta_album && current.meta_album && t.meta_album === current.meta_album) {
-            sim += 0.10;
+            // Prefer next track number in the album
+            if (t.meta_track_number && current.meta_track_number) {
+                const diff = t.meta_track_number - current.meta_track_number;
+                if (diff === 1)
+                    sim += 0.25; // next track in album → strong boost
+                else if (diff > 0 && diff <= 3)
+                    sim += 0.12;
+            }
+            else {
+                sim += 0.08;
+            }
         }
         // Popularity factor
-        sim += Math.min(0.15, (t.plays || 0) / 5000);
+        sim += Math.min(0.10, (t.plays || 0) / 5000);
         // Freshness
         if (t.created_at) {
             const ageMs = Date.now() - new Date(t.created_at).getTime();
             sim += Math.max(0, 0.05 * (1 - ageMs / (90 * 24 * 60 * 60 * 1000)));
         }
-        // Small random factor for variety
-        sim += Math.random() * 0.05;
+        // Random for variety
+        sim += Math.random() * 0.08;
         // Penalties
         if (recentSet.has(t.id))
-            sim -= 0.5;
+            sim -= 0.7;
         return { ...t, score: sim };
     });
     // If we have a user, also factor in their taste
@@ -416,7 +518,7 @@ export async function nextTrack(userId, currentTrackId, recentIds = []) {
         if (profile) {
             const { skipped } = await getRecentHistory(userId);
             for (const t of scored) {
-                t.score += scoreTrack(t, profile, recentSet, skipped) * 0.3;
+                t.score += scoreTrack(t, profile, recentSet, skipped) * 0.35;
             }
         }
     }

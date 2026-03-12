@@ -6,6 +6,7 @@ import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { apiUrl } from '../lib/api';
+import { trackEvent } from '../utils/trackEvent';
 
 interface SimilarArtist {
   id: string;
@@ -47,6 +48,8 @@ export default function ArtistPage() {
   const [similarArtistsData, setSimilarArtistsData] = useState<SimilarArtist[]>([]);
   useEffect(() => {
     if (!slug) return;
+    // Record open_artist event for recommendation engine
+    trackEvent('open_artist', { artistSlug: slug });
     fetch(apiUrl(`/recommendations/similar-artists/${slug}?limit=6`))
       .then(r => r.ok ? r.json() : [])
       .then(d => Array.isArray(d) ? setSimilarArtistsData(d) : setSimilarArtistsData([]))

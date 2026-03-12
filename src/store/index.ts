@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiUrl } from '../lib/api';
+import { trackEvent } from '../utils/trackEvent';
 
 export type Role = 'guest' | 'user' | 'admin';
 
@@ -402,6 +403,8 @@ export const useStore = create<AppStore>((set, get) => ({
   togglePlay: () => set(s => ({ player: { ...s.player, isPlaying: !s.player.isPlaying } })),
   queueNext: (track) => {
     const { player } = get();
+    // Record queue_next event for recommendation engine
+    trackEvent('queue_next', { trackId: track.id });
     if (!player.currentTrack) {
       // Nothing playing — just play it
       set(s => ({ player: { ...s.player, currentTrack: track, queue: [track], isPlaying: true, progress: 0 } }));

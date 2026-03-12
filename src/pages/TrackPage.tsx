@@ -6,6 +6,7 @@ import { shareUrl } from '../utils/share';
 import TrackCard from '../components/TrackCard';
 import { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '../lib/api';
+import { trackEvent } from '../utils/trackEvent';
 
 export default function TrackPage() {
   const { id } = useParams();
@@ -25,6 +26,8 @@ export default function TrackPage() {
         .then(data => { if (data) setFetchedTrack(data); })
         .catch(() => {});
     }
+    // Record open_track event for recommendation engine
+    if (id) trackEvent('open_track', { trackId: id });
   }, [id, tracks]);
 
   const track = tracks.find(t => t.id === id) || fetchedTrack;

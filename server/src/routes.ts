@@ -718,12 +718,25 @@ router.post('/events', authRequired, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid eventType' });
   }
 
+  // Auto-resolve genre and artistSlug from track if not provided by frontend
+  let resolvedGenre = genre;
+  let resolvedArtistSlug = artistSlug;
+  if (trackId && (!resolvedGenre || !resolvedArtistSlug)) {
+    try {
+      const trackRow = await queryOne('SELECT genre, artist_slug FROM tracks WHERE id = $1', [trackId]);
+      if (trackRow) {
+        if (!resolvedGenre) resolvedGenre = trackRow.genre;
+        if (!resolvedArtistSlug) resolvedArtistSlug = trackRow.artist_slug;
+      }
+    } catch { /* non-critical — proceed without */ }
+  }
+
   recordEvent({
     userId,
     eventType,
     trackId,
-    artistSlug,
-    genre,
+    artistSlug: resolvedArtistSlug,
+    genre: resolvedGenre,
     context,
     durationListened,
     trackDuration,

@@ -4,6 +4,7 @@ import { Play, Pause, Heart, Info, Disc3, Mic2, X, ListPlus, Share2, MoreHorizon
 import { formatDuration, formatPlays } from '../utils/format';
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useRef, useCallback } from 'react';
+import { trackEvent } from '../utils/trackEvent';
 
 interface Props {
   track: Track;
@@ -185,6 +186,7 @@ export default function TrackCard({ track, queue, showRank }: Props) {
               {/* Share */}
               <button
                 onClick={() => {
+                  trackEvent('share', { trackId: track.id });
                   const url = `${window.location.origin}/track/${track.id}`;
                   try {
                     if (navigator.share) navigator.share({ title: `${track.title} — ${track.artist}`, text: `Послушай "${track.title}" на GROMKO 🎵`, url }).catch(() => {});

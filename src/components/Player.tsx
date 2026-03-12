@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { audioEngine, EngineState } from '../audio/engine';
 import { shareUrl } from '../utils/share';
 import { apiUrl } from '../lib/api';
+import { trackEvent } from '../utils/trackEvent';
 
 export default function Player() {
   const {
@@ -408,6 +409,7 @@ export default function Player() {
             }
             <button
               onClick={() => {
+                trackEvent('share', { trackId: t.id });
                 shareUrl({
                   title: `${t.title} — ${t.artist}`,
                   text: `Послушай "${t.title}" на GROMKO 🎵`,
