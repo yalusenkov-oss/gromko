@@ -119,10 +119,10 @@ export function ProfileCard({
         <div className="flex gap-2">
           <button
             onClick={onShare}
-            className="flex-1 bg-gromq-surface hover:bg-gromq-border transition-colors border border-gromq-border text-gromq-text font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 active:scale-[0.97]"
+            className="bg-gromq-surface hover:bg-gromq-border transition-colors border border-gromq-border text-gromq-muted text-sm py-2.5 px-3 rounded-xl flex items-center justify-center active:scale-[0.97]"
+            title="Поделиться"
           >
-            <Share2 size={16} className="text-gromq-muted" />
-            Поделиться
+            <Share2 size={16} />
           </button>
           <button
             onClick={onLogout}
