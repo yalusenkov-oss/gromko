@@ -210,6 +210,79 @@ function DashboardTab() {
       <button onClick={() => fetchAdminStats()} className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition">
         <RefreshCw className="w-3.5 h-3.5" /> Обновить
       </button>
+
+      {/* Maintenance: fix covers */}
+      <FixCoversCard />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════ */
+/*  FIX COVERS CARD (maintenance tool)             */
+/* ═══════════════════════════════════════════════ */
+
+function FixCoversCard() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [result, setResult] = useState<{ message: string; fixing?: number; fixed?: number; total?: number } | null>(null);
+  const [force, setForce] = useState(false);
+
+  const runFixCovers = async () => {
+    setStatus('loading');
+    setResult(null);
+    try {
+      const data = await adminFetch('/admin/tracks/fix-covers', {
+        method: 'POST',
+        body: JSON.stringify({ force }),
+      });
+      setResult(data);
+      setStatus('done');
+    } catch (err: any) {
+      setResult({ message: 'Ошибка: ' + err.message });
+      setStatus('done');
+    }
+  };
+
+  return (
+    <div className="bg-zinc-900/60 rounded-xl p-5 border border-zinc-800">
+      <div className="flex items-center gap-3 mb-3">
+        <Image className="w-5 h-5 text-purple-400" />
+        <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide">Обложки треков</h3>
+      </div>
+      <p className="text-xs text-zinc-500 mb-4">
+        Поиск и замена отсутствующих обложек (красный плейсхолдер) через iTunes и Deezer API.
+        Процесс запускается в фоне на сервере.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={runFixCovers}
+          disabled={status === 'loading'}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition"
+        >
+          {status === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
+          {status === 'loading' ? 'Сканирование...' : 'Исправить обложки'}
+        </button>
+        <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={e => setForce(e.target.checked)}
+            className="rounded border-zinc-600 bg-zinc-800 text-purple-500 focus:ring-purple-500 cursor-pointer"
+          />
+          Пересканировать все (включая имеющиеся)
+        </label>
+      </div>
+      {result && (
+        <div className={`mt-3 px-4 py-2.5 rounded-lg text-sm ${
+          result.fixing && result.fixing > 0
+            ? 'bg-emerald-950/40 border border-emerald-800/50 text-emerald-300'
+            : 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-300'
+        }`}>
+          {result.message}
+          {result.fixing && result.fixing > 0 && (
+            <span className="block text-xs text-emerald-400/70 mt-1">Прогресс виден в логах сервера (pm2 logs)</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
