@@ -265,17 +265,26 @@ export async function initSchema(): Promise<void> {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
     // Add username column for unique user IDs
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`);
-    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL`);
-    // Backfill username from name for existing users
+    // Drop old index if it exists (may have wrong WHERE clause from earlier migration)
+    await client.query(`DROP INDEX IF EXISTS idx_users_username`);
+    // Backfill username for users that don't have one yet (or have empty string)
+    // For Cyrillic/non-Latin names the regex strips everything, so fallback to 'user_' + id prefix
     await client.query(`
-      UPDATE users SET username = LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9_]', '', 'g'))
-      WHERE username IS NULL
+      UPDATE users
+      SET username = CASE
+        WHEN LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9_]', '', 'g')) <> ''
+          THEN LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9_]', '', 'g'))
+        ELSE 'user_' || LEFT(id, 8)
+      END
+      WHERE username IS NULL OR username = ''
     `);
     // Handle potential collisions by appending id suffix
     await client.query(`
       UPDATE users u SET username = u.username || '_' || LEFT(u.id, 4)
-      WHERE (SELECT COUNT(*) FROM users u2 WHERE u2.username = u.username) > 1
+      WHERE (SELECT COUNT(*) FROM users u2 WHERE u2.username = u.username AND u2.id <> u.id) > 0
     `);
+    // Recreate unique index excluding NULL and empty strings
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL AND username <> ''`);
 
     // Migration: recommendation system tables
     await client.query(`
