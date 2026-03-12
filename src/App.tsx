@@ -14,7 +14,6 @@ import ArtistPage from './pages/ArtistPage';
 import ArtistsPage from './pages/ArtistsPage';
 import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
-import PeoplePage from './pages/PeoplePage';
 import UserPage from './pages/UserPage';
 import PlaylistPage from './pages/PlaylistPage';
 import SubmitPage from './pages/SubmitPage';
@@ -125,7 +124,6 @@ export function App() {
         <Route path="/artists" element={<PublicLayout><ArtistsPage /></PublicLayout>} />
         <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
         <Route path="/profile" element={<PublicLayout><ProfilePage /></PublicLayout>} />
-        <Route path="/people" element={<PublicLayout><PeoplePage /></PublicLayout>} />
         <Route path="/user/:id" element={<PublicLayout><UserPage /></PublicLayout>} />
         <Route path="/playlists/:id" element={<PublicLayout><PlaylistPage /></PublicLayout>} />
         <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />

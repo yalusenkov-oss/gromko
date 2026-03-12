@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Music, User, Users } from 'lucide-react';
+import { Home, Music, Heart, User } from 'lucide-react';
 import { useStore } from '../store';
 
 export default function BottomNav() {
@@ -13,8 +13,8 @@ export default function BottomNav() {
   const tabs = [
     { to: '/', icon: Home, label: 'Главная' },
     { to: '/tracks', icon: Music, label: 'Треки' },
-    { to: '/profile', icon: User, label: 'Моё', auth: true },
-    { to: '/people', icon: Users, label: 'Люди', auth: true },
+    { to: '/profile', icon: User, label: 'Профиль', auth: true },
+    { to: '/liked', icon: Heart, label: 'Любимое', auth: true },
   ];
 
   const filteredTabs = tabs.filter(t => !t.auth || currentUser);
@@ -37,7 +37,7 @@ export default function BottomNav() {
                   : 'text-zinc-500 active:text-zinc-300'
               }`}
             >
-              <Icon size={22} />
+              <Icon size={22} fill={isActive && to === '/liked' ? 'currentColor' : 'none'} />
             </Link>
           );
         })}

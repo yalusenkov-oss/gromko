@@ -77,7 +77,6 @@ export default function Navbar() {
     { to: '/', label: 'Главная' },
     { to: '/tracks', label: 'Треки' },
     { to: '/artists', label: 'Артисты' },
-    { to: '/people', label: 'Люди' },
   ];
 
   return (
