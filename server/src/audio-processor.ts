@@ -118,10 +118,97 @@ export async function extractMetadata(filePath: string): Promise<AudioMeta> {
 // 2. Cover Art Processing
 // ─────────────────────────────────────────────
 
+/**
+ * Fetch cover art from external APIs (iTunes / Deezer) when no embedded or local cover exists.
+ * Returns a Buffer of the image, or undefined if not found.
+ */
+export async function fetchExternalCover(artist?: string, title?: string, album?: string): Promise<Buffer | undefined> {
+  if (!artist && !title) return undefined;
+
+  // Strategy: try several search queries in order of specificity
+  const queries: string[] = [];
+  if (artist && title) queries.push(`${artist} ${title}`);
+  if (artist && album) queries.push(`${artist} ${album}`);
+  if (artist) queries.push(artist);
+
+  for (const q of queries) {
+    // ── Try iTunes Search API (no auth required, excellent coverage) ──
+    try {
+      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&entity=song&limit=5`;
+      const res = await fetch(itunesUrl, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+          // Find best match — prefer exact artist match
+          let bestResult = data.results[0];
+          if (artist) {
+            const artistLower = artist.toLowerCase().trim();
+            const exactMatch = data.results.find((r: any) =>
+              r.artistName?.toLowerCase().trim() === artistLower
+            );
+            if (exactMatch) bestResult = exactMatch;
+          }
+
+          // Get high-res artwork (replace 100x100 with 600x600)
+          let artworkUrl: string = bestResult.artworkUrl100 || bestResult.artworkUrl60;
+          if (artworkUrl) {
+            artworkUrl = artworkUrl.replace(/\d+x\d+(bb\.\w+)$/, '600x600$1');
+            const imgRes = await fetch(artworkUrl, { signal: AbortSignal.timeout(10000) });
+            if (imgRes.ok) {
+              const buf = Buffer.from(await imgRes.arrayBuffer());
+              if (buf.length > 1000) { // sanity check — not an error page
+                console.log(`    🎨 Cover found via iTunes: "${bestResult.trackName}" by ${bestResult.artistName}`);
+                return buf;
+              }
+            }
+          }
+        }
+      }
+    } catch { /* iTunes failed — try next */ }
+
+    // ── Try Deezer API (no auth required, good Russian music coverage) ──
+    try {
+      const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
+      const res = await fetch(deezerUrl, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          let bestResult = data.data[0];
+          if (artist) {
+            const artistLower = artist.toLowerCase().trim();
+            const exactMatch = data.data.find((r: any) =>
+              r.artist?.name?.toLowerCase().trim() === artistLower
+            );
+            if (exactMatch) bestResult = exactMatch;
+          }
+
+          // Deezer provides album.cover_big (500x500) or cover_xl (1000x1000)
+          const coverUrl = bestResult.album?.cover_xl || bestResult.album?.cover_big || bestResult.album?.cover_medium;
+          if (coverUrl) {
+            const imgRes = await fetch(coverUrl, { signal: AbortSignal.timeout(10000) });
+            if (imgRes.ok) {
+              const buf = Buffer.from(await imgRes.arrayBuffer());
+              if (buf.length > 1000) {
+                console.log(`    🎨 Cover found via Deezer: "${bestResult.title}" by ${bestResult.artist?.name}`);
+                return buf;
+              }
+            }
+          }
+        }
+      }
+    } catch { /* Deezer failed — try next query */ }
+  }
+
+  return undefined;
+}
+
 export async function processCoverArt(
   trackId: string,
   coverBuffer?: Buffer,
-  externalCoverPath?: string
+  externalCoverPath?: string,
+  artist?: string,
+  title?: string,
+  album?: string,
 ): Promise<Record<string, string>> {
   const coverDir = path.join(PATHS.covers, trackId);
   fs.mkdirSync(coverDir, { recursive: true });
@@ -133,17 +220,23 @@ export async function processCoverArt(
   } else if (externalCoverPath && fs.existsSync(externalCoverPath)) {
     sourceBuffer = fs.readFileSync(externalCoverPath);
   } else {
-    // Generate a placeholder gradient cover
-    sourceBuffer = await sharp({
-      create: {
-        width: 600,
-        height: 600,
-        channels: 4,
-        background: { r: 239, g: 68, b: 68, alpha: 1 }, // red-500
-      },
-    })
-      .png()
-      .toBuffer();
+    // Try fetching from external APIs (iTunes, Deezer)
+    const externalBuffer = await fetchExternalCover(artist, title, album);
+    if (externalBuffer) {
+      sourceBuffer = externalBuffer;
+    } else {
+      // Generate a placeholder gradient cover
+      sourceBuffer = await sharp({
+        create: {
+          width: 600,
+          height: 600,
+          channels: 4,
+          background: { r: 239, g: 68, b: 68, alpha: 1 }, // red-500
+        },
+      })
+        .png()
+        .toBuffer();
+    }
   }
 
   const paths: Record<string, string> = {};
@@ -169,6 +262,46 @@ export async function processCoverArt(
   paths['original'] = `/covers/${trackId}/original.jpg`;
 
   return paths;
+}
+
+/**
+ * Fix cover art for an existing track — fetches from external APIs and updates DB + S3.
+ * Returns the new cover_path or null if no cover found.
+ */
+export async function fixTrackCover(trackId: string, artist: string, title: string, album?: string): Promise<string | null> {
+  const coverBuffer = await fetchExternalCover(artist, title, album || undefined);
+  if (!coverBuffer) return null;
+
+  // Process cover into all sizes
+  const coverPaths = await processCoverArt(trackId, coverBuffer);
+
+  // Upload to S3 if enabled
+  let finalCoverPath = coverPaths['medium'] || coverPaths['original'] || Object.values(coverPaths)[0];
+
+  if (S3_ENABLED) {
+    const coverDir = path.join(PATHS.covers, trackId);
+    if (fs.existsSync(coverDir)) {
+      const coverFiles = fs.readdirSync(coverDir);
+      for (const cf of coverFiles) {
+        const cfPath = path.join(coverDir, cf);
+        const s3Url = await uploadToS3(cfPath, `covers/${trackId}/${cf}`);
+        const name = path.parse(cf).name;
+        coverPaths[name] = s3Url;
+      }
+      finalCoverPath = coverPaths['medium'] || coverPaths['original'] || Object.values(coverPaths)[0];
+
+      // Cleanup local files after S3 upload
+      try { fs.rmSync(coverDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  }
+
+  // Update DB
+  await execute(
+    `UPDATE tracks SET cover_path = $1 WHERE id = $2`,
+    [finalCoverPath, trackId]
+  );
+
+  return finalCoverPath;
 }
 
 // ─────────────────────────────────────────────
@@ -452,8 +585,13 @@ export async function processTrack(
     const meta = await extractMetadata(inputPath);
 
     // ── Step 2: Process cover art ──
+    // Fetch track info from DB for external cover search (artist/title/album)
     console.log(`[${trackId}] Processing cover art...`);
-    const coverPaths = await processCoverArt(trackId, meta.coverBuffer, coverPath);
+    const trackRow = await query('SELECT title, artist, meta_album FROM tracks WHERE id = $1', [trackId]);
+    const dbArtist = trackRow[0]?.artist || meta.artist;
+    const dbTitle = trackRow[0]?.title || meta.title;
+    const dbAlbum = trackRow[0]?.meta_album || meta.album;
+    const coverPaths = await processCoverArt(trackId, meta.coverBuffer, coverPath, dbArtist, dbTitle, dbAlbum);
 
     // ── Step 3: Analyze loudness ──
     let loudness = -14;

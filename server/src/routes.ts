@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 import { slugify } from './slugify.js';
 import { query, queryOne, execute } from './db.js';
 import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
-import { enqueueTrack, extractMetadata, getQueueStatus } from './audio-processor.js';
+import { enqueueTrack, extractMetadata, getQueueStatus, fetchExternalCover, processCoverArt, fixTrackCover } from './audio-processor.js';
 import {
   registerUser, loginUser, getUserById,
   authRequired, authOptional, adminRequired,
@@ -1349,6 +1349,89 @@ router.post('/admin/tracks/bulk-delete', adminRequired, async (req: Request, res
   await execute(`DELETE FROM play_history WHERE track_id IN (${placeholders})`, ids);
   const deleted = await execute(`DELETE FROM tracks WHERE id IN (${placeholders})`, ids);
   res.json({ deleted });
+});
+
+/** POST /api/admin/tracks/fix-covers — fetch missing covers from external APIs (iTunes/Deezer) */
+router.post('/admin/tracks/fix-covers', adminRequired, async (req: Request, res: Response) => {
+  try {
+    // Find all tracks that have a placeholder cover (local path or S3 URL with our generated cover)
+    // A placeholder cover is one that was auto-generated (small file, or cover_path is null/empty)
+    const tracks = await query(`
+      SELECT id, title, artist, meta_album, cover_path
+      FROM tracks
+      WHERE status = 'ready'
+      ORDER BY created_at DESC
+    `);
+
+    // Filter tracks with missing/placeholder covers
+    const needsFix: typeof tracks = [];
+    for (const t of tracks) {
+      if (!t.cover_path) {
+        needsFix.push(t);
+        continue;
+      }
+      // Check if cover_path points to a local placeholder (the red square)
+      // Local covers: /covers/{id}/medium.webp — check if file is < 5KB (placeholder is ~1KB)
+      if (t.cover_path.startsWith('/covers/')) {
+        const localPath = path.join(process.cwd(), 'data', t.cover_path);
+        try {
+          const stat = fs.statSync(localPath);
+          if (stat.size < 5000) { // placeholder red square is ~1-3KB
+            needsFix.push(t);
+          }
+        } catch {
+          needsFix.push(t); // file doesn't exist
+        }
+      }
+      // S3 covers — check the cover_path URL for known placeholder pattern
+      // We can't easily check S3 file size, so we'll skip those for now
+      // unless explicitly requested via `force` param
+    }
+
+    // If `ids` param is provided, only fix those specific tracks
+    const requestedIds: string[] = req.body.ids;
+    const toFix = requestedIds?.length
+      ? tracks.filter(t => requestedIds.includes(t.id))
+      : needsFix;
+
+    if (toFix.length === 0) {
+      return res.json({ message: 'Нет треков с отсутствующими обложками', fixed: 0, total: tracks.length });
+    }
+
+    // Process in background — respond immediately with count
+    const fixCount = toFix.length;
+    res.json({
+      message: `Запущено исправление обложек для ${fixCount} треков`,
+      fixing: fixCount,
+      total: tracks.length,
+    });
+
+    // Fix covers in background (sequential to avoid rate limiting)
+    let fixed = 0;
+    let failed = 0;
+    for (const t of toFix) {
+      try {
+        const result = await fixTrackCover(t.id, t.artist, t.title, t.meta_album);
+        if (result) {
+          fixed++;
+          console.log(`  ✅ [${fixed}/${fixCount}] Cover fixed: ${t.artist} — ${t.title}`);
+        } else {
+          failed++;
+          console.log(`  ⚠️  [${fixed + failed}/${fixCount}] No cover found: ${t.artist} — ${t.title}`);
+        }
+      } catch (err: any) {
+        failed++;
+        console.error(`  ❌ [${fixed + failed}/${fixCount}] Error fixing cover: ${t.artist} — ${t.title}: ${err.message}`);
+      }
+      // Rate limit: wait 500ms between API calls to avoid being blocked
+      await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`\n🎨 Cover fix complete: ${fixed} fixed, ${failed} failed out of ${fixCount}`);
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
 });
 
 /** PUT /api/admin/artists/:id — edit artist */

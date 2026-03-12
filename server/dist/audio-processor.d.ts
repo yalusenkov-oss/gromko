@@ -48,7 +48,17 @@ export interface ProcessingResult {
     meta: AudioMeta;
 }
 export declare function extractMetadata(filePath: string): Promise<AudioMeta>;
-export declare function processCoverArt(trackId: string, coverBuffer?: Buffer, externalCoverPath?: string): Promise<Record<string, string>>;
+/**
+ * Fetch cover art from external APIs (iTunes / Deezer) when no embedded or local cover exists.
+ * Returns a Buffer of the image, or undefined if not found.
+ */
+export declare function fetchExternalCover(artist?: string, title?: string, album?: string): Promise<Buffer | undefined>;
+export declare function processCoverArt(trackId: string, coverBuffer?: Buffer, externalCoverPath?: string, artist?: string, title?: string, album?: string): Promise<Record<string, string>>;
+/**
+ * Fix cover art for an existing track — fetches from external APIs and updates DB + S3.
+ * Returns the new cover_path or null if no cover found.
+ */
+export declare function fixTrackCover(trackId: string, artist: string, title: string, album?: string): Promise<string | null>;
 export declare function processTrack(trackId: string, inputPath: string, coverPath?: string, keepOriginal?: boolean): Promise<ProcessingResult>;
 export declare function enqueueTrack(trackId: string, inputPath: string, coverPath?: string, keepOriginal?: boolean): void;
 export declare function getQueueStatus(): {
