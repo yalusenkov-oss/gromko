@@ -1,5 +1,5 @@
 import { useStore, Track } from '../store';
-import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Disc3, Sparkles, Shuffle, Heart, Clock, Zap } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Sparkles, Shuffle, Heart, Zap, Radio, Headphones } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
@@ -22,74 +22,51 @@ function useRecommendations(endpoint: string, enabled: boolean): Track[] {
   return data;
 }
 
+interface PopularUser {
+  id: string;
+  name: string;
+  avatar: string;
+  followersCount: number;
+}
+
+interface PublicRoom {
+  hostId: string;
+  hostName: string;
+  hostAvatar: string;
+  trackTitle: string;
+  trackArtist: string;
+  trackCover: string;
+  listenersCount: number;
+  isPlaying: boolean;
+}
+
 export default function Home() {
   const { tracks, artists, heroTrackId, player, playTrack, togglePlay, toggleShuffle, currentUser, openAuthModal } = useStore();
 
   // Personal recommendations (only when logged in)
   const isLoggedIn = !!currentUser;
-  const forYouTracks = useRecommendations('/recommendations/for-you?limit=10', isLoggedIn);
-  const continueTracks = useRecommendations('/recommendations/continue?limit=6', isLoggedIn);
+  const forYouTracks = useRecommendations('/recommendations/for-you?limit=5', isLoggedIn);
   const newForYouTracks = useRecommendations('/recommendations/new-for-you?limit=6', isLoggedIn);
   const rediscoverTracks = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
+
+  // Popular users & public rooms
+  const [popularUsers, setPopularUsers] = useState<PopularUser[]>([]);
+  const [publicRooms, setPublicRooms] = useState<PublicRoom[]>([]);
+
+  useEffect(() => {
+    fetch(apiUrl('/popular-users')).then(r => r.ok ? r.json() : []).then(d => setPopularUsers(d || [])).catch(() => {});
+    fetch(apiUrl('/public-rooms')).then(r => r.ok ? r.json() : []).then(d => setPublicRooms(d || [])).catch(() => {});
+  }, []);
 
   const heroTrack = tracks.find(t => t.id === heroTrackId) || tracks[0];
   const isHeroPlaying = player.currentTrack?.id === heroTrack?.id && player.isPlaying;
 
   const popularTracks = [...tracks].sort((a, b) => b.plays - a.plays).slice(0, 10);
 
-  // New releases — group by album (show album once, not each track), singles show individually
-  const newReleases = useMemo(() => {
-    const sorted = [...tracks]
-      .filter(t => t.createdAt)
-      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
-
-    const seen = new Set<string>(); // album names already added
-    const items: { type: 'track' | 'album'; track: Track; albumName?: string; albumTracks?: Track[] }[] = [];
-
-    for (const t of sorted) {
-      if (items.length >= 6) break;
-      const albumName = t.meta?.album;
-      if (albumName) {
-        if (seen.has(albumName)) continue; // skip — album already shown
-        seen.add(albumName);
-        // Gather all tracks from this album
-        const albumTracks = tracks.filter(at => at.meta?.album === albumName);
-        if (albumTracks.length > 1) {
-          items.push({ type: 'album', track: t, albumName, albumTracks });
-        } else {
-          items.push({ type: 'track', track: t });
-        }
-      } else {
-        items.push({ type: 'track', track: t });
-      }
-    }
-    return items;
-  }, [tracks]);
-
-  // Build popular albums from tracks
-  const popularAlbums = useMemo(() => {
-    const albumMap = new Map<string, { name: string; cover: string; artist: string; artistSlug: string; totalPlays: number; tracks: Track[] }>();
-    for (const t of tracks) {
-      const albumName = t.meta?.album;
-      if (!albumName) continue;
-      if (!albumMap.has(albumName)) {
-        albumMap.set(albumName, { name: albumName, cover: t.cover, artist: t.artist, artistSlug: t.artistSlug, totalPlays: 0, tracks: [] });
-      }
-      const a = albumMap.get(albumName)!;
-      a.tracks.push(t);
-      a.totalPlays += t.plays;
-    }
-    return [...albumMap.values()]
-      .filter(a => a.tracks.length > 1)
-      .sort((a, b) => b.totalPlays - a.totalPlays)
-      .slice(0, 6);
-  }, [tracks]);
-
   // Top 4 artists by plays, with fallback photo from most popular track cover
   const topArtists = useMemo(() => {
     const sorted = [...artists].sort((a, b) => b.totalPlays - a.totalPlays).slice(0, 4);
     return sorted.map(a => {
-      // If artist has no photo or it's a default placeholder, use cover from their most popular track
       const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
       if (needsFallback) {
         const artistTrack = [...tracks]
@@ -113,21 +90,30 @@ export default function Home() {
       return;
     }
     if (tracks.length === 0) return;
-    // Pick a random starting track and enable shuffle
     const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     playTrack(shuffled[0], shuffled);
-    // Enable shuffle mode
     if (!player.shuffle) toggleShuffle();
   };
+
+  function userAvatar(u: PopularUser) {
+    if (u.avatar) {
+      return u.avatar.startsWith('http') ? u.avatar : apiUrl(`/uploads/${u.avatar.replace(/^\/uploads\//, '')}`);
+    }
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=2a2a2a&color=fff&size=128`;
+  }
+
+  function roomHostAvatar(r: PublicRoom) {
+    if (r.hostAvatar) {
+      return r.hostAvatar.startsWith('http') ? r.hostAvatar : apiUrl(`/uploads/${r.hostAvatar.replace(/^\/uploads\//, '')}`);
+    }
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(r.hostName)}&background=2a2a2a&color=fff&size=64`;
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-14">
       {/* Hero */}
       {heroTrack && (
-        <div
-          className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden"
-        >
-          {/* Blurred background cover — light blur mobile, stronger on desktop */}
+        <div className="relative h-[320px] md:h-[560px] flex items-end overflow-hidden">
           <div className="absolute inset-0 md:hidden" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(2px)', transform: 'scale(1.02)' }} />
           <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: `url(${heroTrack.cover})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(16px) saturate(1.2)', transform: 'scale(1.08)' }} />
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-zinc-950/20" />
@@ -179,36 +165,7 @@ export default function Home() {
 
         {/* === Personalised sections (logged in) === */}
 
-        {/* Continue Listening */}
-        {isLoggedIn && continueTracks.length > 0 && (
-          <section>
-            <div className="flex items-center gap-2 mb-5">
-              <Clock size={20} className="text-red-400" />
-              <h2 className="text-xl font-bold">Продолжить слушать</h2>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {continueTracks.map(track => (
-                <div key={track.id} className="group relative block rounded-xl overflow-hidden cursor-pointer" onClick={() => playTrack(track, continueTracks)}>
-                  <div className="aspect-square">
-                    <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  </div>
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
-                      <Play size={18} fill="white" className="text-white ml-0.5" />
-                    </div>
-                  </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <p className="text-white text-sm font-semibold truncate">{track.title}</p>
-                    <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* For You — personal mix */}
+        {/* For You — personal mix (limited to 5) */}
         {isLoggedIn && forYouTracks.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-5">
@@ -217,23 +174,24 @@ export default function Home() {
               <span className="text-xs text-zinc-500 ml-1">персональный микс</span>
             </div>
             <div className="space-y-1">
-              {forYouTracks.map((track, i) => (
+              {forYouTracks.slice(0, 5).map((track, i) => (
                 <TrackCard key={track.id} track={track} queue={forYouTracks} showRank={i + 1} />
               ))}
             </div>
           </section>
         )}
 
-        {/* New For You */}
+        {/* New For You — personal new releases */}
         {isLoggedIn && newForYouTracks.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-5">
               <Zap size={20} className="text-yellow-400" />
               <h2 className="text-xl font-bold">Новинки для вас</h2>
+              <span className="text-xs text-zinc-500 ml-1">персональные новинки</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {newForYouTracks.map(track => (
-                <Link key={track.id} to={`/track/${track.id}`} className="group relative block rounded-xl overflow-hidden">
+                <div key={track.id} className="group relative block rounded-xl overflow-hidden cursor-pointer" onClick={() => playTrack(track, newForYouTracks)}>
                   <div className="aspect-square">
                     <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   </div>
@@ -241,11 +199,16 @@ export default function Home() {
                   <div className="absolute top-2 right-2">
                     <span className="bg-yellow-500/90 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
                   </div>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-full flex items-center justify-center shadow-lg">
+                      <Play size={18} fill="white" className="text-white ml-0.5" />
+                    </div>
+                  </div>
                   <div className="absolute bottom-0 left-0 right-0 p-3">
                     <p className="text-white text-sm font-semibold truncate">{track.title}</p>
                     <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           </section>
@@ -281,7 +244,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* Popular tracks */}
+        {/* Популярное — icon grid of popular tracks */}
         <section>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
@@ -292,102 +255,82 @@ export default function Home() {
               Все треки <ChevronRight size={16} />
             </Link>
           </div>
-
-          {/* Top 5 tracks as list */}
-          <div className="space-y-1 mb-8">
-            {popularTracks.length > 0 ? (
-              popularTracks.slice(0, 5).map((track, i) => (
-                <TrackCard key={track.id} track={track} queue={tracks} showRank={i + 1} />
-              ))
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-zinc-500 text-sm">Треки загружаются...</p>
-              </div>
-            )}
-          </div>
-
-          {/* Popular Albums */}
-          {popularAlbums.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Disc3 size={18} className="text-red-400" />
-                  <h3 className="text-lg font-semibold">Популярные альбомы</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            {popularTracks.slice(0, 10).map((track, i) => (
+              <div key={track.id} className={`group relative block rounded-xl overflow-hidden cursor-pointer ${i >= 6 ? 'hidden md:block' : ''}`} onClick={() => playTrack(track, popularTracks)}>
+                <div className="aspect-square">
+                  <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                 </div>
-                <Link to="/tracks" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
-                  Все альбомы <ChevronRight size={16} />
-                </Link>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                {/* Rank badge */}
+                <div className="absolute top-2 left-2">
+                  <span className="bg-black/60 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">{i + 1}</span>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
+                    <Play size={18} fill="white" className="text-white ml-0.5" />
+                  </div>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 p-3">
+                  <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                  <p className="text-zinc-400 text-xs truncate">{track.artist} · {formatPlays(track.plays)}</p>
+                </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {popularAlbums.map(album => (
-                  <Link key={album.name} to={`/artist/${album.artistSlug}?album=${encodeURIComponent(album.name)}`} state={{ openAlbum: true, albumData: { name: album.name, cover: album.cover, artist: album.artist, tracks: album.tracks, totalPlays: album.totalPlays, year: album.tracks[0]?.year || 0 } }} className="group relative block rounded-xl overflow-hidden">
-                    <div className="aspect-square">
-                      <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                    </div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                      <p className="text-white text-sm font-semibold truncate">{album.name}</p>
-                      <p className="text-zinc-400 text-xs truncate">{album.artist} · {album.tracks.length} треков · {formatPlays(album.totalPlays)}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
         </section>
 
-        {/* New releases */}
-        {newReleases.length > 0 && (
+        {/* Популярные пользователи (скрыть если < 4) */}
+        {popularUsers.length >= 4 && (
           <section>
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <Sparkles size={20} className="text-red-400" />
-                <h2 className="text-xl font-bold">Новинки</h2>
-              </div>
-              <Link to="/tracks?sort=new" className="flex items-center gap-1 text-zinc-400 hover:text-white text-sm transition-colors">
-                Все новинки <ChevronRight size={16} />
-              </Link>
+            <div className="flex items-center gap-2 mb-5">
+              <Users size={20} className="text-blue-400" />
+              <h2 className="text-xl font-bold">Популярные пользователи</h2>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {newReleases.map(item => {
-                if (item.type === 'album' && item.albumName) {
-                  // Album card — link to artist page with album overlay
-                  return (
-                    <Link key={`album-${item.albumName}`}
-                      to={`/artist/${item.track.artistSlug}?album=${encodeURIComponent(item.albumName)}`}
-                      state={{ openAlbum: true, albumData: { name: item.albumName, cover: item.track.cover, artist: item.track.artist, tracks: item.albumTracks, totalPlays: item.albumTracks?.reduce((s, t) => s + t.plays, 0) || 0, year: item.track.year } }}
-                      className="group relative block rounded-xl overflow-hidden">
-                      <div className="aspect-square">
-                        <img src={item.track.cover} alt={item.albumName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                      </div>
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                      <div className="absolute top-2 right-2">
-                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
-                      </div>
-                      <div className="absolute bottom-0 left-0 right-0 p-3">
-                        <p className="text-white text-sm font-semibold truncate">{item.albumName}</p>
-                        <p className="text-zinc-400 text-xs truncate">{item.track.artist} · {item.albumTracks?.length} треков</p>
-                      </div>
-                    </Link>
-                  );
-                }
-                // Single track card
-                return (
-                  <Link key={item.track.id} to={`/track/${item.track.id}`} className="group relative block rounded-xl overflow-hidden">
-                    <div className="aspect-square">
-                      <img src={item.track.cover} alt={item.track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {popularUsers.slice(0, 8).map(u => (
+                <Link key={u.id} to={`/user/${u.id}`} className="group flex flex-col items-center">
+                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden mb-3 ring-2 ring-transparent group-hover:ring-blue-400 transition-all">
+                    <img src={userAvatar(u)} alt={u.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  </div>
+                  <p className="text-white text-sm font-medium truncate max-w-full">{u.name}</p>
+                  <p className="text-zinc-500 text-xs">{u.followersCount} {u.followersCount === 1 ? 'подписчик' : u.followersCount < 5 ? 'подписчика' : 'подписчиков'}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Популярные открытые комнаты (скрыть если < 4) */}
+        {publicRooms.length >= 4 && (
+          <section>
+            <div className="flex items-center gap-2 mb-5">
+              <Radio size={20} className="text-green-400" />
+              <h2 className="text-xl font-bold">Популярные комнаты</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {publicRooms.slice(0, 8).map(room => (
+                <Link key={room.hostId} to={`/user/${room.hostId}`} className="group bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-all">
+                  <div className="flex items-center gap-3 mb-3">
+                    <img src={roomHostAvatar(room)} alt={room.hostName} className="w-10 h-10 rounded-full object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white text-sm font-medium truncate">{room.hostName}</p>
+                      <p className="text-zinc-500 text-xs flex items-center gap-1">
+                        <Headphones size={10} />
+                        {room.listenersCount} {room.listenersCount === 1 ? 'слушатель' : room.listenersCount < 5 ? 'слушателя' : 'слушателей'}
+                      </p>
                     </div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    <div className="absolute top-2 right-2">
-                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide">New</span>
+                    {room.isPlaying && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <img src={room.trackCover} alt={room.trackTitle} className="w-10 h-10 rounded-lg object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white text-sm font-medium truncate">{room.trackTitle}</p>
+                      <p className="text-zinc-500 text-xs truncate">{room.trackArtist}</p>
                     </div>
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                      <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
-                      <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
-                    </div>
-                  </Link>
-                );
-              })}
+                  </div>
+                </Link>
+              ))}
             </div>
           </section>
         )}

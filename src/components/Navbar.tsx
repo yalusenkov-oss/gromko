@@ -2,6 +2,15 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
 import { Search, Upload, Settings, Heart } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { apiUrl } from '../lib/api';
+
+interface SearchUser {
+  id: string;
+  name: string;
+  username: string | null;
+  avatar: string;
+  bio: string | null;
+}
 
 export default function Navbar() {
   const { currentUser, tracks, artists, openAuthModal } = useStore();
@@ -9,7 +18,9 @@ export default function Navbar() {
   const location = useLocation();
   const [searchVal, setSearchVal] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestedUsers, setSuggestedUsers] = useState<SearchUser[]>([]);
   const searchRef = useRef<HTMLFormElement>(null);
+  const userSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -29,6 +40,20 @@ export default function Navbar() {
     setShowSuggestions(false);
   }, [location.pathname]);
 
+  // Search users with debounce
+  useEffect(() => {
+    if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current);
+    const q = searchVal.trim();
+    if (q.length < 2) { setSuggestedUsers([]); return; }
+    userSearchTimeout.current = setTimeout(() => {
+      fetch(apiUrl(`/users/search?q=${encodeURIComponent(q)}&limit=3`))
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setSuggestedUsers(Array.isArray(d) ? d : []))
+        .catch(() => setSuggestedUsers([]));
+    }, 300);
+    return () => { if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current); };
+  }, [searchVal]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchVal.trim()) {
@@ -44,7 +69,7 @@ export default function Navbar() {
   const suggestedArtists = q.length >= 2
     ? artists.filter(a => a.name.toLowerCase().includes(q)).slice(0, 3)
     : [];
-  const hasSuggestions = suggestedTracks.length > 0 || suggestedArtists.length > 0;
+  const hasSuggestions = suggestedTracks.length > 0 || suggestedArtists.length > 0 || suggestedUsers.length > 0;
 
   const navLinks = [
     { to: '/', label: 'Главная' },
@@ -125,6 +150,31 @@ export default function Navbar() {
                   ))}
                 </div>
               )}
+              {suggestedUsers.length > 0 && (
+                <div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-t border-white/5">Пользователи</div>
+                  {suggestedUsers.map(u => (
+                    <Link
+                      key={u.id}
+                      to={`/user/${u.id}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
+                      {u.avatar ? (
+                        <img src={u.avatar.startsWith('http') ? u.avatar : apiUrl(`/uploads/${u.avatar.replace(/^\/uploads\//, '')}`)} alt={u.name} className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                          <span className="text-white text-xs font-bold">{u.name[0]?.toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{u.name}</p>
+                        <p className="text-zinc-500 text-xs truncate">@{u.username || u.name.toLowerCase().replace(/\s+/g, '')}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
               <Link
                 to={`/search?q=${encodeURIComponent(searchVal.trim())}`}
                 onClick={() => { setShowSuggestions(false); }}
@@ -155,7 +205,13 @@ export default function Navbar() {
                 <Heart size={18} className="text-red-400 group-hover:text-red-300 transition-colors" fill="currentColor" />
               </Link>
               <Link to="/profile" className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded-lg transition-colors">
-                <img src={currentUser.avatar} alt={currentUser.name} className="w-7 h-7 rounded-full object-cover" />
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar.startsWith('http') ? currentUser.avatar : apiUrl(`/uploads/${currentUser.avatar.replace(/^\/uploads\//, '')}`)} alt={currentUser.name} className="w-7 h-7 rounded-full object-cover" />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                    <span className="text-white text-xs font-bold">{currentUser.name[0]?.toUpperCase()}</span>
+                  </div>
+                )}
                 <span className="text-white text-sm hidden md:block">{currentUser.name}</span>
               </Link>
             </>

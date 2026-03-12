@@ -246,6 +246,19 @@ export async function initSchema(): Promise<void> {
     await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
     // Add bio column to users for public profiles
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+    // Add username column for unique user IDs
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL`);
+    // Backfill username from name for existing users
+    await client.query(`
+      UPDATE users SET username = LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9_]', '', 'g'))
+      WHERE username IS NULL
+    `);
+    // Handle potential collisions by appending id suffix
+    await client.query(`
+      UPDATE users u SET username = u.username || '_' || LEFT(u.id, 4)
+      WHERE (SELECT COUNT(*) FROM users u2 WHERE u2.username = u.username) > 1
+    `);
 
     // Migration: recommendation system tables
     await client.query(`

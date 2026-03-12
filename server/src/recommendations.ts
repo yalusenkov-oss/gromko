@@ -763,14 +763,14 @@ export async function getUserTasteSummary(userId: string) {
   const topGenres = Object.entries(genreScores)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
-    .map(([genre, score]) => ({ genre, score }));
+    .map(([genre, score]) => ({ genre, count: score }));
 
   // Top 5 artists — resolve slugs to names
   const topArtistSlugs = Object.entries(artistScoresRaw)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  let topArtists: { slug: string; name: string; score: number }[] = [];
+  let topArtists: { slug: string; name: string; count: number }[] = [];
   if (topArtistSlugs.length > 0) {
     const slugList = topArtistSlugs.map(([s]) => s);
     const placeholders = slugList.map((_, i) => `$${i + 1}`).join(',');
@@ -779,7 +779,7 @@ export async function getUserTasteSummary(userId: string) {
     topArtists = topArtistSlugs.map(([slug, score]) => ({
       slug,
       name: nameMap.get(slug) || slug,
-      score,
+      count: score,
     }));
   }
 

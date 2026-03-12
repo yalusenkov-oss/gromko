@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Music, Mic2, Heart } from 'lucide-react';
+import { Home, Music, Heart, User } from 'lucide-react';
 import { useStore } from '../store';
 
 export default function BottomNav() {
@@ -13,7 +13,7 @@ export default function BottomNav() {
   const tabs = [
     { to: '/', icon: Home, label: 'Главная' },
     { to: '/tracks', icon: Music, label: 'Треки' },
-    { to: '/artists', icon: Mic2, label: 'Артисты' },
+    { to: '/profile', icon: User, label: 'Профиль', auth: true },
     { to: '/liked', icon: Heart, label: 'Любимое', auth: true },
   ];
 

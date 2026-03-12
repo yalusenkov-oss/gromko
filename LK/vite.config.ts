@@ -16,25 +16,4 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
-  server: {
-    host: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/covers': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/audio': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/waveforms': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-    },
-  },
 });

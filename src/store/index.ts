@@ -71,6 +71,7 @@ export interface Submission {
 export interface User {
   id: string;
   name: string;
+  username: string;
   email: string;
   role: Role;
   avatar: string;
@@ -118,6 +119,7 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<any> {
 function mapUser(u: any): User {
   return {
     id: u.id, name: u.name, email: u.email,
+    username: u.username || u.name?.toLowerCase().replace(/[^a-z0-9_]/g, '') || '',
     role: u.role || 'user',
     avatar: u.avatar || '',
     bio: u.bio || '',
@@ -186,9 +188,9 @@ interface AppStore {
   dataReady: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, password: string, country?: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string, country?: string, username?: string) => Promise<boolean>;
   restoreSession: () => Promise<void>;
-  updateProfile: (data: { name?: string; avatar?: string; bio?: string }) => Promise<boolean>;
+  updateProfile: (data: { name?: string; avatar?: string; bio?: string; username?: string }) => Promise<boolean>;
 
   tracks: Track[];
   artists: Artist[];
@@ -252,6 +254,15 @@ interface AppStore {
   authModal: 'login' | 'register' | null;
   openAuthModal: (mode: 'login' | 'register') => void;
   closeAuthModal: () => void;
+
+  // Listening room (global)
+  roomActive: boolean;
+  roomPublic: boolean; // true = public, false = invite-only
+  roomListeners: { userId: string; name: string; avatar: string }[];
+  setRoomActive: (active: boolean) => void;
+  setRoomPublic: (isPublic: boolean) => void;
+  setRoomListeners: (listeners: { userId: string; name: string; avatar: string }[]) => void;
+  toggleRoom: () => void;
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -280,9 +291,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
   logout: () => { setToken(null); set({ currentUser: null }); },
 
-  register: async (name, email, password, country) => {
+  register: async (name, email, password, country, username) => {
     try {
-      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, country }) });
+      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, country, username }) });
       setToken(data.token);
       set({ currentUser: mapUser(data.user) });
       return true;
@@ -648,4 +659,28 @@ export const useStore = create<AppStore>((set, get) => ({
   authModal: null,
   openAuthModal: (mode) => set({ authModal: mode }),
   closeAuthModal: () => set({ authModal: null }),
+
+  // Listening room (global)
+  roomActive: false,
+  roomPublic: true,
+  roomListeners: [],
+  setRoomActive: (active) => set({ roomActive: active }),
+  setRoomPublic: (isPublic) => set({ roomPublic: isPublic }),
+  setRoomListeners: (listeners) => set({ roomListeners: listeners }),
+  toggleRoom: () => {
+    const { roomActive } = get();
+    if (roomActive) {
+      // Close room
+      const token = localStorage.getItem('gromko_token');
+      if (token) {
+        fetch('/api/listening-room', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+      set({ roomActive: false, roomPublic: true, roomListeners: [] });
+    } else {
+      set({ roomActive: true });
+    }
+  },
 }));

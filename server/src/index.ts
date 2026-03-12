@@ -478,6 +478,8 @@ const server = app.listen(CONFIG.port, CONFIG.host, () => {
   if (dbReady) {
     recalcArtistStats();
     setInterval(recalcArtistStats, 60 * 60 * 1000);
+    // One-time backfill: assign orphan play_history (user_id=NULL) to the first admin user
+    backfillPlayHistory();
   }
 });
 
@@ -596,6 +598,54 @@ async function recalcArtistStats() {
     console.log('  ✅ Artist stats recalculated');
   } catch (e: any) {
     console.error('  ❌ Artist stats recalc error:', e.message);
+  }
+}
+
+/** One-time backfill: assign play_history entries with user_id=NULL to the first admin user
+ *  and create matching user_events so activity feed / taste / stats populate correctly */
+async function backfillPlayHistory() {
+  try {
+    const { query, queryOne, execute } = await import('./db.js');
+
+    // Check if there are orphan plays
+    const orphanCount = await queryOne<{ c: string }>(`SELECT COUNT(*) as c FROM play_history WHERE user_id IS NULL`);
+    const count = Number(orphanCount?.c || 0);
+    if (count === 0) return; // nothing to backfill
+
+    // Find the first admin, or if no admin, the first user
+    const admin = await queryOne(`SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1`);
+    const firstUser = admin || await queryOne(`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`);
+    if (!firstUser) return;
+
+    const userId = firstUser.id;
+    console.log(`  🔄 Backfilling ${count} orphan play_history entries → user ${userId}`);
+
+    // Assign user_id
+    await execute(`UPDATE play_history SET user_id = $1 WHERE user_id IS NULL`, [userId]);
+
+    // Create missing user_events for these plays (with original played_at timestamps)
+    const plays = await query(`
+      SELECT ph.track_id, ph.played_at, t.artist_slug, t.genre
+      FROM play_history ph
+      JOIN tracks t ON t.id = ph.track_id
+      WHERE ph.user_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM user_events ue
+          WHERE ue.user_id = $1 AND ue.track_id = ph.track_id AND ue.event_type = 'play'
+        )
+    `, [userId]);
+
+    for (const p of plays) {
+      // Insert directly with original played_at timestamp
+      await execute(`
+        INSERT INTO user_events (user_id, event_type, track_id, artist_slug, genre, created_at)
+        VALUES ($1, 'play', $2, $3, $4, $5)
+      `, [userId, p.track_id, p.artist_slug, p.genre, p.played_at]);
+    }
+
+    console.log(`  ✅ Backfilled ${count} play_history entries, created ${plays.length} user_events`);
+  } catch (err: any) {
+    console.error('  ⚠️ Backfill play_history error:', err.message);
   }
 }
 

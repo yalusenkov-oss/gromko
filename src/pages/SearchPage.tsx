@@ -4,16 +4,39 @@ import { useState, useEffect } from 'react';
 import TrackCard from '../components/TrackCard';
 import { formatPlays } from '../utils/format';
 import { Search } from 'lucide-react';
+import { apiUrl } from '../lib/api';
+
+interface SearchUser {
+  id: string;
+  name: string;
+  username: string | null;
+  avatar: string;
+  bio: string | null;
+}
 
 export default function SearchPage() {
   const [params] = useSearchParams();
   const { tracks, artists } = useStore();
   const [query, setQuery] = useState(params.get('q') || '');
   const [genre, setGenre] = useState('Все');
+  const [searchedUsers, setSearchedUsers] = useState<SearchUser[]>([]);
 
   useEffect(() => {
     setQuery(params.get('q') || '');
   }, [params]);
+
+  // Search users from API
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setSearchedUsers([]); return; }
+    const timeout = setTimeout(() => {
+      fetch(apiUrl(`/users/search?q=${encodeURIComponent(q)}&limit=10`))
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setSearchedUsers(Array.isArray(d) ? d : []))
+        .catch(() => setSearchedUsers([]));
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [query]);
 
   const q = query.toLowerCase().trim();
 
@@ -73,22 +96,45 @@ export default function SearchPage() {
               )}
             </div>
 
-            {/* Artists */}
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-4">
-                Артисты ({matchedArtists.length})
-              </h2>
-              <div className="space-y-3">
-                {matchedArtists.map(a => (
-                  <Link key={a.id} to={`/artist/${a.slug}`} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group">
-                    <img src={a.photo} alt={a.name} className="w-12 h-12 rounded-full object-cover" />
-                    <div>
-                      <p className="text-white text-sm font-medium">{a.name}</p>
-                      <p className="text-zinc-500 text-xs">{a.genre} · {formatPlays(a.totalPlays)}</p>
-                    </div>
-                  </Link>
-                ))}
+            {/* Sidebar: Artists + Users */}
+            <div className="space-y-8">
+              {/* Artists */}
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-4">
+                  Артисты ({matchedArtists.length})
+                </h2>
+                <div className="space-y-3">
+                  {matchedArtists.map(a => (
+                    <Link key={a.id} to={`/artist/${a.slug}`} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group">
+                      <img src={a.photo} alt={a.name} className="w-12 h-12 rounded-full object-cover" />
+                      <div>
+                        <p className="text-white text-sm font-medium">{a.name}</p>
+                        <p className="text-zinc-500 text-xs">{a.genre} · {formatPlays(a.totalPlays)}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
+
+              {/* Users */}
+              {searchedUsers.length > 0 && (
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-4">
+                    Пользователи ({searchedUsers.length})
+                  </h2>
+                  <div className="space-y-3">
+                    {searchedUsers.map(u => (
+                      <Link key={u.id} to={`/user/${u.id}`} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group">
+                        <img src={u.avatar} alt={u.name} className="w-12 h-12 rounded-full object-cover" />
+                        <div>
+                          <p className="text-white text-sm font-medium">{u.name}</p>
+                          <p className="text-zinc-500 text-xs">@{u.username || u.name.toLowerCase().replace(/\s+/g, '')}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

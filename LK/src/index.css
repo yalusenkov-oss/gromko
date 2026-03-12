@@ -14,68 +14,25 @@
   --color-gromq-amber: #f59e0b;
 }
 
-html, body {
-  background-color: #09090b; /* zinc-950 */
-  color: white;
-}
-
-/* Safe area for fullscreen player on iPhone (home indicator) */
-.safe-area-inset {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-/* Admin panel form inputs */
-.admin-input {
-  width: 100%;
-  background-color: rgb(24 24 27); /* zinc-900 */
-  border: 1px solid rgb(39 39 42); /* zinc-800 */
-  border-radius: 0.5rem;
-  padding: 0.625rem 0.75rem;
-  font-size: 0.875rem;
-  color: white;
-}
-.admin-input::placeholder {
-  color: rgb(82 82 91); /* zinc-600 */
-}
-.admin-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 1px rgb(147 51 234); /* purple-600 */
-  border-color: rgb(147 51 234);
-}
-
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
-@keyframes eqBar {
-  0% { height: 20%; }
-  100% { height: 80%; }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.4s ease-out both;
-}
-
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.animate-spin-slow {
-  animation: spin-slow 1.2s linear infinite;
-}
-
-/* ── GROMQ LK Animations ── */
 * {
   scrollbar-width: thin;
   scrollbar-color: #222228 transparent;
   -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: #0a0a0c;
+  color: #e4e4e8;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overscroll-behavior-y: contain;
+}
+
+/* Safe area for bottom nav on iOS */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @keyframes pulse-glow {
@@ -120,6 +77,11 @@ html, body {
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* Modal & Toast animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 @keyframes modal-in {
   from { opacity: 0; transform: scale(0.97) translateY(12px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
@@ -139,16 +101,19 @@ html, body {
   100% { width: 100%; }
 }
 
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
 .animate-modal-in { animation: modal-in 0.3s cubic-bezier(0.16,1,0.3,1); }
 .animate-toast-in { animation: toast-in 0.3s ease-out; }
 .animate-loading-bar { animation: loading-bar 1.6s ease-in-out forwards; }
 
+/* Mobile modal slides up from bottom */
 @media (max-width: 639px) {
   .animate-modal-in {
     animation: modal-in-mobile 0.35s cubic-bezier(0.16,1,0.3,1);
   }
 }
 
+/* Toast on mobile: bottom center above nav */
 @media (max-width: 1023px) {
   .toast-container {
     bottom: 4.5rem !important;
@@ -156,8 +121,4 @@ html, body {
     transform: translateX(50%);
     left: auto !important;
   }
-}
-
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

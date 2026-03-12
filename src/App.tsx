@@ -6,6 +6,7 @@ import Player from './components/Player';
 import BottomNav from './components/BottomNav';
 import AuthModal from './components/AuthModal';
 import PwaPrompt from './components/PwaPrompt';
+import { useRoomBroadcast } from './hooks/useRoomBroadcast';
 import Home from './pages/Home';
 import TracksPage from './pages/TracksPage';
 import TrackPage from './pages/TrackPage';
@@ -51,6 +52,7 @@ function NotFound() {
 function PublicLayout({ children }: { children: React.ReactNode }) {
   const { player } = useStore();
   const hasTrack = !!player.currentTrack;
+  useRoomBroadcast(); // keep listening room alive globally
   return (
     <>
       <Navbar />

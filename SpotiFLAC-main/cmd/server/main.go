@@ -35,8 +35,8 @@ import (
 )
 
 var (
-	downloadDir   string
-	downloadSem   chan struct{} // semaphore limiting concurrent downloads
+	downloadDir string
+	downloadSem chan struct{} // semaphore limiting concurrent downloads
 )
 
 func main() {

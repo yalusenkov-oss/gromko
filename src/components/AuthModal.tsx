@@ -14,6 +14,7 @@ export default function AuthModal() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [step, setStep] = useState<'form' | 'artists'>('form');
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [country, setCountry] = useState('');
@@ -28,6 +29,7 @@ export default function AuthModal() {
       setStep('form');
       setError('');
       setName('');
+      setUsername('');
       setEmail('');
       setPassword('');
       setCountry('');
@@ -80,8 +82,8 @@ export default function AuthModal() {
         setLoading(false);
         return;
       }
-      ok = await register(name, email, password, country);
-      if (!ok) setError('Ошибка регистрации. Возможно, email уже занят.');
+      ok = await register(name, email, password, country, username);
+      if (!ok) setError('Ошибка регистрации. Возможно, email или имя пользователя уже заняты.');
       if (ok && artists.length > 0) {
         // Show artist preference picker
         setStep('artists');
@@ -230,6 +232,18 @@ export default function AuthModal() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
                 placeholder="Ваше имя"
               />
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">@</span>
+                <input
+                  required
+                  value={username}
+                  onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                  placeholder="username"
+                  minLength={3}
+                  maxLength={30}
+                />
+              </div>
               <div className="relative">
                 <select
                   required

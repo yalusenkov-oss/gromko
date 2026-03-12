@@ -364,9 +364,12 @@ class AudioEngine {
   /** Record a play event on the server (fire & forget) */
   private recordPlay(trackId: string): void {
     const quality = this._quality === 'auto' ? this.autoSelectQuality() : this._quality;
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('gromko_token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     fetch(`${API_BASE}/api/tracks/${trackId}/play`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ quality }),
     }).catch(() => {}); // fire & forget
   }

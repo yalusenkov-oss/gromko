@@ -1,17 +1,30 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useStore, Track, Playlist } from '../store';
-import {
-  UserPlus, UserMinus, ListMusic, Heart, Clock,
-  Play, Users, Calendar, Headphones,
-  Share2,
-} from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useStore, type Track, type Playlist } from '../store';
 import { apiUrl } from '../lib/api';
-import { formatPlays } from '../utils/format';
+import { audioEngine } from '../audio/engine';
+
+// Same LK components used in ProfilePage
+import { MusicTaste } from '../components/lk/LeftColumn';
+import { Playlists, ActivityFeed, RecentlyListened, Recommendations } from '../components/lk/CenterColumn';
+import { AchievementsSection } from '../components/lk/RightColumn';
+import { ToastContainer, type ToastItem } from '../components/lk/Toast';
+import { PlaylistDetailModal, ShareModal } from '../components/lk/Modals';
+import { Equalizer } from '../components/lk/Equalizer';
+
+import {
+  UserPlus, UserMinus, Users, ListMusic, Share2,
+  Radio, Headphones, LogOut, RotateCcw,
+} from 'lucide-react';
+
+/* ═══════════════════════════════════════════════════════
+   Types
+   ═══════════════════════════════════════════════════════ */
 
 interface PublicUser {
   id: string;
   name: string;
+  username: string | null;
   avatar: string | null;
   bio: string | null;
   joinedAt: string;
@@ -24,45 +37,245 @@ interface PublicUser {
   totalTimeSeconds: number;
 }
 
-interface FollowUser {
-  id: string;
-  name: string;
-  avatar: string | null;
-  followedAt: string;
+interface TasteSummary {
+  topGenres: { genre: string; count: number }[];
+  topArtists: { slug: string; name?: string; count: number }[];
+  timePreferences?: Record<string, number>;
 }
 
-function getToken() {
+interface ProfileStats {
+  totalPlays: number;
+  monthPlays: number;
+  totalTimeSeconds: number;
+  monthTimeSeconds: number;
+  topListenedArtists: { name: string; slug: string; photo: string; plays: number }[];
+  playlistsCount: number;
+  lastActive: string | null;
+}
+
+interface ActivityItem {
+  type: string;
+  trackId?: string;
+  trackTitle?: string;
+  trackArtist?: string;
+  trackCover?: string;
+  artistSlug?: string;
+  artistName?: string;
+  createdAt: string;
+}
+
+interface HistoryTrack extends Track {
+  playedAt?: string;
+}
+
+type RoomState = {
+  trackId: string; trackTitle: string; trackArtist: string; trackCover: string;
+  progress: number; isPlaying: boolean; listenersCount: number;
+};
+
+/* ═══════════════════════════════════════════════════════
+   Helpers
+   ═══════════════════════════════════════════════════════ */
+
+function getToken(): string | null {
   return localStorage.getItem('gromko_token');
 }
 
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h} ч ${m} мин`;
-  return `${m} мин`;
+function resolveAvatar(avatar: string | null): string {
+  if (!avatar) return '';
+  if (avatar.startsWith('http')) return avatar;
+  return apiUrl(`/uploads/${avatar.replace(/^\/uploads\//, '')}`);
 }
+
+async function publicFetchJson(path: string) {
+  const token = getToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(apiUrl(path), { headers });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+/* ═══════════════════════════════════════════════════════
+   UserProfileCard — adapted from ProfileCard for other users
+   ═══════════════════════════════════════════════════════ */
+
+interface UserProfileCardProps {
+  user: PublicUser;
+  following: boolean;
+  followersCount: number;
+  followingCount: number;
+  onFollow: () => void;
+  onShare: () => void;
+  roomState: RoomState | null;
+  joinedRoom: boolean;
+  onJoinRoom: () => void;
+  onLeaveRoom: () => void;
+}
+
+function UserProfileCard({
+  user, following, followersCount, followingCount, onFollow, onShare,
+  roomState, joinedRoom, onJoinRoom, onLeaveRoom,
+}: UserProfileCardProps) {
+  const avatar = resolveAvatar(user.avatar);
+
+  return (
+    <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
+      {/* Avatar + info */}
+      <div className="flex items-center gap-4 sm:flex-col sm:items-center">
+        <div className="relative shrink-0">
+          {avatar ? (
+            <img src={avatar} alt={user.name} className="w-18 h-18 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-gromq-border" />
+          ) : (
+            <div className="w-18 h-18 sm:w-24 sm:h-24 rounded-full border-2 border-gromq-border bg-red-500 flex items-center justify-center">
+              <span className="text-white text-2xl sm:text-3xl font-black">
+                {user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+              </span>
+            </div>
+          )}
+          {roomState && (
+            <div className="absolute bottom-1 right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-gromq-green rounded-full border-2 border-gromq-card" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 sm:text-center sm:mt-1">
+          <h1 className="text-lg font-bold text-gromq-text">{user.name}</h1>
+          <span className="text-sm text-gromq-muted">@{user.username || user.name.toLowerCase().replace(/\s+/g, '')}</span>
+          {user.bio && (
+            <p className="text-xs text-gromq-muted mt-1 sm:mt-2 leading-relaxed line-clamp-2 sm:line-clamp-none">
+              {user.bio}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Listening room banner */}
+      {roomState && (
+        <div className="mt-3 sm:mt-4 bg-gromq-surface border border-gromq-border rounded-xl p-3 flex items-center gap-3">
+          <img
+            src={roomState.trackCover.startsWith('http') ? roomState.trackCover : apiUrl(roomState.trackCover)}
+            alt=""
+            className="w-10 h-10 rounded-lg object-cover"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-gromq-green font-medium flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-gromq-green rounded-full animate-pulse" />
+              Слушает сейчас
+            </p>
+            <p className="text-sm text-gromq-text truncate font-medium">{roomState.trackTitle}</p>
+            <p className="text-xs text-gromq-muted truncate">{roomState.trackArtist}</p>
+          </div>
+          {!joinedRoom ? (
+            <button onClick={onJoinRoom}
+              className="px-3 py-1.5 bg-gromq-green hover:bg-gromq-green/80 text-black text-xs font-bold rounded-full transition-colors shrink-0 flex items-center gap-1">
+              <Radio size={12} />
+              Слушать
+            </button>
+          ) : (
+            <button onClick={onLeaveRoom}
+              className="shrink-0 flex items-center gap-1.5 text-gromq-green text-xs font-semibold hover:text-gromq-red transition-colors cursor-pointer"
+              title="Покинуть комнату">
+              <Equalizer className="!h-3" />
+              Подключён
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="mt-3 sm:mt-4 flex justify-around py-3 border-t border-b border-gromq-border">
+        <StatBadge icon={Users} value={followersCount} label="Подписчики" />
+        <StatBadge icon={UserPlus} value={followingCount} label="Подписки" />
+        <StatBadge icon={ListMusic} value={user.playlists.length} label="Плейлисты" />
+      </div>
+
+      {/* Action Buttons */}
+      <div className="mt-3 sm:mt-4 space-y-2">
+        <button
+          onClick={onFollow}
+          className={`w-full font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors active:scale-[0.97] ${
+            following
+              ? 'bg-gromq-surface border border-gromq-border text-gromq-text hover:bg-gromq-border'
+              : 'bg-gromq-red hover:bg-gromq-red-dim text-white'
+          }`}
+        >
+          {following ? <UserMinus size={16} /> : <UserPlus size={16} />}
+          {following ? 'Отписаться' : 'Подписаться'}
+        </button>
+        <button
+          onClick={onShare}
+          className="w-full bg-gromq-surface hover:bg-gromq-border transition-colors border border-gromq-border text-gromq-text font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 active:scale-[0.97]"
+        >
+          <Share2 size={16} className="text-gromq-muted" />
+          Поделиться
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatBadge({ icon: Icon, value, label }: { icon: React.ElementType; value: number | string; label: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <Icon size={14} className="text-gromq-muted" />
+      <span className="text-sm font-semibold text-gromq-text">
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </span>
+      <span className="text-[11px] text-gromq-muted">{label}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   UserPage — same 3-column layout as ProfilePage
+   ═══════════════════════════════════════════════════════ */
 
 export default function UserPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentUser, toggleFollow, player, playTrack, togglePlay } = useStore();
+  const { currentUser, toggleFollow, playTrack } = useStore();
 
+  // ── Toast system ──
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const tidRef = useRef(0);
+  const addToast = useCallback((message: string, type: 'success' | 'info' = 'success') => {
+    const tid = ++tidRef.current;
+    setToasts(p => [...p, { id: tid, message, type }]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== tid)), 3000);
+  }, []);
+
+  // ── Modal state ──
+  const [activeModal, setActiveModal] = useState<'share' | 'playlist-detail' | null>(null);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+
+  // ── User data ──
   const [user, setUser] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
-  const [tab, setTab] = useState<'playlists' | 'followers' | 'following'>('playlists');
-  const [followers, setFollowers] = useState<FollowUser[]>([]);
-  const [followingList, setFollowingList] = useState<FollowUser[]>([]);
-  const [selectedPlaylist, setSelectedPlaylist] = useState<(Playlist & { tracks: Track[]; owner: { id: string; name: string; avatar: string } | null }) | null>(null);
+  const [followingCount, setFollowingCount] = useState(0);
 
-  // If viewing own profile, redirect
+  // ── Profile data (same sections as ProfilePage) ──
+  const [tasteSummary, setTasteSummary] = useState<TasteSummary | null>(null);
+  const [profileStats, setProfileStats] = useState<ProfileStats | null>(null);
+  const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
+  const [historyTracks, setHistoryTracks] = useState<HistoryTrack[]>([]);
+
+  // ── Listening room ──
+  const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [joinedRoom, setJoinedRoom] = useState(false);
+  const [roomDesync, setRoomDesync] = useState(false); // true when listener manually paused/seeked/changed track
+
+  // ── Recommendation picks (for this user) ──
+  const [recPicks, setRecPicks] = useState<{ trackOfWeek: Track | null; discovery: Track | null }>({ trackOfWeek: null, discovery: null });
+
+  // ── Redirect to own profile ──
   useEffect(() => {
     if (currentUser && id === currentUser.id) {
       navigate('/profile', { replace: true });
     }
   }, [currentUser, id, navigate]);
 
+  // ── Fetch user data + extended data ──
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -70,55 +283,253 @@ export default function UserPage() {
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     fetch(apiUrl(`/users/${id}`), { headers })
-      .then(r => {
-        if (!r.ok) throw new Error('Not found');
-        return r.json();
-      })
+      .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
       .then(d => {
         setUser(d);
         setFollowing(d.isFollowing);
         setFollowersCount(d.followersCount);
+        setFollowingCount(d.followingCount);
         setLoading(false);
       })
-      .catch(() => {
-        setUser(null);
-        setLoading(false);
-      });
+      .catch(() => { setUser(null); setLoading(false); });
+
+    // Extended data
+    publicFetchJson(`/users/${id}/stats`).then(setProfileStats).catch(() => {});
+    publicFetchJson(`/users/${id}/taste`).then(setTasteSummary).catch(() => {});
+    publicFetchJson(`/users/${id}/activity`).then(d => setActivityFeed(Array.isArray(d) ? d : (d.feed || []))).catch(() => {});
+    publicFetchJson(`/users/${id}/history`).then(d => setHistoryTracks(Array.isArray(d) ? d : (d.tracks || []))).catch(() => {});
+
+    // Recommendation picks
+    publicFetchJson(`/users/${id}/recommendation-picks`).then(d => {
+      const allTracks = useStore.getState().tracks;
+      if (d?.trackOfWeekId) {
+        const t = allTracks.find((tr: Track) => tr.id === d.trackOfWeekId);
+        if (t) setRecPicks(p => ({ ...p, trackOfWeek: t }));
+      }
+      if (d?.discoveryId) {
+        const t = allTracks.find((tr: Track) => tr.id === d.discoveryId);
+        if (t) setRecPicks(p => ({ ...p, discovery: t }));
+      }
+    }).catch(() => {});
   }, [id]);
 
+  // ── Listening room polling ──
   useEffect(() => {
     if (!id) return;
-    if (tab === 'followers') {
-      fetch(apiUrl(`/users/${id}/followers`))
-        .then(r => r.ok ? r.json() : [])
-        .then(d => setFollowers(Array.isArray(d) ? d : []))
-        .catch(() => {});
-    } else if (tab === 'following') {
-      fetch(apiUrl(`/users/${id}/following`))
-        .then(r => r.ok ? r.json() : [])
-        .then(d => setFollowingList(Array.isArray(d) ? d : []))
-        .catch(() => {});
-    }
-  }, [id, tab]);
+    const checkRoom = () => {
+      fetch(apiUrl(`/listening-room/${id}`))
+        .then(r => r.ok ? r.json() : null)
+        .then(d => setRoomState(d || null))
+        .catch(() => setRoomState(null));
+    };
+    checkRoom();
+    const iv = setInterval(checkRoom, 8000);
+    return () => clearInterval(iv);
+  }, [id]);
 
+  // ── Leave room on unmount ──
+  useEffect(() => {
+    return () => {
+      if (joinedRoom && id) {
+        const token = getToken();
+        if (token) {
+          fetch(apiUrl(`/listening-room/${id}/leave`), {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        }
+      }
+    };
+  }, [joinedRoom, id]);
+
+  // ── Sync with room while joined ──
+  useEffect(() => {
+    if (!joinedRoom || !id) return;
+    const syncRoom = () => {
+      // If user is desynced, only poll room state (don't force sync playback)
+      fetch(apiUrl(`/listening-room/${id}`))
+        .then(r => r.ok ? r.json() : null)
+        .then(async (d) => {
+          if (!d) { setJoinedRoom(false); setRoomState(null); setRoomDesync(false); return; }
+          setRoomState(d);
+
+          // Don't force-sync if user manually desynced
+          if (roomDesync) return;
+
+          const { player: p } = useStore.getState();
+
+          // Track changed — switch to new track
+          if (d.trackId && p.currentTrack?.id !== d.trackId) {
+            const allTracks = useStore.getState().tracks;
+            let track = allTracks.find((t: Track) => t.id === d.trackId);
+            if (!track) {
+              try {
+                const tRes = await fetch(apiUrl(`/tracks/${d.trackId}`));
+                if (tRes.ok) track = await tRes.json();
+              } catch { /* ignore */ }
+            }
+            if (!track) {
+              track = {
+                id: d.trackId, title: d.trackTitle, artist: d.trackArtist,
+                artistSlug: '', genre: '', year: 0, cover: d.trackCover,
+                duration: 0, plays: 0, likes: 0,
+              };
+            }
+            playTrack(track, [track]);
+            setTimeout(() => {
+              if (d.progress > 0) audioEngine.seek(d.progress);
+            }, 800);
+          } else {
+            // Same track — sync position (if drift > 3%)
+            const engineProgress = audioEngine.getState().progress;
+            const drift = Math.abs(engineProgress - (d.progress || 0));
+            if (drift > 0.03 && d.progress > 0) {
+              audioEngine.seek(d.progress);
+            }
+            // Sync play/pause state
+            if (d.isPlaying && !p.isPlaying) {
+              audioEngine.resume();
+            } else if (!d.isPlaying && p.isPlaying) {
+              audioEngine.pause();
+            }
+          }
+        })
+        .catch(() => {});
+    };
+    syncRoom(); // immediate sync on join
+    const iv = setInterval(syncRoom, 3000);
+    return () => clearInterval(iv);
+  }, [joinedRoom, id, roomDesync]);
+
+  // ── Detect user desync (manual pause/seek/track change) while in room ──
+  useEffect(() => {
+    if (!joinedRoom || roomDesync) return;
+    // Subscribe to audio engine state changes to detect user-initiated actions
+    const unsub = audioEngine.subscribe((engineState) => {
+      const rs = roomState;
+      if (!rs) return;
+      const { player: p } = useStore.getState();
+      // User paused manually while room is playing
+      if (rs.isPlaying && engineState.state === 'paused' && p.currentTrack?.id === rs.trackId) {
+        setRoomDesync(true);
+        return;
+      }
+      // User switched to a different track
+      if (p.currentTrack && p.currentTrack.id !== rs.trackId) {
+        setRoomDesync(true);
+        return;
+      }
+    });
+    return unsub;
+  }, [joinedRoom, roomDesync, roomState]);
+
+  // ── Handlers ──
   const handleFollow = async () => {
     if (!currentUser || !id) return;
     const result = await toggleFollow(id);
     setFollowing(result);
     setFollowersCount(c => result ? c + 1 : Math.max(0, c - 1));
+    addToast(result ? 'Вы подписались' : 'Вы отписались');
   };
 
-  const handleOpenPlaylist = async (plId: string) => {
+  const handleJoinRoom = async () => {
+    if (!id || !currentUser || !roomState) return;
+    const token = getToken();
+    if (!token) return;
     try {
-      const token = getToken();
-      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(apiUrl(`/playlists/${plId}`), { headers });
-      if (!res.ok) return;
-      const data = await res.json();
-      setSelectedPlaylist(data);
-    } catch {
-      // ignore
+      const res = await fetch(apiUrl(`/listening-room/${id}/join`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setJoinedRoom(true);
+
+        // Find track in store, or build a minimal Track from room data
+        const allTracks = useStore.getState().tracks;
+        let track = allTracks.find((t: Track) => t.id === data.trackId);
+        if (!track && data.trackId) {
+          // Track not in global list — fetch it from API
+          try {
+            const tRes = await fetch(apiUrl(`/tracks/${data.trackId}`));
+            if (tRes.ok) track = await tRes.json();
+          } catch { /* ignore */ }
+        }
+        if (!track && data.trackId) {
+          // Last resort — construct minimal Track from room data
+          track = {
+            id: data.trackId,
+            title: data.trackTitle || roomState.trackTitle,
+            artist: data.trackArtist || roomState.trackArtist,
+            artistSlug: '',
+            genre: '',
+            year: 0,
+            cover: data.trackCover || roomState.trackCover,
+            duration: 0,
+            plays: 0,
+            likes: 0,
+          };
+        }
+
+        if (track) {
+          playTrack(track, [track]);
+          // Seek to host's current position after a short delay for the engine to load
+          if (data.progress > 0) {
+            setTimeout(() => {
+              audioEngine.seek(data.progress);
+            }, 800);
+          }
+        }
+        addToast('🎧 Подключён к комнате');
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleLeaveRoom = async () => {
+    if (!id) return;
+    const token = getToken();
+    if (token) {
+      fetch(apiUrl(`/listening-room/${id}/leave`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
     }
+    setJoinedRoom(false);
+    setRoomDesync(false);
+    audioEngine.pause();
+    addToast('Вы покинули комнату');
+  };
+
+  const handleResync = async () => {
+    if (!roomState || !id) return;
+    setRoomDesync(false);
+    // Re-fetch room state and resync
+    try {
+      const res = await fetch(apiUrl(`/listening-room/${id}`));
+      if (!res.ok) return;
+      const d = await res.json();
+      setRoomState(d);
+      if (!d.trackId) return;
+      const { player: p } = useStore.getState();
+      // If different track, switch
+      if (p.currentTrack?.id !== d.trackId) {
+        const allTracks = useStore.getState().tracks;
+        let track = allTracks.find((t: Track) => t.id === d.trackId);
+        if (!track) {
+          try { const tRes = await fetch(apiUrl(`/tracks/${d.trackId}`)); if (tRes.ok) track = await tRes.json(); } catch {}
+        }
+        if (!track) {
+          track = { id: d.trackId, title: d.trackTitle, artist: d.trackArtist, artistSlug: '', genre: '', year: 0, cover: d.trackCover, duration: 0, plays: 0, likes: 0 };
+        }
+        playTrack(track, [track]);
+        setTimeout(() => { if (d.progress > 0) audioEngine.seek(d.progress); }, 800);
+      } else {
+        // Same track — just seek and resume
+        if (d.progress > 0) audioEngine.seek(d.progress);
+        if (d.isPlaying) audioEngine.resume();
+      }
+      addToast('🎧 Синхронизировано');
+    } catch { /* ignore */ }
   };
 
   const handleShare = () => {
@@ -127,13 +538,28 @@ export default function UserPage() {
     if (navigator.share) {
       navigator.share({ title: user?.name || 'Профиль', url }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(url).catch(() => {});
+      navigator.clipboard.writeText(url).then(() => addToast('Ссылка скопирована')).catch(() => {});
     }
   };
 
+  // ── Night percent ──
+  const nightPercent = (() => {
+    if (!tasteSummary?.timePreferences) return 0;
+    const tp = tasteSummary.timePreferences;
+    const total = Object.values(tp).reduce((s, v) => s + v, 0) || 1;
+    // Server may return named keys (morning/day/evening/night) or numeric hour keys
+    if ('night' in tp) {
+      return Math.round(((tp['night'] || 0) / total) * 100);
+    }
+    const nightHrs = ['0', '1', '2', '3', '4', '5', '22', '23'];
+    const nightTotal = nightHrs.reduce((s, h) => s + (tp[h] || 0), 0);
+    return Math.round((nightTotal / total) * 100);
+  })();
+
+  // ── Loading ──
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center pt-14">
+      <div className="min-h-screen bg-gromq-bg text-white flex items-center justify-center pt-16">
         <div className="w-8 h-8 border-2 border-white/10 border-t-red-500 rounded-full animate-spin" />
       </div>
     );
@@ -141,289 +567,280 @@ export default function UserPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white pt-14 flex items-center justify-center">
+      <div className="min-h-screen bg-gromq-bg text-white pt-16 flex items-center justify-center">
         <div className="text-center">
           <p className="text-6xl font-black text-white/10 mb-3">404</p>
-          <p className="text-zinc-400">Пользователь не найден</p>
+          <p className="text-gromq-muted">Пользователь не найден</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pt-14 pb-28">
-      <div className="max-w-4xl mx-auto px-4 md:px-6 pt-8">
-        {/* ─── Header ─── */}
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-8">
-          <img
-            src={user.avatar || '/default-avatar.png'}
-            alt={user.name}
-            className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover ring-4 ring-zinc-900"
-          />
-          <div className="flex-1 text-center sm:text-left">
-            <h1 className="text-3xl font-black mb-1">{user.name}</h1>
-            {user.bio && (
-              <p className="text-zinc-400 text-sm mb-3 max-w-lg">{user.bio}</p>
+    <div className="min-h-screen bg-gromq-bg text-gromq-text pt-16">
+      <main className="max-w-[1440px] mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
+        {/* ── Desktop: 3-column layout (same as ProfilePage) ── */}
+        <div className="hidden lg:flex gap-5">
+          {/* Left Column */}
+          <aside className="w-full lg:w-[300px] xl:w-[320px] shrink-0 space-y-4">
+            <UserProfileCard
+              user={user}
+              following={following}
+              followersCount={followersCount}
+              followingCount={followingCount}
+              onFollow={handleFollow}
+              onShare={handleShare}
+              roomState={roomState}
+              joinedRoom={joinedRoom}
+              onJoinRoom={handleJoinRoom}
+              onLeaveRoom={handleLeaveRoom}
+            />
+            <MusicTaste
+              tasteSummary={tasteSummary}
+              topArtists={profileStats?.topListenedArtists || []}
+              totalPlays={profileStats?.totalPlays || 0}
+              nightPercent={nightPercent}
+            />
+          </aside>
+
+          {/* Center Column */}
+          <div className="flex-1 min-w-0 space-y-4">
+            {/* Desync banner */}
+            {joinedRoom && roomDesync && (
+              <div className="bg-gromq-card border border-gromq-amber/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gromq-text">Вы отключились от совместного прослушивания</p>
+                  <p className="text-xs text-gromq-muted mt-0.5">Вы поставили на паузу или переключили трек</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={handleResync}
+                    className="px-4 py-2 bg-gromq-green hover:bg-gromq-green/80 text-black text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors active:scale-[0.97]">
+                    <RotateCcw size={13} />
+                    Продолжить слушать
+                  </button>
+                  <button onClick={handleLeaveRoom}
+                    className="px-4 py-2 bg-gromq-surface border border-gromq-border text-gromq-muted hover:text-gromq-red hover:border-gromq-red/50 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors">
+                    <LogOut size={13} />
+                    Выйти
+                  </button>
+                </div>
+              </div>
             )}
-            <div className="flex items-center justify-center sm:justify-start gap-5 text-sm mb-4">
-              <button
-                onClick={() => setTab('followers')}
-                className="hover:text-white transition-colors"
-              >
-                <span className="text-white font-bold">{followersCount}</span>{' '}
-                <span className="text-zinc-500">подписчиков</span>
-              </button>
-              <button
-                onClick={() => setTab('following')}
-                className="hover:text-white transition-colors"
-              >
-                <span className="text-white font-bold">{user.followingCount}</span>{' '}
-                <span className="text-zinc-500">подписок</span>
-              </button>
-              <span className="text-zinc-700">·</span>
-              <span className="text-zinc-500">
-                <Heart size={12} className="inline mr-1 text-red-400" />
-                {user.likedTracksCount} треков
-              </span>
-            </div>
-            <div className="flex items-center justify-center sm:justify-start gap-3">
-              {currentUser && currentUser.id !== user.id && (
-                <button
-                  onClick={handleFollow}
-                  className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                    following
-                      ? 'bg-white/10 text-white hover:bg-white/15'
-                      : 'bg-red-500 text-white hover:bg-red-400'
-                  }`}
-                >
-                  {following ? <UserMinus size={15} /> : <UserPlus size={15} />}
-                  {following ? 'Отписаться' : 'Подписаться'}
-                </button>
-              )}
-              <button
-                onClick={handleShare}
-                className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors"
-                title="Поделиться"
-              >
-                <Share2 size={16} className="text-zinc-400" />
-              </button>
-            </div>
-          </div>
-        </div>
 
-        {/* ─── Stats ─── */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
-          <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-            <Headphones size={18} className="text-green-400 mx-auto mb-1" />
-            <p className="text-lg font-black">{formatPlays(user.totalPlays)}</p>
-            <p className="text-zinc-600 text-[10px]">Прослушиваний</p>
-          </div>
-          <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-            <Clock size={18} className="text-amber-400 mx-auto mb-1" />
-            <p className="text-lg font-black">{formatTime(user.totalTimeSeconds)}</p>
-            <p className="text-zinc-600 text-[10px]">Время</p>
-          </div>
-          <div className="bg-white/[0.03] rounded-xl p-3 text-center">
-            <Calendar size={18} className="text-blue-400 mx-auto mb-1" />
-            <p className="text-lg font-black text-sm">
-              {new Date(user.joinedAt).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })}
-            </p>
-            <p className="text-zinc-600 text-[10px]">На платформе</p>
-          </div>
-        </div>
-
-        {/* ─── Tabs ─── */}
-        <div className="border-b border-white/5 mb-6">
-          <div className="flex gap-0">
-            {([
-              { key: 'playlists' as const, label: 'Плейлисты', icon: ListMusic, count: user.playlists.length },
-              { key: 'followers' as const, label: 'Подписчики', icon: Users, count: followersCount },
-              { key: 'following' as const, label: 'Подписки', icon: Users, count: user.followingCount },
-            ]).map(t => (
-              <button
-                key={t.key}
-                onClick={() => { setTab(t.key); setSelectedPlaylist(null); }}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${
-                  tab === t.key
-                    ? 'text-white border-red-500'
-                    : 'text-zinc-500 border-transparent hover:text-zinc-300'
-                }`}
-              >
-                <t.icon size={14} />
-                {t.label}
-                {t.count > 0 && (
-                  <span className="bg-white/5 text-zinc-500 text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">{t.count}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ─── Tab Content ─── */}
-
-        {/* Playlists */}
-        {tab === 'playlists' && !selectedPlaylist && (
-          <div>
-            {user.playlists.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {user.playlists.map(pl => (
-                  <button
-                    key={pl.id}
-                    onClick={() => handleOpenPlaylist(pl.id)}
-                    className="group text-left"
-                  >
-                    <div className="aspect-square rounded-xl overflow-hidden bg-white/5 mb-2 relative">
-                      {pl.coverUrl ? (
-                        <img src={apiUrl(pl.coverUrl)} alt={pl.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-                          <ListMusic size={32} className="text-zinc-700" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <Play size={28} fill="white" className="text-white" />
-                      </div>
+            {/* Now playing — if they have a room */}
+            {roomState && (
+              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
+                <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                  <Equalizer />
+                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Сейчас играет</h2>
+                </div>
+                <div className="flex gap-3 sm:gap-4">
+                  <img
+                    src={roomState.trackCover.startsWith('http') ? roomState.trackCover : apiUrl(roomState.trackCover)}
+                    alt=""
+                    className="w-24 h-24 sm:w-36 sm:h-36 rounded-xl object-cover shadow-lg shadow-black/30"
+                  />
+                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5 sm:py-1">
+                    <div>
+                      <h3 className="text-base sm:text-xl font-bold text-gromq-text truncate">{roomState.trackTitle}</h3>
+                      <p className="text-xs sm:text-sm text-gromq-muted truncate">{roomState.trackArtist}</p>
                     </div>
-                    <p className="text-sm font-medium truncate group-hover:text-red-400 transition-colors">{pl.title}</p>
-                    <p className="text-zinc-600 text-xs">{pl.tracksCount} треков</p>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="py-16 text-center">
-                <ListMusic size={36} className="text-zinc-800 mx-auto mb-3" />
-                <p className="text-zinc-500 text-sm">Нет публичных плейлистов</p>
+                    <div className="flex gap-2 mt-2">
+                      {!joinedRoom ? (
+                        <button onClick={handleJoinRoom}
+                          className="flex-1 bg-gromq-green hover:bg-gromq-green/80 transition-colors text-black font-semibold text-xs py-2 sm:py-2.5 rounded-lg flex items-center justify-center gap-1.5 active:scale-[0.97]">
+                          <Headphones size={14} />
+                          <span className="hidden sm:inline">Присоединиться</span>
+                          <span className="sm:hidden">Слушать</span>
+                        </button>
+                      ) : (
+                        <button onClick={handleLeaveRoom}
+                          className="flex-1 bg-gromq-surface border border-gromq-border text-gromq-green hover:text-gromq-red hover:border-gromq-red/50 font-semibold text-xs py-2 sm:py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          title="Покинуть комнату">
+                          <Equalizer className="!h-3" />
+                          Подключён
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-        )}
 
-        {/* Selected playlist detail */}
-        {tab === 'playlists' && selectedPlaylist && (
-          <div>
-            <button
-              onClick={() => setSelectedPlaylist(null)}
-              className="flex items-center gap-1 text-zinc-500 hover:text-white text-sm mb-4 transition-colors"
-            >
-              ← Назад к плейлистам
-            </button>
-            <div className="flex flex-col sm:flex-row gap-5 mb-6">
-              <div className="w-40 h-40 rounded-xl overflow-hidden bg-white/5 shrink-0">
-                {selectedPlaylist.coverUrl ? (
-                  <img src={apiUrl(selectedPlaylist.coverUrl)} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-                    <ListMusic size={40} className="text-zinc-700" />
+            <Playlists
+              playlists={user.playlists}
+              onCreatePlaylist={() => {}}
+              onOpenPlaylist={(pl) => { setSelectedPlaylist(pl); setActiveModal('playlist-detail'); }}
+              addToast={addToast}
+              hideCreate
+            />
+            {(recPicks.trackOfWeek || recPicks.discovery) && (
+              <Recommendations recPicks={recPicks} onPickTrackOfWeek={() => {}} onPickDiscovery={() => {}} readOnly />
+            )}
+            <ActivityFeed feed={activityFeed} />
+            <RecentlyListened tracks={historyTracks} />
+          </div>
+
+          {/* Right Column */}
+          <aside className="w-full lg:w-[280px] xl:w-[300px] shrink-0 space-y-4">
+            {roomState && (
+              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5 relative overflow-hidden">
+                <div className="absolute -top-10 -right-10 w-32 h-32 bg-gromq-green/5 rounded-full blur-2xl" />
+                <div className="flex items-center gap-2 mb-3 sm:mb-4 relative">
+                  <div className="relative">
+                    <Radio size={16} className="text-gromq-green" />
+                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-gromq-green rounded-full animate-ping" />
                   </div>
-                )}
-              </div>
-              <div>
-                <h2 className="text-2xl font-black mb-1">{selectedPlaylist.title}</h2>
-                {selectedPlaylist.description && (
-                  <p className="text-zinc-400 text-sm mb-2">{selectedPlaylist.description}</p>
-                )}
-                <p className="text-zinc-600 text-xs mb-3">
-                  {selectedPlaylist.tracksCount} треков
-                  {selectedPlaylist.owner && (
-                    <> · от <span className="text-zinc-400">{selectedPlaylist.owner.name}</span></>
+                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Live Комната</h2>
+                  <span className="ml-auto text-[10px] bg-gromq-green/20 text-gromq-green px-2 py-0.5 rounded-full font-medium">
+                    Активна
+                  </span>
+                </div>
+                <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 relative">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-lg bg-gromq-green/10 flex items-center justify-center shrink-0">
+                      <Equalizer />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-gromq-text font-medium truncate">{roomState.trackTitle} — {roomState.trackArtist}</p>
+                      <p className="text-[11px] text-gromq-muted flex items-center gap-1">
+                        <Headphones size={10} />
+                        {roomState.listenersCount} слушателей
+                      </p>
+                    </div>
+                  </div>
+                  {!joinedRoom ? (
+                    <button onClick={handleJoinRoom}
+                      className="w-full bg-gromq-green hover:bg-gromq-green/80 text-black font-semibold text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]">
+                      <Headphones size={15} />
+                      Присоединиться
+                    </button>
+                  ) : (
+                    <button onClick={handleLeaveRoom}
+                      className="w-full bg-gromq-surface border border-gromq-border text-gromq-green hover:text-gromq-red hover:border-gromq-red/50 font-semibold text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      title="Покинуть комнату">
+                      <Equalizer className="!h-3" />
+                      Подключён к комнате
+                    </button>
                   )}
-                </p>
-                {selectedPlaylist.tracks.length > 0 && (
-                  <button
-                    onClick={() => {
-                      if (selectedPlaylist.tracks.length > 0) {
-                        playTrack(selectedPlaylist.tracks[0], selectedPlaylist.tracks);
-                      }
-                    }}
-                    className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-400 text-white text-sm font-medium rounded-full transition-colors"
-                  >
-                    <Play size={14} fill="white" />
-                    Слушать
-                  </button>
-                )}
+                </div>
+              </div>
+            )}
+            <AchievementsSection
+              totalLiked={user.likedTracksCount}
+              playlistsCount={user.playlists.length}
+              nightPercent={nightPercent}
+              totalPlays={profileStats?.totalPlays || 0}
+            />
+          </aside>
+        </div>
+
+        {/* ── Mobile: single-column ── */}
+        <div className="lg:hidden space-y-3 sm:space-y-4">
+          <UserProfileCard
+            user={user}
+            following={following}
+            followersCount={followersCount}
+            followingCount={followingCount}
+            onFollow={handleFollow}
+            onShare={handleShare}
+            roomState={roomState}
+            joinedRoom={joinedRoom}
+            onJoinRoom={handleJoinRoom}
+            onLeaveRoom={handleLeaveRoom}
+          />
+          {/* Mobile desync banner */}
+          {joinedRoom && roomDesync && (
+            <div className="bg-gromq-card border border-gromq-amber/30 rounded-2xl p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-gromq-text">Вы отключились от совместного прослушивания</p>
+                <p className="text-xs text-gromq-muted mt-0.5">Вы поставили на паузу или переключили трек</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleResync}
+                  className="flex-1 py-2 bg-gromq-green hover:bg-gromq-green/80 text-black text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors active:scale-[0.97]">
+                  <RotateCcw size={13} />
+                  Продолжить
+                </button>
+                <button onClick={handleLeaveRoom}
+                  className="flex-1 py-2 bg-gromq-surface border border-gromq-border text-gromq-muted hover:text-gromq-red text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors">
+                  <LogOut size={13} />
+                  Выйти
+                </button>
               </div>
             </div>
-            {selectedPlaylist.tracks.length > 0 ? (
-              <div className="space-y-0.5">
-                {selectedPlaylist.tracks.map((t, idx) => {
-                  const isCurrent = player.currentTrack?.id === t.id;
-                  const isPlaying = isCurrent && player.isPlaying;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => isCurrent ? togglePlay() : playTrack(t, selectedPlaylist.tracks)}
-                      className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors group ${isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'}`}
-                    >
-                      <span className={`w-6 text-center text-xs tabular-nums ${isCurrent ? 'text-red-400' : 'text-zinc-600'}`}>
-                        {isCurrent ? (isPlaying ? '▸' : '❚❚') : idx + 1}
-                      </span>
-                      <div className="w-9 h-9 rounded-md overflow-hidden shrink-0 relative">
-                        <img src={t.cover} alt="" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[13px] font-medium truncate ${isCurrent ? 'text-red-400' : 'text-white'}`}>{t.title}</p>
-                        <p className="text-zinc-500 text-[11px] truncate">{t.artist}</p>
-                      </div>
+          )}
+          {roomState && (
+            <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Equalizer />
+                <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Сейчас играет</h2>
+              </div>
+              <div className="flex gap-3">
+                <img
+                  src={roomState.trackCover.startsWith('http') ? roomState.trackCover : apiUrl(roomState.trackCover)}
+                  alt=""
+                  className="w-24 h-24 rounded-xl object-cover"
+                />
+                <div className="flex-1 min-w-0 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-gromq-text truncate">{roomState.trackTitle}</h3>
+                    <p className="text-xs text-gromq-muted truncate">{roomState.trackArtist}</p>
+                  </div>
+                  {!joinedRoom ? (
+                    <button onClick={handleJoinRoom}
+                      className="mt-2 bg-gromq-green hover:bg-gromq-green/80 text-black font-semibold text-xs py-2 rounded-lg flex items-center justify-center gap-1.5 active:scale-[0.97]">
+                      <Headphones size={14} />
+                      Присоединиться
                     </button>
-                  );
-                })}
+                  ) : (
+                    <button onClick={handleLeaveRoom}
+                      className="mt-2 text-gromq-green hover:text-gromq-red text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Покинуть комнату">
+                      <Equalizer className="!h-3" /> Подключён
+                    </button>
+                  )}
+                </div>
               </div>
-            ) : (
-              <p className="text-zinc-600 text-sm text-center py-8">Плейлист пуст</p>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+          <Playlists
+            playlists={user.playlists}
+            onCreatePlaylist={() => {}}
+            onOpenPlaylist={(pl) => { setSelectedPlaylist(pl); setActiveModal('playlist-detail'); }}
+            addToast={addToast}
+            hideCreate
+          />
+          <RecentlyListened tracks={historyTracks} />
+          {(recPicks.trackOfWeek || recPicks.discovery) && (
+            <Recommendations recPicks={recPicks} onPickTrackOfWeek={() => {}} onPickDiscovery={() => {}} readOnly />
+          )}
+          <ActivityFeed feed={activityFeed} />
+          <MusicTaste
+            tasteSummary={tasteSummary}
+            topArtists={profileStats?.topListenedArtists || []}
+            totalPlays={profileStats?.totalPlays || 0}
+            nightPercent={nightPercent}
+          />
+          <AchievementsSection
+            totalLiked={user.likedTracksCount}
+            playlistsCount={user.playlists.length}
+            nightPercent={nightPercent}
+            totalPlays={profileStats?.totalPlays || 0}
+          />
+        </div>
+      </main>
 
-        {/* Followers */}
-        {tab === 'followers' && (
-          <div>
-            {followers.length > 0 ? (
-              <div className="space-y-1">
-                {followers.map(f => (
-                  <Link
-                    key={f.id}
-                    to={`/user/${f.id}`}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition-colors"
-                  >
-                    <img src={f.avatar || '/default-avatar.png'} alt="" className="w-10 h-10 rounded-full object-cover" />
-                    <span className="text-sm font-medium text-white">{f.name}</span>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="py-16 text-center">
-                <Users size={36} className="text-zinc-800 mx-auto mb-3" />
-                <p className="text-zinc-500 text-sm">Нет подписчиков</p>
-              </div>
-            )}
-          </div>
-        )}
+      {/* ── Modals ── */}
+      {activeModal === 'share' && (
+        <ShareModal onClose={() => setActiveModal(null)} addToast={addToast} />
+      )}
+      {activeModal === 'playlist-detail' && selectedPlaylist && (
+        <PlaylistDetailModal playlist={selectedPlaylist} onClose={() => { setActiveModal(null); setSelectedPlaylist(null); }} addToast={addToast} />
+      )}
 
-        {/* Following */}
-        {tab === 'following' && (
-          <div>
-            {followingList.length > 0 ? (
-              <div className="space-y-1">
-                {followingList.map(f => (
-                  <Link
-                    key={f.id}
-                    to={`/user/${f.id}`}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition-colors"
-                  >
-                    <img src={f.avatar || '/default-avatar.png'} alt="" className="w-10 h-10 rounded-full object-cover" />
-                    <span className="text-sm font-medium text-white">{f.name}</span>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="py-16 text-center">
-                <Users size={36} className="text-zinc-800 mx-auto mb-3" />
-                <p className="text-zinc-500 text-sm">Нет подписок</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {/* ── Toasts ── */}
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }
