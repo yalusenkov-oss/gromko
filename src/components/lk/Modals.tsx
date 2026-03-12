@@ -87,7 +87,7 @@ export function CreatePlaylistModal({ onClose, addToast }: CreatePlaylistModalPr
   };
 
   return (
-    <Backdrop onClose={onClose} size="md">
+    <Backdrop onClose={onClose} size="lg">
       <div className="bg-gromq-card border-t sm:border border-gromq-border rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
         <DragHandle />
         <div className="flex items-center justify-between mb-5">
@@ -105,13 +105,13 @@ export function CreatePlaylistModal({ onClose, addToast }: CreatePlaylistModalPr
         <div className="mb-4">
           <label className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider mb-1.5 block">Название</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Мой новый плейлист"
-            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" autoFocus />
+            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" autoFocus />
         </div>
 
         <div className="mb-4">
           <label className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider mb-1.5 block">Описание</label>
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="О чём этот плейлист..." rows={2}
-            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors resize-none" />
+            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors resize-none" />
         </div>
 
         {/* Liked tracks selector */}
@@ -126,7 +126,7 @@ export function CreatePlaylistModal({ onClose, addToast }: CreatePlaylistModalPr
             <div className="flex items-center bg-gromq-surface border border-gromq-border rounded-xl px-3 py-2 gap-2 mb-2">
               <Search size={14} className="text-gromq-muted shrink-0" />
               <input type="text" value={trackSearch} onChange={(e) => setTrackSearch(e.target.value)} placeholder="Поиск в Любимое..."
-                className="bg-transparent text-sm text-gromq-text placeholder-gromq-muted outline-none w-full" />
+                className="bg-transparent text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none w-full" />
             </div>
             <div className="max-h-48 overflow-y-auto overscroll-contain rounded-xl border border-gromq-border bg-gromq-surface/50">
               {filteredLiked.length === 0 ? (
@@ -561,20 +561,20 @@ export function EditProfileModal({ onClose, addToast }: EditProfileModalProps) {
         <div className="mb-4">
           <label className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider mb-1.5 block">Имя</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ваше имя"
-            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" />
+            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" />
         </div>
         <div className="mb-4">
           <label className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider mb-1.5 block">Имя пользователя</label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gromq-muted text-sm">@</span>
             <input type="text" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} placeholder="username"
-              className="w-full bg-gromq-surface border border-gromq-border rounded-xl pl-8 pr-4 py-3 sm:py-2.5 text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" />
+              className="w-full bg-gromq-surface border border-gromq-border rounded-xl pl-8 pr-4 py-3 sm:py-2.5 text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors" />
           </div>
         </div>
         <div className="mb-6">
           <label className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider mb-1.5 block">О себе</label>
           <textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Расскажите о себе..." rows={3}
-            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors resize-none" />
+            className="w-full bg-gromq-surface border border-gromq-border rounded-xl px-4 py-3 sm:py-2.5 text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none focus:border-gromq-red/50 transition-colors resize-none" />
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 bg-gromq-surface border border-gromq-border text-gromq-muted font-medium text-sm py-3 sm:py-2.5 rounded-xl hover:bg-gromq-border transition-colors active:scale-[0.97]">Отмена</button>
@@ -619,7 +619,7 @@ export function PickTrackModal({ title, onClose, onPick }: PickTrackModalProps) 
         <div className="flex items-center bg-gromq-surface border border-gromq-border rounded-xl px-3 py-2.5 gap-2 mb-4">
           <Search size={14} className="text-gromq-muted shrink-0" />
           <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск трека..."
-            className="bg-transparent text-sm text-gromq-text placeholder-gromq-muted outline-none w-full" autoFocus />
+            className="bg-transparent text-base sm:text-sm text-gromq-text placeholder-gromq-muted outline-none w-full" autoFocus />
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 space-y-1">
           {filtered.map((track) => (
