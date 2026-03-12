@@ -53,6 +53,28 @@ export declare function extractMetadata(filePath: string): Promise<AudioMeta>;
  * Returns a Buffer of the image, or undefined if not found.
  */
 export declare function fetchExternalCover(artist?: string, title?: string, album?: string): Promise<Buffer | undefined>;
+export interface ExternalMeta {
+    genre?: string;
+    explicit?: boolean;
+    year?: number;
+    releaseDate?: string;
+    album?: string;
+    bpm?: number;
+    isrc?: string;
+    label?: string;
+    deezerBpm?: number;
+    source: 'itunes' | 'deezer';
+}
+/**
+ * Fetch metadata from external APIs (iTunes + Deezer) for a given track.
+ * Returns enriched metadata or undefined if nothing found.
+ */
+export declare function fetchExternalMetadata(artist?: string, title?: string, album?: string): Promise<ExternalMeta | undefined>;
+/**
+ * Fix metadata for an existing track — fetches from external APIs and updates DB.
+ * Returns the updated fields or null if nothing found.
+ */
+export declare function fixTrackMetadata(trackId: string, artist: string, title: string, currentGenre?: string, currentExplicit?: boolean, currentYear?: number, currentAlbum?: string, currentBpm?: number): Promise<Record<string, any> | null>;
 export declare function processCoverArt(trackId: string, coverBuffer?: Buffer, externalCoverPath?: string, artist?: string, title?: string, album?: string): Promise<Record<string, string>>;
 /**
  * Fix cover art for an existing track — fetches from external APIs and updates DB + S3.

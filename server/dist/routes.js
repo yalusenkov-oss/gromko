@@ -10,7 +10,7 @@ import { v4 as uuid } from 'uuid';
 import { slugify } from './slugify.js';
 import { query, queryOne, execute } from './db.js';
 import { CONFIG, PATHS, trackAudioDir, trackHlsDir } from './config.js';
-import { enqueueTrack, extractMetadata, getQueueStatus, fixTrackCover } from './audio-processor.js';
+import { enqueueTrack, extractMetadata, getQueueStatus, fixTrackCover, fixTrackMetadata } from './audio-processor.js';
 import { registerUser, loginUser, getUserById, authRequired, authOptional, adminRequired, } from './auth.js';
 import { parseArtistNames } from './parse-artists.js';
 import { findExistingTrackByArtistAndTitle } from './track-dedupe.js';
@@ -307,7 +307,7 @@ router.get('/tracks', async (req, res) => {
              explicit, is_new, featured, cover_path, status,
              stream_low, stream_medium, stream_high, stream_lossless,
              hls_master, waveform_peaks, meta_album, meta_bpm,
-             meta_loudness_lufs, created_at
+             meta_loudness_lufs, meta_label, meta_isrc, release_date, created_at
       FROM tracks ${where}
       ORDER BY ${sortCol} ${sortOrder}
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
@@ -1356,6 +1356,88 @@ router.post('/admin/tracks/fix-covers', adminRequired, async (req, res) => {
         }
     }
 });
+/** POST /api/admin/tracks/fix-metadata — enrich missing metadata from iTunes/Deezer APIs */
+router.post('/admin/tracks/fix-metadata', adminRequired, async (req, res) => {
+    try {
+        const tracks = await query(`
+      SELECT id, title, artist, genre, explicit, year, meta_album, meta_bpm, meta_label, meta_isrc, release_date
+      FROM tracks
+      WHERE status = 'ready'
+      ORDER BY created_at DESC
+    `);
+        const forceAll = req.body.force === true;
+        const requestedIds = req.body.ids;
+        // Determine which tracks need metadata fix
+        const needsFix = [];
+        for (const t of tracks) {
+            if (requestedIds?.length && !requestedIds.includes(t.id))
+                continue;
+            if (forceAll) {
+                needsFix.push(t);
+                continue;
+            }
+            // Track needs enrichment if any of these are missing/default:
+            const hasMissingGenre = !t.genre || t.genre === 'Другое';
+            const hasMissingExplicit = t.explicit === false; // likely default — can't be sure, but API check is cheap
+            const hasMissingYear = !t.year || t.year >= new Date().getFullYear() - 1;
+            const hasMissingAlbum = !t.meta_album;
+            const hasMissingBpm = !t.meta_bpm;
+            const hasMissingLabel = !t.meta_label;
+            const hasMissingIsrc = !t.meta_isrc;
+            const hasMissingRelease = !t.release_date;
+            if (hasMissingGenre || hasMissingAlbum || hasMissingBpm ||
+                hasMissingLabel || hasMissingIsrc || hasMissingRelease) {
+                needsFix.push(t);
+            }
+        }
+        if (needsFix.length === 0) {
+            return res.json({ message: 'Все треки уже содержат полные метаданные', fixed: 0, total: tracks.length });
+        }
+        const fixCount = needsFix.length;
+        res.json({
+            message: `Запущено обогащение метаданных для ${fixCount} треков`,
+            fixing: fixCount,
+            total: tracks.length,
+        });
+        // Process in background (sequential to avoid API rate limiting)
+        let fixed = 0;
+        let failed = 0;
+        const changes = {};
+        for (const t of needsFix) {
+            try {
+                const result = await fixTrackMetadata(t.id, t.artist, t.title, t.genre, t.explicit, t.year, t.meta_album, t.meta_bpm);
+                if (result) {
+                    fixed++;
+                    const fields = Object.keys(result);
+                    for (const f of fields) {
+                        changes[f] = changes[f] || [];
+                        changes[f].push(t.id);
+                    }
+                    console.log(`  ✅ [${fixed}/${fixCount}] Metadata enriched: ${t.artist} — ${t.title} → ${fields.join(', ')}`);
+                }
+                else {
+                    failed++;
+                    console.log(`  ⚠️  [${fixed + failed}/${fixCount}] No metadata found: ${t.artist} — ${t.title}`);
+                }
+            }
+            catch (err) {
+                failed++;
+                console.error(`  ❌ [${fixed + failed}/${fixCount}] Error: ${t.artist} — ${t.title}: ${err.message}`);
+            }
+            // Rate limit: 500ms between API calls
+            await new Promise(r => setTimeout(r, 500));
+        }
+        const summary = Object.entries(changes).map(([k, v]) => `${k}: ${v.length}`).join(', ');
+        console.log(`\n📋 Metadata fix complete: ${fixed} enriched, ${failed} failed out of ${fixCount}`);
+        if (summary)
+            console.log(`   Fields updated: ${summary}`);
+    }
+    catch (err) {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
 /** PUT /api/admin/artists/:id — edit artist */
 router.put('/admin/artists/:id', adminRequired, async (req, res) => {
     const { name, slug, photo, banner, bio, genre, socials } = req.body;
@@ -2276,7 +2358,14 @@ function formatTrackRow(row) {
         },
         hlsMaster: row.hls_master || null,
         waveform: row.waveform_peaks || null,
-        meta: { album: row.meta_album, bpm: row.meta_bpm, loudness: row.meta_loudness_lufs },
+        meta: {
+            album: row.meta_album,
+            bpm: row.meta_bpm,
+            loudness: row.meta_loudness_lufs,
+            label: row.meta_label || null,
+            isrc: row.meta_isrc || null,
+            releaseDate: row.release_date || null,
+        },
         createdAt: row.created_at,
     };
 }

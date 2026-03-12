@@ -253,6 +253,10 @@ export async function initSchema() {
         await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS cover_url TEXT`);
         await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS likes_count INTEGER NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+        // Migration: track metadata enrichment columns
+        await client.query(`ALTER TABLE tracks ADD COLUMN IF NOT EXISTS release_date DATE`);
+        await client.query(`ALTER TABLE tracks ADD COLUMN IF NOT EXISTS meta_label TEXT`);
+        await client.query(`ALTER TABLE tracks ADD COLUMN IF NOT EXISTS meta_isrc TEXT`);
         // Add bio column to users for public profiles
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
         // Add username column for unique user IDs
