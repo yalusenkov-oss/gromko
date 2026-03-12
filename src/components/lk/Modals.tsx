@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import {
   X,
   Globe,
@@ -15,7 +15,7 @@ import {
   ChevronDown,
   Search,
 } from "lucide-react";
-import { Backdrop, DragHandle } from "./Backdrop";
+import { Backdrop, DragHandle, useSwipeDown } from "./Backdrop";
 import { Equalizer } from "./Equalizer";
 import { useStore, type Track, type Playlist } from "../../store";
 import { apiUrl } from "../../lib/api";
@@ -383,61 +383,28 @@ export function PlaylistDetailModal({ playlist, onClose, addToast }: PlaylistDet
     .map(tid => allTracks.find(t => t.id === tid))
     .filter(Boolean) as Track[];
 
-  /* ── Swipe-down to close ── */
   const sheetRef = useRef<HTMLDivElement>(null);
-  const swipeStartY = useRef<number | null>(null);
-  const swipeDelta = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const onSwipeStart = useCallback((e: React.TouchEvent) => {
-    // Only allow swipe if scroll is at top
-    if (scrollRef.current && scrollRef.current.scrollTop > 5) return;
-    swipeStartY.current = e.touches[0].clientY;
-  }, []);
-
-  const onSwipeMove = useCallback((e: React.TouchEvent) => {
-    if (swipeStartY.current === null) return;
-    swipeDelta.current = Math.max(0, e.touches[0].clientY - swipeStartY.current);
-    if (sheetRef.current) {
-      sheetRef.current.style.transform = `translateY(${swipeDelta.current}px)`;
-      sheetRef.current.style.transition = 'none';
-    }
-  }, []);
-
-  const onSwipeEnd = useCallback(() => {
-    if (swipeStartY.current === null) return;
-    swipeStartY.current = null;
-    if (swipeDelta.current > 120) {
-      if (sheetRef.current) {
-        sheetRef.current.style.transform = 'translateY(100%)';
-        sheetRef.current.style.transition = 'transform 0.25s ease-out';
-      }
-      setTimeout(onClose, 250);
-    } else {
-      if (sheetRef.current) {
-        sheetRef.current.style.transform = 'translateY(0)';
-        sheetRef.current.style.transition = 'transform 0.2s ease-out';
-      }
-    }
-    swipeDelta.current = 0;
-  }, [onClose]);
+  const swipe = useSwipeDown(sheetRef, onClose, scrollRef);
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col sm:items-center sm:justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" />
+      <div className="absolute inset-0 bg-black/70 animate-fade-in" />
 
       <div
         ref={sheetRef}
         className="relative z-10 w-full sm:max-w-lg sm:mx-4 animate-modal-in flex flex-col
-                   h-full sm:h-auto sm:max-h-[85vh] sm:rounded-2xl overflow-hidden"
+                   h-full sm:h-auto sm:max-h-[85vh] sm:rounded-2xl overflow-hidden will-change-transform"
         onClick={(e) => e.stopPropagation()}
-        onTouchStart={onSwipeStart}
-        onTouchMove={onSwipeMove}
-        onTouchEnd={onSwipeEnd}
       >
         <div className="bg-gromq-card flex flex-col h-full sm:h-auto sm:border sm:border-gromq-border sm:rounded-2xl overflow-hidden">
-          {/* Mobile drag handle */}
-          <div className="sm:hidden bg-gromq-card relative z-10 shrink-0">
+          {/* Mobile drag handle — swipe only here */}
+          <div
+            className="sm:hidden bg-gromq-card relative z-10 shrink-0"
+            onTouchStart={swipe.onTouchStart}
+            onTouchMove={swipe.onTouchMove}
+            onTouchEnd={swipe.onTouchEnd}
+          >
             <div className="flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 bg-gromq-border rounded-full" /></div>
           </div>
 
