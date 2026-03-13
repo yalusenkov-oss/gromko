@@ -208,10 +208,10 @@ export default function Home() {
             </div>
             <button
               onClick={() => openAuthModal('login')}
-              className="w-full flex items-center justify-center gap-3 py-6 rounded-2xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+              className="w-full flex flex-col items-center justify-center gap-2 py-6 rounded-2xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 transition-colors cursor-pointer"
             >
               <Lock size={18} className="text-purple-400" />
-              <span className="text-zinc-400 text-sm">Войдите, чтобы получить персональные рекомендации</span>
+              <span className="text-zinc-400 text-sm text-center">Войдите, чтобы получить персональные рекомендации</span>
             </button>
           </section>
         )}

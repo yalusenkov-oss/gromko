@@ -39,25 +39,32 @@ export default function AuthModal() {
     }
   }, [authModal]);
 
-  // Prevent body scroll when modal is open & handle mobile viewport
+  // Prevent body scroll when modal is open
   useEffect(() => {
     if (authModal) {
       document.body.style.overflow = 'hidden';
-      // On mobile, handle virtualKeyboard resize to prevent modal from moving
-      const metaViewport = document.querySelector('meta[name=viewport]');
-      const originalContent = metaViewport?.getAttribute('content') || '';
-      if (metaViewport) {
-        metaViewport.setAttribute('content', originalContent.includes('interactive-widget')
-          ? originalContent
-          : originalContent + ', interactive-widget=resizes-content');
-      }
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${window.scrollY}px`;
     } else {
+      const scrollY = document.body.style.top;
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+    };
   }, [authModal]);
 
-  // Build artist list for picker (with covers from their tracks)
+  // Build artist list for picker
   const displayArtists = useMemo(() => {
     const list = artists.map(a => {
       const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
@@ -79,7 +86,6 @@ export default function AuthModal() {
     setLoading(true);
     setError('');
 
-    // Blur active input to close mobile keyboard
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -102,7 +108,6 @@ export default function AuthModal() {
           closeAuthModal();
         }
       } else {
-        // result is the error string from the server
         setError(result);
       }
     }
@@ -126,7 +131,6 @@ export default function AuthModal() {
 
   const handleBackdrop = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
-      // Blur inputs first to close keyboard
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
@@ -136,22 +140,20 @@ export default function AuthModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
       onClick={handleBackdrop}
-      style={{ touchAction: 'none' }}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
+      {/* Backdrop — covers everything including BottomNav */}
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
 
       {/* Modal */}
       <div
         ref={modalRef}
         className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 animate-in ${
           step === 'artists'
-            ? 'max-w-lg flex flex-col max-h-[85vh]'
-            : 'max-w-sm p-6 max-h-[85dvh] overflow-y-auto overscroll-contain'
+            ? 'max-w-lg flex flex-col max-h-[80dvh]'
+            : 'max-w-sm p-6 max-h-[80dvh] overflow-y-auto overscroll-contain'
         }`}
-        style={{ position: 'relative' }}
       >
         {/* Close button */}
         <button
@@ -165,7 +167,6 @@ export default function AuthModal() {
         </button>
 
         {step === 'artists' ? (
-          /* Artist preference picker */
           <>
             <div className="shrink-0 p-6 pb-0">
               <div className="text-center mb-4">
@@ -229,7 +230,6 @@ export default function AuthModal() {
             </div>
           </>
         ) : (
-          /* Login / Register form */
           <>
             <div className="text-center mb-6">
               <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center mx-auto mb-3">
