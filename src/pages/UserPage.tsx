@@ -352,6 +352,14 @@ export default function UserPage() {
     const token = getToken();
     if (!token) return;
     try {
+      // Leave previous room if joined elsewhere
+      const prevHost = useStore.getState().joinedRoomHostId;
+      if (prevHost && prevHost !== id) {
+        fetch(apiUrl(`/listening-room/${prevHost}/leave`), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
       const res = await fetch(apiUrl(`/listening-room/${id}/join`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
