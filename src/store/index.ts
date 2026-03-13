@@ -264,6 +264,16 @@ interface AppStore {
   setRoomPublic: (isPublic: boolean) => void;
   setRoomListeners: (listeners: { userId: string; name: string; avatar: string }[]) => void;
   toggleRoom: () => void;
+  roomSuggestions: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; suggestedBy: string; suggestedByName: string }[];
+  setRoomSuggestions: (suggestions: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; suggestedBy: string; suggestedByName: string }[]) => void;
+
+  // Joined room (as listener — persists across navigation)
+  joinedRoomHostId: string | null;
+  joinedRoomDesync: boolean;
+  joinedRoomState: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; progress: number; isPlaying: boolean; listenersCount: number; hostName: string } | null;
+  setJoinedRoom: (hostId: string | null, hostName?: string) => void;
+  setJoinedRoomDesync: (desync: boolean) => void;
+  setJoinedRoomState: (state: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; progress: number; isPlaying: boolean; listenersCount: number; hostName: string } | null) => void;
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -670,6 +680,8 @@ export const useStore = create<AppStore>((set, get) => ({
   setRoomActive: (active) => set({ roomActive: active }),
   setRoomPublic: (isPublic) => set({ roomPublic: isPublic }),
   setRoomListeners: (listeners) => set({ roomListeners: listeners }),
+  roomSuggestions: [],
+  setRoomSuggestions: (suggestions) => set({ roomSuggestions: suggestions }),
   toggleRoom: () => {
     const { roomActive } = get();
     if (roomActive) {
@@ -686,4 +698,18 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ roomActive: true });
     }
   },
+
+  // Joined room (as listener)
+  joinedRoomHostId: null,
+  joinedRoomDesync: false,
+  joinedRoomState: null,
+  setJoinedRoom: (hostId, _hostName) => {
+    if (hostId) {
+      set({ joinedRoomHostId: hostId, joinedRoomDesync: false });
+    } else {
+      set({ joinedRoomHostId: null, joinedRoomDesync: false, joinedRoomState: null });
+    }
+  },
+  setJoinedRoomDesync: (desync) => set({ joinedRoomDesync: desync }),
+  setJoinedRoomState: (state) => set({ joinedRoomState: state }),
 }));

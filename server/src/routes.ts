@@ -2896,15 +2896,17 @@ router.delete('/listening-room', authRequired, (req: Request, res: Response) => 
 });
 
 /** GET /api/listening-room/:hostId — get room state */
-router.get('/listening-room/:hostId', authOptional, (req: Request, res: Response) => {
+router.get('/listening-room/:hostId', authOptional, async (req: Request, res: Response) => {
   const hostId = req.params.hostId as string;
   const room = listeningRooms.get(hostId);
   if (!room) return res.status(404).json({ error: 'Комната не найдена' });
   const listeners = Array.from(room.listeners.values()).map(l => ({
     userId: l.userId, name: l.name, avatar: l.avatar,
   }));
+  const host = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [hostId]);
   res.json({
     hostId: room.hostId,
+    hostName: host?.name || '',
     trackId: room.trackId,
     trackTitle: room.trackTitle,
     trackArtist: room.trackArtist,

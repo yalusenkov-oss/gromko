@@ -6,7 +6,9 @@ import Player from './components/Player';
 import BottomNav from './components/BottomNav';
 import AuthModal from './components/AuthModal';
 import PwaPrompt from './components/PwaPrompt';
+import RoomBanner from './components/RoomBanner';
 import { useRoomBroadcast } from './hooks/useRoomBroadcast';
+import { useRoomListener } from './hooks/useRoomListener';
 import Home from './pages/Home';
 import TracksPage from './pages/TracksPage';
 import TrackPage from './pages/TrackPage';
@@ -24,7 +26,6 @@ import AdminPanel from './pages/AdminPanel';
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    // Ensure body scroll is unlocked after navigation
     document.body.style.position = '';
     document.body.style.top = '';
     document.body.style.left = '';
@@ -50,22 +51,30 @@ function NotFound() {
 
 // Layout for public pages (with navbar and player)
 function PublicLayout({ children }: { children: React.ReactNode }) {
-  const { player } = useStore();
+  const { player, joinedRoomHostId, joinedRoomState } = useStore();
   const hasTrack = !!player.currentTrack;
-  useRoomBroadcast(); // keep listening room alive globally
+  const inRoom = !!joinedRoomHostId && !!joinedRoomState;
+  useRoomBroadcast();
+  useRoomListener();
+
+  const mobileBottom = hasTrack
+    ? `calc(120px + env(safe-area-inset-bottom, 0px)${inRoom ? ' + 52px' : ''})`
+    : `calc(56px + env(safe-area-inset-bottom, 0px)${inRoom ? ' + 52px' : ''})`;
+
   return (
     <>
       <Navbar />
       <div
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          paddingBottom: hasTrack ? 'calc(120px + env(safe-area-inset-bottom, 0px))' : 'calc(56px + env(safe-area-inset-bottom, 0px))',
+          paddingBottom: mobileBottom,
         }}
         className="md:!pb-20"
       >
         {children}
       </div>
       <Player />
+      <RoomBanner />
       <BottomNav />
       <AuthModal />
       <PwaPrompt />
@@ -73,7 +82,6 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Redirect /login and /register to open modal on home page
 function LoginRedirect() {
   const { openAuthModal } = useStore();
   useEffect(() => { openAuthModal('login'); }, []);
@@ -109,14 +117,9 @@ export function App() {
     <BrowserRouter>
       <ScrollToTop />
       <Routes>
-        {/* Auth redirects — open modal over current page */}
         <Route path="/login" element={<LoginRedirect />} />
         <Route path="/register" element={<RegisterRedirect />} />
-
-        {/* Admin — без навбара и плеера */}
         <Route path="/admin/*" element={<AdminPanel />} />
-
-        {/* Public routes */}
         <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
         <Route path="/tracks" element={<PublicLayout><TracksPage /></PublicLayout>} />
         <Route path="/track/:id" element={<PublicLayout><TrackPage /></PublicLayout>} />
@@ -129,8 +132,6 @@ export function App() {
         <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/liked/:userId" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/submit" element={<PublicLayout><SubmitPage /></PublicLayout>} />
-
-        {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

@@ -13,8 +13,8 @@ export default function BottomNav() {
   const tabs = [
     { to: '/', icon: Home, label: 'Главная' },
     { to: '/tracks', icon: Music, label: 'Треки' },
-    { to: '/profile', icon: User, label: 'Профиль', auth: true },
     { to: '/liked', icon: Heart, label: 'Любимое', auth: true },
+    { to: '/profile', icon: User, label: 'Профиль', auth: true },
   ];
 
   const filteredTabs = tabs.filter(t => !t.auth || currentUser);

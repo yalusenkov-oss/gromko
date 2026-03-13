@@ -2695,7 +2695,7 @@ router.delete('/listening-room', authRequired, (req, res) => {
     res.json({ ok: true });
 });
 /** GET /api/listening-room/:hostId — get room state */
-router.get('/listening-room/:hostId', authOptional, (req, res) => {
+router.get('/listening-room/:hostId', authOptional, async (req, res) => {
     const hostId = req.params.hostId;
     const room = listeningRooms.get(hostId);
     if (!room)
@@ -2703,8 +2703,10 @@ router.get('/listening-room/:hostId', authOptional, (req, res) => {
     const listeners = Array.from(room.listeners.values()).map(l => ({
         userId: l.userId, name: l.name, avatar: l.avatar,
     }));
+    const host = await queryOne('SELECT name FROM users WHERE id = $1', [hostId]);
     res.json({
         hostId: room.hostId,
+        hostName: host?.name || '',
         trackId: room.trackId,
         trackTitle: room.trackTitle,
         trackArtist: room.trackArtist,

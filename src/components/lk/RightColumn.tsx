@@ -6,9 +6,12 @@ import {
   Moon,
   Music,
   LogOut,
+  Check,
+  X,
+  ListPlus,
 } from "lucide-react";
 import { Equalizer } from "./Equalizer";
-import { useStore } from "../../store";
+import { useStore, type Track } from "../../store";
 import { apiUrl } from "../../lib/api";
 import { Link } from "react-router-dom";
 
@@ -34,8 +37,53 @@ function listenerAvatar(l: RoomListener) {
 }
 
 export function LiveRoomWidget({ roomActive, roomListeners, onToggleRoom }: LiveRoomWidgetProps) {
-  const { player } = useStore();
+  const { player, roomSuggestions, setRoomSuggestions, currentUser, playTrack } = useStore();
   const np = player.currentTrack;
+
+  const handleAcceptSuggestion = async (trackId: string) => {
+    // Play the suggested track
+    const allTracks = useStore.getState().tracks;
+    let track: Track | undefined = allTracks.find((t: Track) => t.id === trackId);
+    if (!track) {
+      try {
+        const res = await fetch(apiUrl(`/tracks/${trackId}`));
+        if (res.ok) track = await res.json();
+      } catch { /* ignore */ }
+    }
+    if (track) {
+      playTrack(track, allTracks);
+    }
+    // Remove the suggestion from the server
+    const token = localStorage.getItem('gromko_token');
+    if (token && currentUser) {
+      try {
+        const res = await fetch(apiUrl(`/listening-room/${currentUser.id}/suggest/${trackId}`), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const d = await res.json();
+          setRoomSuggestions(d.suggestions || []);
+        }
+      } catch { /* ignore */ }
+    }
+  };
+
+  const handleRejectSuggestion = async (trackId: string) => {
+    const token = localStorage.getItem('gromko_token');
+    if (token && currentUser) {
+      try {
+        const res = await fetch(apiUrl(`/listening-room/${currentUser.id}/suggest/${trackId}`), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const d = await res.json();
+          setRoomSuggestions(d.suggestions || []);
+        }
+      } catch { /* ignore */ }
+    }
+  };
 
   return (
     <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5 relative overflow-hidden">
@@ -88,6 +136,35 @@ export function LiveRoomWidget({ roomActive, roomListeners, onToggleRoom }: Live
               <LogOut size={15} />
               Закрыть комнату
             </button>
+
+            {/* Suggestions from listeners */}
+            {roomSuggestions.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gromq-border">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <ListPlus size={12} className="text-gromq-green" />
+                  <span className="text-[11px] text-gromq-muted font-semibold uppercase tracking-wider">Предложенные треки</span>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {roomSuggestions.map(s => (
+                    <div key={s.trackId} className="flex items-center gap-2 p-1.5 rounded-lg bg-gromq-card border border-gromq-border">
+                      <img src={s.trackCover.startsWith('http') ? s.trackCover : apiUrl(s.trackCover)} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-gromq-text font-medium truncate">{s.trackTitle}</p>
+                        <p className="text-[10px] text-gromq-muted truncate">{s.trackArtist} • от {s.suggestedByName}</p>
+                      </div>
+                      <button onClick={() => handleAcceptSuggestion(s.trackId)} title="Принять"
+                        className="p-1 text-gromq-green hover:bg-gromq-green/10 rounded transition-colors shrink-0">
+                        <Check size={14} />
+                      </button>
+                      <button onClick={() => handleRejectSuggestion(s.trackId)} title="Отклонить"
+                        className="p-1 text-gromq-red hover:bg-gromq-red/10 rounded transition-colors shrink-0">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <>

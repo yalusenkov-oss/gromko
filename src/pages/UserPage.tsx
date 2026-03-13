@@ -238,7 +238,7 @@ function StatBadge({ icon: Icon, value, label }: { icon: React.ElementType; valu
 export default function UserPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentUser, toggleFollow, playTrack } = useStore();
+  const { currentUser, toggleFollow, playTrack, joinedRoomHostId, joinedRoomDesync, setJoinedRoom, setJoinedRoomDesync } = useStore();
 
   // ── Toast system ──
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -268,8 +268,8 @@ export default function UserPage() {
 
   // ── Listening room ──
   const [roomState, setRoomState] = useState<RoomState | null>(null);
-  const [joinedRoom, setJoinedRoom] = useState(false);
-  const [roomDesync, setRoomDesync] = useState(false); // true when listener manually paused/seeked/changed track
+  const joinedRoom = joinedRoomHostId === id;
+  const roomDesync = joinedRoom && joinedRoomDesync;
   const [suggestQuery, setSuggestQuery] = useState('');
   const [suggestResults, setSuggestResults] = useState<Track[]>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -336,101 +336,7 @@ export default function UserPage() {
     return () => clearInterval(iv);
   }, [id]);
 
-  // ── Leave room on unmount ──
-  useEffect(() => {
-    return () => {
-      if (joinedRoom && id) {
-        const token = getToken();
-        if (token) {
-          fetch(apiUrl(`/listening-room/${id}/leave`), {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(() => {});
-        }
-      }
-    };
-  }, [joinedRoom, id]);
-
-  // ── Sync with room while joined ──
-  useEffect(() => {
-    if (!joinedRoom || !id) return;
-    const syncRoom = () => {
-      // If user is desynced, only poll room state (don't force sync playback)
-      fetch(apiUrl(`/listening-room/${id}`))
-        .then(r => r.ok ? r.json() : null)
-        .then(async (d) => {
-          if (!d) { setJoinedRoom(false); setRoomState(null); setRoomDesync(false); return; }
-          setRoomState(d);
-
-          // Don't force-sync if user manually desynced
-          if (roomDesync) return;
-
-          const { player: p } = useStore.getState();
-
-          // Track changed — switch to new track
-          if (d.trackId && p.currentTrack?.id !== d.trackId) {
-            const allTracks = useStore.getState().tracks;
-            let track = allTracks.find((t: Track) => t.id === d.trackId);
-            if (!track) {
-              try {
-                const tRes = await fetch(apiUrl(`/tracks/${d.trackId}`));
-                if (tRes.ok) track = await tRes.json();
-              } catch { /* ignore */ }
-            }
-            if (!track) {
-              track = {
-                id: d.trackId, title: d.trackTitle, artist: d.trackArtist,
-                artistSlug: '', genre: '', year: 0, cover: d.trackCover,
-                duration: 0, plays: 0, likes: 0,
-              };
-            }
-            playTrack(track, [track]);
-            setTimeout(() => {
-              if (d.progress > 0) audioEngine.seek(d.progress);
-            }, 800);
-          } else {
-            // Same track — sync position (if drift > 3%)
-            const engineProgress = audioEngine.getState().progress;
-            const drift = Math.abs(engineProgress - (d.progress || 0));
-            if (drift > 0.03 && d.progress > 0) {
-              audioEngine.seek(d.progress);
-            }
-            // Sync play/pause state
-            if (d.isPlaying && !p.isPlaying) {
-              audioEngine.resume();
-            } else if (!d.isPlaying && p.isPlaying) {
-              audioEngine.pause();
-            }
-          }
-        })
-        .catch(() => {});
-    };
-    syncRoom(); // immediate sync on join
-    const iv = setInterval(syncRoom, 3000);
-    return () => clearInterval(iv);
-  }, [joinedRoom, id, roomDesync]);
-
-  // ── Detect user desync (manual pause/seek/track change) while in room ──
-  useEffect(() => {
-    if (!joinedRoom || roomDesync) return;
-    // Subscribe to audio engine state changes to detect user-initiated actions
-    const unsub = audioEngine.subscribe((engineState) => {
-      const rs = roomState;
-      if (!rs) return;
-      const { player: p } = useStore.getState();
-      // User paused manually while room is playing
-      if (rs.isPlaying && engineState.state === 'paused' && p.currentTrack?.id === rs.trackId) {
-        setRoomDesync(true);
-        return;
-      }
-      // User switched to a different track
-      if (p.currentTrack && p.currentTrack.id !== rs.trackId) {
-        setRoomDesync(true);
-        return;
-      }
-    });
-    return unsub;
-  }, [joinedRoom, roomDesync, roomState]);
+  // (Room sync & desync detection handled globally by useRoomListener in App)
 
   // ── Handlers ──
   const handleFollow = async () => {
@@ -452,7 +358,7 @@ export default function UserPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setJoinedRoom(true);
+        setJoinedRoom(id!);
 
         // Find track in store, or build a minimal Track from room data
         const allTracks = useStore.getState().tracks;
@@ -503,15 +409,14 @@ export default function UserPage() {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
-    setJoinedRoom(false);
-    setRoomDesync(false);
+    setJoinedRoom(null);
     audioEngine.pause();
     addToast('Вы покинули комнату');
   };
 
   const handleResync = async () => {
     if (!roomState || !id) return;
-    setRoomDesync(false);
+    setJoinedRoomDesync(false);
     // Re-fetch room state and resync
     try {
       const res = await fetch(apiUrl(`/listening-room/${id}`));
@@ -649,57 +554,51 @@ export default function UserPage() {
 
           {/* Center Column */}
           <div className="flex-1 min-w-0 space-y-4">
-            {/* Desync banner */}
-            {joinedRoom && roomDesync && (
-              <div className="bg-gromq-card border border-gromq-amber/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gromq-text">Вы отключились от совместного прослушивания</p>
-                  <p className="text-xs text-gromq-muted mt-0.5">Вы поставили на паузу или переключили трек</p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={handleResync}
-                    className="px-4 py-2 bg-gromq-green hover:bg-gromq-green/80 text-black text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors active:scale-[0.97]">
-                    <RotateCcw size={13} />
-                    Продолжить слушать
-                  </button>
-                  <button onClick={handleLeaveRoom}
-                    className="px-4 py-2 bg-gromq-surface border border-gromq-border text-gromq-muted hover:text-gromq-red hover:border-gromq-red/50 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors">
-                    <LogOut size={13} />
-                    Выйти
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Now playing — if they have a room */}
+            {/* LIVE КОМНАТА — full room experience */}
             {roomState && (
-              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
-                <div className="flex items-center gap-2 mb-3 sm:mb-4">
-                  <Equalizer />
-                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Сейчас играет</h2>
+              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5 relative overflow-hidden">
+                <div className="absolute -top-10 -right-10 w-32 h-32 bg-gromq-green/5 rounded-full blur-2xl" />
+                <div className="flex items-center gap-2 mb-4 relative">
+                  <div className="relative">
+                    <Radio size={18} className="text-gromq-green" />
+                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-gromq-green rounded-full animate-ping" />
+                  </div>
+                  <h2 className="text-base font-bold text-gromq-text uppercase tracking-wider">Live Комната</h2>
+                  <span className="ml-auto text-[10px] bg-gromq-green/20 text-gromq-green px-2.5 py-0.5 rounded-full font-medium">
+                    Активна
+                  </span>
                 </div>
-                <div className="flex gap-3 sm:gap-4">
+
+                {/* Now playing */}
+                <div className="flex gap-4 mb-4">
                   <img
                     src={roomState.trackCover.startsWith('http') ? roomState.trackCover : apiUrl(roomState.trackCover)}
                     alt=""
-                    className="w-24 h-24 sm:w-36 sm:h-36 rounded-xl object-cover shadow-lg shadow-black/30"
+                    className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl object-cover shadow-lg shadow-black/30"
                   />
-                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5 sm:py-1">
+                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                     <div>
-                      <h3 className="text-base sm:text-xl font-bold text-gromq-text truncate">{roomState.trackTitle}</h3>
-                      <p className="text-xs sm:text-sm text-gromq-muted truncate">{roomState.trackArtist}</p>
+                      <p className="text-xs text-gromq-green font-medium flex items-center gap-1.5 mb-1">
+                        <Equalizer className="!h-3" />
+                        Сейчас играет
+                      </p>
+                      <h3 className="text-lg sm:text-xl font-bold text-gromq-text truncate">{roomState.trackTitle}</h3>
+                      <p className="text-sm text-gromq-muted truncate">{roomState.trackArtist}</p>
+                      <p className="text-[11px] text-gromq-muted flex items-center gap-1 mt-1.5">
+                        <Headphones size={10} />
+                        {roomState.listenersCount} {roomState.listenersCount === 1 ? 'слушатель' : roomState.listenersCount < 5 ? 'слушателя' : 'слушателей'}
+                      </p>
                     </div>
                     <div className="flex gap-2 mt-2">
                       {!joinedRoom ? (
                         <button onClick={handleJoinRoom}
-                          className="flex-1 bg-gromq-green hover:bg-gromq-green/80 transition-colors text-black font-semibold text-xs py-2 sm:py-2.5 rounded-lg flex items-center justify-center gap-1.5 active:scale-[0.97]">
+                          className="flex-1 bg-gromq-green hover:bg-gromq-green/80 transition-colors text-black font-semibold text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 active:scale-[0.97]">
                           <Headphones size={14} />
-                          <span className="hidden sm:inline">Присоединиться</span>
-                          <span className="sm:hidden">Слушать</span>
+                          Присоединиться
                         </button>
                       ) : (
                         <button onClick={handleLeaveRoom}
-                          className="flex-1 bg-gromq-surface border border-gromq-border text-gromq-green hover:text-gromq-red hover:border-gromq-red/50 font-semibold text-xs py-2 sm:py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          className="flex-1 bg-gromq-surface border border-gromq-border text-gromq-green hover:text-gromq-red hover:border-gromq-red/50 font-semibold text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                           title="Покинуть комнату">
                           <Equalizer className="!h-3" />
                           Подключён
@@ -708,59 +607,72 @@ export default function UserPage() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
 
-            {/* Suggest track — when joined */}
-            {joinedRoom && roomState && (
-              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <ListPlus size={16} className="text-gromq-green" />
-                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Предложить трек</h2>
-                </div>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gromq-muted pointer-events-none" />
-                  <input
-                    type="text"
-                    value={suggestQuery}
-                    onChange={e => handleSuggestSearch(e.target.value)}
-                    placeholder="Поиск трека..."
-                    className="w-full bg-gromq-surface border border-gromq-border rounded-lg pl-9 pr-3 py-2 text-sm text-gromq-text placeholder:text-gromq-muted focus:outline-none focus:border-gromq-green/50"
-                  />
-                </div>
-                {suggestResults.length > 0 && (
-                  <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                    {suggestResults.map(t => (
-                      <button
-                        key={t.id}
-                        onClick={() => handleSuggestTrack(t.id)}
-                        className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gromq-surface transition-colors text-left"
-                      >
-                        <img src={t.cover} alt="" className="w-8 h-8 rounded object-cover" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-gromq-text truncate">{t.title}</p>
-                          <p className="text-xs text-gromq-muted truncate">{t.artist}</p>
-                        </div>
-                        <ListPlus size={14} className="text-gromq-green shrink-0" />
-                      </button>
-                    ))}
+                {/* Desync banner — inside room card */}
+                {joinedRoom && roomDesync && (
+                  <div className="bg-gromq-amber/10 border border-gromq-amber/30 rounded-xl p-3 mb-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gromq-text">Рассинхронизировано</p>
+                      <p className="text-[11px] text-gromq-muted">Вы поставили на паузу или переключили трек</p>
+                    </div>
+                    <button onClick={handleResync}
+                      className="px-3 py-1.5 bg-gromq-green hover:bg-gromq-green/80 text-black text-xs font-bold rounded-lg flex items-center gap-1 shrink-0 active:scale-[0.97]">
+                      <RotateCcw size={11} />
+                      Синхронизировать
+                    </button>
                   </div>
                 )}
-                {/* Suggestions list */}
-                {roomState.suggestions && roomState.suggestions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gromq-border space-y-1.5">
-                    <p className="text-xs text-gromq-muted font-medium">Предложенные треки:</p>
-                    {roomState.suggestions.map(s => (
-                      <div key={s.trackId} className="flex items-center gap-3 p-2 rounded-lg bg-gromq-surface">
-                        <img src={s.trackCover} alt="" className="w-8 h-8 rounded object-cover" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-gromq-text truncate">{s.trackTitle}</p>
-                          <p className="text-xs text-gromq-muted truncate">{s.trackArtist}</p>
-                        </div>
-                        <span className="text-[10px] text-gromq-muted shrink-0">{s.suggestedByName}</span>
+
+                {/* Suggest track */}
+                {joinedRoom && (
+                  <>
+                    <div className="border-t border-gromq-border pt-3 mt-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <ListPlus size={14} className="text-gromq-green" />
+                        <span className="text-xs font-semibold text-gromq-text uppercase tracking-wider">Предложить трек</span>
                       </div>
-                    ))}
-                  </div>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gromq-muted pointer-events-none" />
+                        <input
+                          type="text"
+                          value={suggestQuery}
+                          onChange={e => handleSuggestSearch(e.target.value)}
+                          placeholder="Поиск трека..."
+                          className="w-full bg-gromq-surface border border-gromq-border rounded-lg pl-9 pr-3 py-2 text-sm text-gromq-text placeholder:text-gromq-muted focus:outline-none focus:border-gromq-green/50"
+                        />
+                      </div>
+                      {suggestResults.length > 0 && (
+                        <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                          {suggestResults.map(t => (
+                            <button key={t.id} onClick={() => handleSuggestTrack(t.id)}
+                              className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gromq-surface transition-colors text-left">
+                              <img src={t.cover} alt="" className="w-8 h-8 rounded object-cover" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-gromq-text truncate">{t.title}</p>
+                                <p className="text-xs text-gromq-muted truncate">{t.artist}</p>
+                              </div>
+                              <ListPlus size={14} className="text-gromq-green shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {roomState.suggestions && roomState.suggestions.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gromq-border space-y-1.5">
+                        <p className="text-xs text-gromq-muted font-medium">Предложенные треки:</p>
+                        {roomState.suggestions.map(s => (
+                          <div key={s.trackId} className="flex items-center gap-3 p-2 rounded-lg bg-gromq-surface">
+                            <img src={s.trackCover} alt="" className="w-8 h-8 rounded object-cover" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-gromq-text truncate">{s.trackTitle}</p>
+                              <p className="text-xs text-gromq-muted truncate">{s.trackArtist}</p>
+                            </div>
+                            <span className="text-[10px] text-gromq-muted shrink-0">{s.suggestedByName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -781,49 +693,6 @@ export default function UserPage() {
 
           {/* Right Column */}
           <aside className="w-full lg:w-[280px] xl:w-[300px] shrink-0 space-y-4">
-            {roomState && (
-              <div className="bg-gromq-card border border-gromq-border rounded-2xl p-4 sm:p-5 relative overflow-hidden">
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-gromq-green/5 rounded-full blur-2xl" />
-                <div className="flex items-center gap-2 mb-3 sm:mb-4 relative">
-                  <div className="relative">
-                    <Radio size={16} className="text-gromq-green" />
-                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-gromq-green rounded-full animate-ping" />
-                  </div>
-                  <h2 className="text-sm font-semibold text-gromq-text uppercase tracking-wider">Live Комната</h2>
-                  <span className="ml-auto text-[10px] bg-gromq-green/20 text-gromq-green px-2 py-0.5 rounded-full font-medium">
-                    Активна
-                  </span>
-                </div>
-                <div className="bg-gromq-surface border border-gromq-border rounded-xl p-3 relative">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-lg bg-gromq-green/10 flex items-center justify-center shrink-0">
-                      <Equalizer />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gromq-text font-medium truncate">{roomState.trackTitle} — {roomState.trackArtist}</p>
-                      <p className="text-[11px] text-gromq-muted flex items-center gap-1">
-                        <Headphones size={10} />
-                        {roomState.listenersCount} слушателей
-                      </p>
-                    </div>
-                  </div>
-                  {!joinedRoom ? (
-                    <button onClick={handleJoinRoom}
-                      className="w-full bg-gromq-green hover:bg-gromq-green/80 text-black font-semibold text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]">
-                      <Headphones size={15} />
-                      Присоединиться
-                    </button>
-                  ) : (
-                    <button onClick={handleLeaveRoom}
-                      className="w-full bg-gromq-surface border border-gromq-border text-gromq-green hover:text-gromq-red hover:border-gromq-red/50 font-semibold text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                      title="Покинуть комнату">
-                      <Equalizer className="!h-3" />
-                      Подключён к комнате
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
             <AchievementsSection
               totalLiked={user.likedTracksCount}
               playlistsCount={user.playlists.length}

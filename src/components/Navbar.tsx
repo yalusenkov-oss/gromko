@@ -21,6 +21,7 @@ export default function Navbar() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestedUsers, setSuggestedUsers] = useState<SearchUser[]>([]);
   const searchRef = useRef<HTMLFormElement>(null);
+  const mobileSearchRef = useRef<HTMLFormElement>(null);
   const userSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
@@ -28,7 +29,10 @@ export default function Navbar() {
   // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+      if (
+        searchRef.current && !searchRef.current.contains(e.target as Node) &&
+        mobileSearchRef.current && !mobileSearchRef.current.contains(e.target as Node)
+      ) {
         setShowSuggestions(false);
       }
     };
