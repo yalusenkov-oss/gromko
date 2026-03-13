@@ -5,8 +5,8 @@ import { apiUrl } from '../lib/api';
 
 // LK components
 import { ProfileCard, MusicTaste, LeftColumn } from '../components/lk/LeftColumn';
-import { NowPlaying, Playlists, Recommendations, ActivityFeed, RecentlyListened, CenterColumn } from '../components/lk/CenterColumn';
-import { LiveRoomWidget, FriendsList, AchievementsSection, RightColumn } from '../components/lk/RightColumn';
+import { NowPlaying, Playlists, Recommendations, ActivityFeed, RecentlyListened } from '../components/lk/CenterColumn';
+import { LiveRoomWidget, FriendsList, AchievementsSection } from '../components/lk/RightColumn';
 import { ToastContainer, type ToastItem } from '../components/lk/Toast';
 import {
   CreatePlaylistModal,
@@ -222,28 +222,39 @@ export default function ProfilePage() {
             totalPlays={profileStats?.totalPlays || 0}
             nightPercent={nightPercent}
           />
-          <CenterColumn
-            playlists={playlists}
-            feed={activityFeed}
-            historyTracks={historyTracks}
-            recPicks={recPicks}
-            onCreatePlaylist={() => setActiveModal('create-playlist')}
-            onOpenPlaylist={(pl) => { setSelectedPlaylist(pl); setActiveModal('playlist-detail'); }}
-            onPickTrackOfWeek={() => { setPickTarget('trackOfWeek'); setActiveModal('pick-track'); }}
-            onPickDiscovery={() => { setPickTarget('discovery'); setActiveModal('pick-track'); }}
-            addToast={addToast}
-          />
-          <RightColumn
-            roomActive={roomActive}
-            roomListeners={roomListeners}
-            onToggleRoom={handleToggleRoom}
-            addToast={addToast}
-            friends={friends}
-            totalLiked={currentUser.likedTracks.length}
-            playlistsCount={playlists.length}
-            nightPercent={nightPercent}
-            totalPlays={profileStats?.totalPlays || 0}
-          />
+          {/* Center — LiveRoom first, then rest */}
+          <div className="flex-1 min-w-0 space-y-4">
+            <LiveRoomWidget
+              roomActive={roomActive}
+              roomListeners={roomListeners}
+              onToggleRoom={handleToggleRoom}
+              addToast={addToast}
+            />
+            <NowPlaying addToast={addToast} />
+            <Playlists
+              playlists={playlists}
+              onCreatePlaylist={() => setActiveModal('create-playlist')}
+              onOpenPlaylist={(pl) => { setSelectedPlaylist(pl); setActiveModal('playlist-detail'); }}
+              addToast={addToast}
+            />
+            <Recommendations
+              recPicks={recPicks}
+              onPickTrackOfWeek={() => { setPickTarget('trackOfWeek'); setActiveModal('pick-track'); }}
+              onPickDiscovery={() => { setPickTarget('discovery'); setActiveModal('pick-track'); }}
+            />
+            <ActivityFeed feed={activityFeed} />
+            <RecentlyListened tracks={historyTracks} />
+          </div>
+          {/* Right — Friends + Achievements (no LiveRoom) */}
+          <aside className="w-full lg:w-[280px] xl:w-[300px] shrink-0 space-y-4">
+            <FriendsList friends={friends} addToast={addToast} />
+            <AchievementsSection
+              totalLiked={currentUser.likedTracks.length}
+              playlistsCount={playlists.length}
+              nightPercent={nightPercent}
+              totalPlays={profileStats?.totalPlays || 0}
+            />
+          </aside>
         </div>
 
         {/* ── Mobile: single-column ── */}
@@ -256,13 +267,13 @@ export default function ProfilePage() {
             onEditProfile={() => setActiveModal('edit-profile')}
             onLogout={handleLogout}
           />
-          <NowPlaying
-            addToast={addToast}
-          />
           <LiveRoomWidget
             roomActive={roomActive}
             roomListeners={roomListeners}
             onToggleRoom={handleToggleRoom}
+            addToast={addToast}
+          />
+          <NowPlaying
             addToast={addToast}
           />
           <Playlists
