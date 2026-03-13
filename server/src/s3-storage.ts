@@ -100,14 +100,16 @@ export async function uploadToS3(
   s3Key: string,
   options?: { cacheControl?: string }
 ): Promise<string> {
-  const body = fs.readFileSync(localPath);
   const mime = getMime(localPath);
   const fullKey = CDN_PREFIX ? `${CDN_PREFIX}/${s3Key}` : s3Key;
+  const body = fs.createReadStream(localPath);
+  const contentLength = fs.statSync(localPath).size;
 
   await getS3().send(new PutObjectCommand({
     Bucket: CDN_BUCKET,
     Key: fullKey,
     Body: body,
+    ContentLength: contentLength,
     ContentType: mime,
     CacheControl: options?.cacheControl || 'public, max-age=31536000, immutable',
   }));
@@ -163,8 +165,8 @@ export async function uploadDirToS3(
 
   walkDir(localDir);
 
-  // Upload in parallel (max 8 concurrent)
-  const CONCURRENCY = 8;
+  // Upload in parallel, but keep the default conservative to avoid memory spikes on VPS.
+  const CONCURRENCY = Math.max(1, Math.min(Number(process.env.S3_UPLOAD_CONCURRENCY) || 2, 8));
   let idx = 0;
 
   async function worker() {

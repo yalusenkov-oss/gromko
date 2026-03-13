@@ -2544,6 +2544,9 @@ router.post('/admin/s3-import', adminRequired, async (req, res) => {
             if (signal === 'SIGTERM') {
                 s3ImportLog.push(`⛔ Импорт остановлен пользователем`);
             }
+            else if (signal) {
+                s3ImportLog.push(`❌ Процесс был остановлен сигналом ${signal}${signal === 'SIGKILL' ? ' (часто это OOM killer или принудительное убийство процесса)' : ''}`);
+            }
             else if (code !== 0) {
                 s3ImportLog.push(`❌ Процесс завершился с кодом ${code}`);
             }

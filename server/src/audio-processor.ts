@@ -28,6 +28,7 @@ import { S3_ENABLED, uploadToS3, uploadDirToS3, uploadBufferToS3, getS3Url } fro
 const ENABLE_NORMALIZATION = process.env.AUDIO_NORMALIZE === 'true';
 const TARGET_LUFS = Number(process.env.AUDIO_TARGET_LUFS || -14);
 const TRUE_PEAK_DBTP = Number(process.env.AUDIO_TRUE_PEAK_DBTP || -1);
+const FFMPEG_THREADS = Math.max(1, Number(process.env.AUDIO_FFMPEG_THREADS) || 1);
 
 // ─── Set FFmpeg/FFprobe paths from npm packages (for environments without system ffmpeg) ───
 try {
@@ -616,6 +617,10 @@ export async function fixTrackCover(trackId: string, artist: string, title: stri
   return finalCoverPath;
 }
 
+function applyFfmpegLimits(command: ffmpeg.FfmpegCommand): ffmpeg.FfmpegCommand {
+  return command.outputOptions(['-threads', String(FFMPEG_THREADS)]);
+}
+
 // ─────────────────────────────────────────────
 // 3. Audio Loudness Analysis (EBU R128)
 // ─────────────────────────────────────────────
@@ -623,7 +628,7 @@ export async function fixTrackCover(trackId: string, artist: string, title: stri
 function analyzeLoudness(inputPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     let loudnessData = '';
-    ffmpeg(inputPath)
+    applyFfmpegLimits(ffmpeg(inputPath))
       .noVideo()
       .audioFilters('ebur128=peak=true')
       .format('null')
@@ -671,7 +676,7 @@ function transcodeToQuality(
     const safeGainDb = Math.max(-6, Math.min(0, gainDb));
     const truePeakLinear = Math.pow(10, TRUE_PEAK_DBTP / 20);
 
-    const cmd = ffmpeg(inputPath)
+    const cmd = applyFfmpegLimits(ffmpeg(inputPath))
       .noVideo(); // CRITICAL: skip embedded cover art video stream
 
     if (quality.codec === 'flac') {
@@ -733,7 +738,7 @@ function generateHlsStream(
 
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const cmd = ffmpeg(inputPath)
+    const cmd = applyFfmpegLimits(ffmpeg(inputPath))
       .noVideo(); // CRITICAL: skip embedded cover art video stream
 
     if (quality.codec === 'flac') {
@@ -799,7 +804,7 @@ function generateHlsFromTranscoded(
 
     fs.mkdirSync(outputDir, { recursive: true });
 
-    ffmpeg(inputPath)
+    applyFfmpegLimits(ffmpeg(inputPath))
       .audioCodec('copy')  // No re-encoding — just segment the already-transcoded file
       .noVideo()
       .format('hls')
@@ -826,7 +831,7 @@ function generateWaveformPeaks(inputPath: string, numPeaks: number): Promise<num
     const rawPath = inputPath + '.raw';
 
     // Convert to raw PCM, mono, low sample rate for fast processing
-    ffmpeg(inputPath)
+    applyFfmpegLimits(ffmpeg(inputPath))
       .noVideo()
       .audioCodec('pcm_s16le')
       .audioChannels(1)
@@ -960,9 +965,11 @@ export async function processTrack(
     const medHls = await generateHlsFromTranscoded(mediumPath, hlsDir, 'medium');
     hlsQualities.push({ key: 'medium', playlist: medHls, bandwidth: 128000 });
 
-    const highSrc = (streams.high !== streams.medium) ? path.join(audioDir, 'high.m4a') : mediumPath;
-    const highHls = await generateHlsFromTranscoded(highSrc, hlsDir, 'high');
-    hlsQualities.push({ key: 'high', playlist: highHls, bandwidth: 256000 });
+    if (streams.high !== streams.medium) {
+      const highSrc = path.join(audioDir, 'high.m4a');
+      const highHls = await generateHlsFromTranscoded(highSrc, hlsDir, 'high');
+      hlsQualities.push({ key: 'high', playlist: highHls, bandwidth: 256000 });
+    }
 
     const masterPlaylist = generateMasterPlaylist(hlsDir, hlsQualities);
 
@@ -1171,7 +1178,10 @@ const processingQueue: QueueJob[] = [];
 let activeWorkers = 0;
 
 /** Max concurrent FFmpeg processes — leave 1 core free for the server */
-const MAX_WORKERS = Math.max(1, Math.min(os.cpus().length - 1, 4));
+const MAX_WORKERS = Math.max(
+  1,
+  Math.min(Number(process.env.AUDIO_PROCESS_WORKERS) || 1, Math.max(1, os.cpus().length - 1), 4)
+);
 
 export function enqueueTrack(
   trackId: string,
