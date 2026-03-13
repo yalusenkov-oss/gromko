@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../store';
 import { X, Music2, AlertTriangle, Search, Check } from 'lucide-react';
 
@@ -22,6 +22,7 @@ export default function AuthModal() {
   const [loading, setLoading] = useState(false);
   const [selectedArtists, setSelectedArtists] = useState<string[]>([]);
   const [artistSearch, setArtistSearch] = useState('');
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (authModal) {
@@ -38,10 +39,18 @@ export default function AuthModal() {
     }
   }, [authModal]);
 
-  // Prevent body scroll when modal is open
+  // Prevent body scroll when modal is open & handle mobile viewport
   useEffect(() => {
     if (authModal) {
       document.body.style.overflow = 'hidden';
+      // On mobile, handle virtualKeyboard resize to prevent modal from moving
+      const metaViewport = document.querySelector('meta[name=viewport]');
+      const originalContent = metaViewport?.getAttribute('content') || '';
+      if (metaViewport) {
+        metaViewport.setAttribute('content', originalContent.includes('interactive-widget')
+          ? originalContent
+          : originalContent + ', interactive-widget=resizes-content');
+      }
     } else {
       document.body.style.overflow = '';
     }
@@ -49,7 +58,6 @@ export default function AuthModal() {
   }, [authModal]);
 
   // Build artist list for picker (with covers from their tracks)
-  // MUST be before early return to keep hooks order stable
   const displayArtists = useMemo(() => {
     const list = artists.map(a => {
       const needsFallback = !a.photo || a.photo.includes('default') || a.photo.includes('placeholder');
@@ -71,9 +79,13 @@ export default function AuthModal() {
     setLoading(true);
     setError('');
 
-    let ok = false;
+    // Blur active input to close mobile keyboard
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     if (mode === 'login') {
-      ok = await login(email, password);
+      const ok = await login(email, password);
       if (!ok) setError('Неверный email или пароль');
       if (ok) closeAuthModal();
     } else {
@@ -82,13 +94,16 @@ export default function AuthModal() {
         setLoading(false);
         return;
       }
-      ok = await register(name, email, password, country, username);
-      if (!ok) setError('Ошибка регистрации. Возможно, email или имя пользователя уже заняты.');
-      if (ok && artists.length > 0) {
-        // Show artist preference picker
-        setStep('artists');
-      } else if (ok) {
-        closeAuthModal();
+      const result = await register(name, email, password, country, username);
+      if (result === true) {
+        if (artists.length > 0) {
+          setStep('artists');
+        } else {
+          closeAuthModal();
+        }
+      } else {
+        // result is the error string from the server
+        setError(result);
       }
     }
 
@@ -102,7 +117,6 @@ export default function AuthModal() {
   };
 
   const handleFinishOnboarding = () => {
-    // Like selected artists
     const { toggleArtistLike } = useStore.getState();
     for (const slug of selectedArtists) {
       toggleArtistLike(slug);
@@ -111,31 +125,48 @@ export default function AuthModal() {
   };
 
   const handleBackdrop = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) closeAuthModal();
+    if (e.target === e.currentTarget) {
+      // Blur inputs first to close keyboard
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      closeAuthModal();
+    }
   };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       onClick={handleBackdrop}
+      style={{ touchAction: 'none' }}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
       {/* Modal */}
-      <div className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 animate-in ${step === 'artists' ? 'max-w-lg flex flex-col max-h-[85vh]' : 'max-w-sm p-6 max-h-[90vh] overflow-y-auto'}`}>
+      <div
+        ref={modalRef}
+        className={`relative w-full bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl shadow-black/50 animate-in ${
+          step === 'artists'
+            ? 'max-w-lg flex flex-col max-h-[85vh]'
+            : 'max-w-sm p-6 max-h-[85dvh] overflow-y-auto overscroll-contain'
+        }`}
+        style={{ position: 'relative' }}
+      >
         {/* Close button */}
         <button
-          onClick={step === 'artists' ? handleFinishOnboarding : closeAuthModal}
+          onClick={() => {
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+            step === 'artists' ? handleFinishOnboarding() : closeAuthModal();
+          }}
           className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10"
         >
           <X size={20} />
         </button>
 
         {step === 'artists' ? (
-          /* Artist preference picker — fixed header/footer, scrollable grid */
+          /* Artist preference picker */
           <>
-            {/* Fixed header */}
             <div className="shrink-0 p-6 pb-0">
               <div className="text-center mb-4">
                 <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center mx-auto mb-3">
@@ -146,8 +177,6 @@ export default function AuthModal() {
                   Выберите исполнителей, которые вам нравятся
                 </p>
               </div>
-
-              {/* Search */}
               <div className="relative mb-4">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
                 <input
@@ -158,8 +187,6 @@ export default function AuthModal() {
                 />
               </div>
             </div>
-
-            {/* Scrollable artist grid */}
             <div className="flex-1 overflow-y-auto px-6 min-h-0">
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pb-2">
                 {displayArtists.map(artist => {
@@ -190,8 +217,6 @@ export default function AuthModal() {
                 })}
               </div>
             </div>
-
-            {/* Fixed footer — always visible */}
             <div className="shrink-0 p-6 pt-4 border-t border-white/5">
               <button
                 onClick={handleFinishOnboarding}
@@ -206,7 +231,6 @@ export default function AuthModal() {
         ) : (
           /* Login / Register form */
           <>
-            {/* Header */}
             <div className="text-center mb-6">
               <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center mx-auto mb-3">
                 <Music2 size={24} className="text-white" />
@@ -221,99 +245,97 @@ export default function AuthModal() {
               </p>
             </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {mode === 'register' && (
-            <>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {mode === 'register' && (
+                <>
+                  <input
+                    required
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                    placeholder="Ваше имя"
+                  />
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">@</span>
+                    <input
+                      required
+                      value={username}
+                      onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                      placeholder="username"
+                      minLength={3}
+                      maxLength={30}
+                    />
+                  </div>
+                  <div className="relative">
+                    <select
+                      required
+                      value={country}
+                      onChange={e => setCountry(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500/50 transition-colors appearance-none"
+                    >
+                      <option value="" disabled className="bg-zinc-900 text-zinc-500">Страна</option>
+                      {COUNTRIES.map(c => (
+                        <option key={c} value={c} className="bg-zinc-900 text-white">{c}</option>
+                      ))}
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500 text-xs">▼</div>
+                  </div>
+                  <div className="flex items-start gap-2 bg-red-950/40 border border-red-500/20 rounded-xl px-3 py-2">
+                    <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                    <p className="text-red-400/80 text-[11px] leading-tight">
+                      Сервис не работает на территории Российской Федерации. Регистрация из РФ недоступна.
+                    </p>
+                  </div>
+                </>
+              )}
               <input
+                type="email"
                 required
-                value={name}
-                onChange={e => setName(e.target.value)}
+                value={email}
+                onChange={e => setEmail(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-                placeholder="Ваше имя"
+                placeholder="Email"
               />
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">@</span>
-                <input
-                  required
-                  value={username}
-                  onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-                  placeholder="username"
-                  minLength={3}
-                  maxLength={30}
-                />
-              </div>
-              <div className="relative">
-                <select
-                  required
-                  value={country}
-                  onChange={e => setCountry(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500/50 transition-colors appearance-none"
-                >
-                  <option value="" disabled className="bg-zinc-900 text-zinc-500">Страна</option>
-                  {COUNTRIES.map(c => (
-                    <option key={c} value={c} className="bg-zinc-900 text-white">{c}</option>
-                  ))}
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500 text-xs">▼</div>
-              </div>
-              <div className="flex items-start gap-2 bg-red-950/40 border border-red-500/20 rounded-xl px-3 py-2">
-                <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
-                <p className="text-red-400/80 text-[11px] leading-tight">
-                  Сервис не работает на территории Российской Федерации. Регистрация из РФ недоступна.
-                </p>
-              </div>
-            </>
-          )}
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-            placeholder="Email"
-          />
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
-            placeholder={mode === 'register' ? 'Пароль (мин. 6 символов)' : 'Пароль'}
-            minLength={mode === 'register' ? 6 : undefined}
-          />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/50 transition-colors"
+                placeholder={mode === 'register' ? 'Пароль (мин. 6 символов)' : 'Пароль'}
+                minLength={mode === 'register' ? 6 : undefined}
+              />
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+              {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white font-semibold rounded-xl transition-all text-sm"
-          >
-            {loading
-              ? (mode === 'login' ? 'Вход...' : 'Регистрация...')
-              : (mode === 'login' ? 'Войти' : 'Зарегистрироваться')
-            }
-          </button>
-        </form>
-
-        {/* Toggle mode */}
-        <p className="text-center text-zinc-500 text-sm mt-4">
-          {mode === 'login' ? (
-            <>Нет аккаунта?{' '}
-              <button onClick={() => { setMode('register'); setError(''); }} className="text-white hover:text-red-400 transition-colors">
-                Зарегистрироваться
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white font-semibold rounded-xl transition-all text-sm"
+              >
+                {loading
+                  ? (mode === 'login' ? 'Вход...' : 'Регистрация...')
+                  : (mode === 'login' ? 'Войти' : 'Зарегистрироваться')
+                }
               </button>
-            </>
-          ) : (
-            <>Уже есть аккаунт?{' '}
-              <button onClick={() => { setMode('login'); setError(''); }} className="text-white hover:text-red-400 transition-colors">
-                Войти
-              </button>
-            </>
-          )}
-        </p>
+            </form>
+
+            <p className="text-center text-zinc-500 text-sm mt-4">
+              {mode === 'login' ? (
+                <>Нет аккаунта?{' '}
+                  <button onClick={() => { setMode('register'); setError(''); }} className="text-white hover:text-red-400 transition-colors">
+                    Зарегистрироваться
+                  </button>
+                </>
+              ) : (
+                <>Уже есть аккаунт?{' '}
+                  <button onClick={() => { setMode('login'); setError(''); }} className="text-white hover:text-red-400 transition-colors">
+                    Войти
+                  </button>
+                </>
+              )}
+            </p>
           </>
         )}
       </div>

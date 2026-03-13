@@ -189,7 +189,7 @@ interface AppStore {
   dataReady: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, password: string, country?: string, username?: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string, country?: string, username?: string) => Promise<true | string>;
   restoreSession: () => Promise<void>;
   updateProfile: (data: { name?: string; avatar?: string; bio?: string; username?: string }) => Promise<boolean>;
 
@@ -308,7 +308,7 @@ export const useStore = create<AppStore>((set, get) => ({
       setToken(data.token);
       set({ currentUser: mapUser(data.user) });
       return true;
-    } catch { return false; }
+    } catch (err: any) { return err?.message || 'Ошибка регистрации'; }
   },
 
   restoreSession: async () => {

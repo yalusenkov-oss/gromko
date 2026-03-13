@@ -680,7 +680,7 @@ router.post('/events', authRequired, async (req, res) => {
     res.json({ ok: true });
 });
 /** GET /api/recommendations/for-you — персональный микс (works without auth too — falls back to popularity) */
-router.get('/recommendations/for-you', async (req, res) => {
+router.get('/recommendations/for-you', authOptional, async (req, res) => {
     try {
         const limit = Math.min(50, Number(req.query.limit) || 20);
         const userId = req.user?.id || null;
@@ -746,7 +746,7 @@ router.get('/recommendations/continue', authRequired, async (req, res) => {
     }
 });
 /** GET /api/recommendations/new-for-you — новинки (персонализированные если авторизован) */
-router.get('/recommendations/new-for-you', async (req, res) => {
+router.get('/recommendations/new-for-you', authOptional, async (req, res) => {
     try {
         const limit = Math.min(20, Number(req.query.limit) || 10);
         const userId = req.user?.id || null;
