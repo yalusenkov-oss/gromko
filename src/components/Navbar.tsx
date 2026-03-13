@@ -26,7 +26,6 @@ export default function Navbar() {
 
   const isAdmin = currentUser?.role === 'admin';
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -40,12 +39,10 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Close suggestions on route change
   useEffect(() => {
     setShowSuggestions(false);
   }, [location.pathname]);
 
-  // Search users with debounce
   useEffect(() => {
     if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current);
     const q = searchVal.trim();
@@ -91,7 +88,7 @@ export default function Navbar() {
           <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMQ</span>
         </Link>
 
-        {/* Mobile search — compact bar next to logo */}
+        {/* Mobile search */}
         <form onSubmit={handleSearch} className="flex-1 md:hidden relative min-w-0" ref={mobileSearchRef}>
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -238,6 +235,7 @@ export default function Navbar() {
           )}
         </form>
 
+        {/* Right side buttons */}
         <div className="ml-auto flex items-center gap-2">
           {currentUser ? (
             <>
@@ -248,9 +246,9 @@ export default function Navbar() {
                 </Link>
               )}
               {isAdmin && (
-                <Link to="/admin" className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white text-sm font-medium rounded-lg transition-colors">
+                <Link to="/admin" className="flex items-center gap-2 px-2 md:px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white text-sm font-medium rounded-lg transition-colors">
                   <Settings size={14} />
-                  <span>Панель</span>
+                  <span className="hidden md:inline">Панель</span>
                 </Link>
               )}
               <Link to="/liked" className="hidden md:flex items-center gap-1 px-2 py-1.5 hover:bg-white/5 rounded-lg transition-colors group" title="Любимое">
