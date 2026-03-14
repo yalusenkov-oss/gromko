@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useStore, type Track, type Playlist } from '../store';
 import { apiUrl } from '../lib/api';
 import { audioEngine } from '../audio/engine';
@@ -237,8 +237,10 @@ function StatBadge({ icon: Icon, value, label }: { icon: React.ElementType; valu
 
 export default function UserPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser, toggleFollow, playTrack, joinedRoomHostId, joinedRoomDesync, setJoinedRoom, setJoinedRoomDesync } = useStore();
+  const { currentUser, toggleFollow, playTrack, joinedRoomHostId, joinedRoomInviteToken, joinedRoomDesync, setJoinedRoom, setJoinedRoomDesync } = useStore();
+  const roomAccessToken = new URLSearchParams(location.search).get('room');
 
   // ── Toast system ──
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -326,7 +328,10 @@ export default function UserPage() {
   useEffect(() => {
     if (!id) return;
     const checkRoom = () => {
-      fetch(apiUrl(`/listening-room/${id}`))
+      const token = getToken();
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      if (roomAccessToken) headers['X-Room-Token'] = roomAccessToken;
+      fetch(apiUrl(`/listening-room/${id}${roomAccessToken ? `?room=${encodeURIComponent(roomAccessToken)}` : ''}`), { headers })
         .then(r => r.ok ? r.json() : null)
         .then(d => setRoomState(d || null))
         .catch(() => setRoomState(null));
@@ -334,7 +339,7 @@ export default function UserPage() {
     checkRoom();
     const iv = setInterval(checkRoom, 8000);
     return () => clearInterval(iv);
-  }, [id]);
+  }, [id, roomAccessToken]);
 
   // (Room sync & desync detection handled globally by useRoomListener in App)
 
@@ -357,16 +362,22 @@ export default function UserPage() {
       if (prevHost && prevHost !== id) {
         fetch(apiUrl(`/listening-room/${prevHost}/leave`), {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(joinedRoomInviteToken ? { 'X-Room-Token': joinedRoomInviteToken } : {}),
+          },
         }).catch(() => {});
       }
       const res = await fetch(apiUrl(`/listening-room/${id}/join`), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(roomAccessToken ? { 'X-Room-Token': roomAccessToken } : {}),
+        },
       });
       if (res.ok) {
         const data = await res.json();
-        setJoinedRoom(id!);
+        setJoinedRoom(id!, data.inviteToken || roomAccessToken || null);
 
         // Find track in store, or build a minimal Track from room data
         const allTracks = useStore.getState().tracks;
@@ -414,7 +425,10 @@ export default function UserPage() {
     if (token) {
       fetch(apiUrl(`/listening-room/${id}/leave`), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(joinedRoomInviteToken ? { 'X-Room-Token': joinedRoomInviteToken } : {}),
+        },
       }).catch(() => {});
     }
     setJoinedRoom(null);
@@ -427,7 +441,10 @@ export default function UserPage() {
     setJoinedRoomDesync(false);
     // Re-fetch room state and resync
     try {
-      const res = await fetch(apiUrl(`/listening-room/${id}`));
+      const token = getToken();
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      if (joinedRoomInviteToken || roomAccessToken) headers['X-Room-Token'] = joinedRoomInviteToken || roomAccessToken || '';
+      const res = await fetch(apiUrl(`/listening-room/${id}${roomAccessToken ? `?room=${encodeURIComponent(roomAccessToken)}` : ''}`), { headers });
       if (!res.ok) return;
       const d = await res.json();
       setRoomState(d);
@@ -461,7 +478,11 @@ export default function UserPage() {
     try {
       const res = await fetch(apiUrl(`/listening-room/${id}/suggest`), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...((joinedRoomInviteToken || roomAccessToken) ? { 'X-Room-Token': joinedRoomInviteToken || roomAccessToken || '' } : {}),
+        },
         body: JSON.stringify({ trackId }),
       });
       if (res.ok) {

@@ -28,7 +28,7 @@ export function useRoomBroadcast() {
     if (!roomActive || !player.currentTrack) return;
 
     const broadcast = () => {
-      const { player: p, setRoomListeners, setRoomSuggestions, roomPublic } = useStore.getState();
+      const { player: p, setRoomListeners, setRoomSuggestions, setRoomInviteToken, setRoomLastSyncAt, roomPublic } = useStore.getState();
       if (!p.currentTrack) return;
       apiFetchJson('/listening-room', {
         method: 'PUT',
@@ -44,6 +44,8 @@ export function useRoomBroadcast() {
       }).then(d => {
         setRoomListeners(d.listeners || []);
         setRoomSuggestions(d.suggestions || []);
+        setRoomInviteToken(d.inviteToken || null);
+        setRoomLastSyncAt(Date.now());
       }).catch(() => {});
     };
 

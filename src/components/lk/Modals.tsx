@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   X,
   Globe,
@@ -197,19 +197,30 @@ interface ListenTogetherModalProps {
 }
 
 export function ListenTogetherModal({ onClose }: ListenTogetherModalProps) {
-  const { player, roomPublic, setRoomPublic, toggleRoom, currentUser } = useStore();
+  const { player, roomActive, roomPublic, roomInviteToken, roomLastSyncAt, setRoomPublic, toggleRoom, currentUser } = useStore();
   const np = player.currentTrack;
   const [phase, setPhase] = useState<"choosing" | "connecting" | "connected">("choosing");
   const [copied, setCopied] = useState(false);
 
-  const roomLink = currentUser ? `${window.location.origin}/user/${currentUser.id}` : '';
+  const roomLink = currentUser
+    ? `${window.location.origin}/user/${currentUser.id}${!roomPublic && roomInviteToken ? `?room=${encodeURIComponent(roomInviteToken)}` : ''}`
+    : '';
 
   const handleStart = (isPublic: boolean) => {
     setRoomPublic(isPublic);
     toggleRoom();
     setPhase("connecting");
-    setTimeout(() => setPhase("connected"), 1500);
   };
+
+  useEffect(() => {
+    if (!roomActive) {
+      setPhase("choosing");
+      return;
+    }
+    if (roomLastSyncAt && (roomPublic || roomInviteToken)) {
+      setPhase("connected");
+    }
+  }, [roomActive, roomPublic, roomInviteToken, roomLastSyncAt]);
 
   const handleCopyLink = () => {
     navigator.clipboard?.writeText(roomLink).catch(() => {});

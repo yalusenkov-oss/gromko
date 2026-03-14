@@ -16,6 +16,7 @@ function getToken(): string | null {
 export function useRoomListener() {
   const {
     joinedRoomHostId,
+    joinedRoomInviteToken,
     joinedRoomDesync,
     setJoinedRoom,
     setJoinedRoomDesync,
@@ -33,10 +34,15 @@ export function useRoomListener() {
 
     const syncRoom = async () => {
       try {
-        const res = await fetch(apiUrl(`/listening-room/${joinedRoomHostId}`));
+        const token = getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        if (joinedRoomInviteToken) headers['X-Room-Token'] = joinedRoomInviteToken;
+        const res = await fetch(apiUrl(`/listening-room/${joinedRoomHostId}`), { headers });
         if (!res.ok) {
           // Room closed by host
           setJoinedRoom(null);
+          audioEngine.pause();
           return;
         }
         const d = await res.json();
@@ -103,7 +109,7 @@ export function useRoomListener() {
     syncRoom();
     const iv = setInterval(syncRoom, 3000);
     return () => clearInterval(iv);
-  }, [joinedRoomHostId, joinedRoomDesync]);
+  }, [joinedRoomHostId, joinedRoomInviteToken, joinedRoomDesync]);
 
   // ── Detect user desync (manual pause/seek/track change) ──
   useEffect(() => {
@@ -139,12 +145,14 @@ export function useRoomListener() {
       if (hostId) {
         const token = getToken();
         if (token) {
+          const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+          if (joinedRoomInviteToken) headers['X-Room-Token'] = joinedRoomInviteToken;
           fetch(apiUrl(`/listening-room/${hostId}/leave`), {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
+            headers,
           }).catch(() => {});
         }
       }
     };
-  }, []);
+  }, [joinedRoomInviteToken]);
 }

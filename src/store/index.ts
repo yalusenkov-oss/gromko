@@ -263,9 +263,13 @@ interface AppStore {
   // Listening room (global)
   roomActive: boolean;
   roomPublic: boolean; // true = public, false = invite-only
+  roomInviteToken: string | null;
+  roomLastSyncAt: number | null;
   roomListeners: { userId: string; name: string; avatar: string }[];
   setRoomActive: (active: boolean) => void;
   setRoomPublic: (isPublic: boolean) => void;
+  setRoomInviteToken: (token: string | null) => void;
+  setRoomLastSyncAt: (ts: number | null) => void;
   setRoomListeners: (listeners: { userId: string; name: string; avatar: string }[]) => void;
   toggleRoom: () => void;
   roomSuggestions: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; suggestedBy: string; suggestedByName: string }[];
@@ -273,9 +277,10 @@ interface AppStore {
 
   // Joined room (as listener — persists across navigation)
   joinedRoomHostId: string | null;
+  joinedRoomInviteToken: string | null;
   joinedRoomDesync: boolean;
   joinedRoomState: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; progress: number; isPlaying: boolean; listenersCount: number; hostName: string } | null;
-  setJoinedRoom: (hostId: string | null, hostName?: string) => void;
+  setJoinedRoom: (hostId: string | null, inviteToken?: string | null, hostName?: string) => void;
   setJoinedRoomDesync: (desync: boolean) => void;
   setJoinedRoomState: (state: { trackId: string; trackTitle: string; trackArtist: string; trackCover: string; progress: number; isPlaying: boolean; listenersCount: number; hostName: string } | null) => void;
 }
@@ -681,9 +686,13 @@ export const useStore = create<AppStore>((set, get) => ({
   // Listening room (global)
   roomActive: false,
   roomPublic: true,
+  roomInviteToken: null,
+  roomLastSyncAt: null,
   roomListeners: [],
   setRoomActive: (active) => set({ roomActive: active }),
   setRoomPublic: (isPublic) => set({ roomPublic: isPublic }),
+  setRoomInviteToken: (token) => set({ roomInviteToken: token }),
+  setRoomLastSyncAt: (ts) => set({ roomLastSyncAt: ts }),
   setRoomListeners: (listeners) => set({ roomListeners: listeners }),
   roomSuggestions: [],
   setRoomSuggestions: (suggestions) => set({ roomSuggestions: suggestions }),
@@ -693,26 +702,27 @@ export const useStore = create<AppStore>((set, get) => ({
       // Close room
       const token = localStorage.getItem('gromko_token');
       if (token) {
-        fetch('/api/listening-room', {
+        fetch(apiUrl('/listening-room'), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         }).catch(() => {});
       }
-      set({ roomActive: false, roomPublic: true, roomListeners: [] });
+      set({ roomActive: false, roomPublic: true, roomInviteToken: null, roomLastSyncAt: null, roomListeners: [], roomSuggestions: [] });
     } else {
-      set({ roomActive: true });
+      set({ roomActive: true, roomInviteToken: null, roomLastSyncAt: null });
     }
   },
 
   // Joined room (as listener)
   joinedRoomHostId: null,
+  joinedRoomInviteToken: null,
   joinedRoomDesync: false,
   joinedRoomState: null,
-  setJoinedRoom: (hostId, _hostName) => {
+  setJoinedRoom: (hostId, inviteToken, _hostName) => {
     if (hostId) {
-      set({ joinedRoomHostId: hostId, joinedRoomDesync: false });
+      set({ joinedRoomHostId: hostId, joinedRoomInviteToken: inviteToken || null, joinedRoomDesync: false });
     } else {
-      set({ joinedRoomHostId: null, joinedRoomDesync: false, joinedRoomState: null });
+      set({ joinedRoomHostId: null, joinedRoomInviteToken: null, joinedRoomDesync: false, joinedRoomState: null });
     }
   },
   setJoinedRoomDesync: (desync) => set({ joinedRoomDesync: desync }),

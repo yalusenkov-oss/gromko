@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import { slugify } from './slugify.js';
@@ -2847,17 +2848,47 @@ interface ListeningRoom {
   progress: number; // 0..1
   isPlaying: boolean;
   isPublic: boolean; // true = visible to everyone, false = invite-only (by link)
+  inviteToken: string | null;
   updatedAt: number;
-  listeners: Map<string, { userId: string; name: string; avatar: string; joinedAt: number }>;
+  listeners: Map<string, { userId: string; name: string; avatar: string; joinedAt: number; lastSeenAt: number }>;
   suggestions: RoomSuggestion[];
 }
 
 const listeningRooms = new Map<string, ListeningRoom>();
+const ROOM_LISTENER_TTL_MS = 45_000;
+
+function createInviteToken(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function extractRoomToken(req: Request): string | null {
+  const queryToken = typeof req.query.room === 'string' ? req.query.room : null;
+  const headerToken = typeof req.headers['x-room-token'] === 'string' ? req.headers['x-room-token'] : null;
+  return queryToken || headerToken || null;
+}
+
+function pruneRoomListeners(room: ListeningRoom): void {
+  const now = Date.now();
+  for (const [userId, listener] of room.listeners) {
+    if (now - listener.lastSeenAt > ROOM_LISTENER_TTL_MS) {
+      room.listeners.delete(userId);
+    }
+  }
+}
+
+function canAccessRoom(room: ListeningRoom, userId?: string | null, roomToken?: string | null): boolean {
+  if (room.isPublic) return true;
+  if (userId && userId === room.hostId) return true;
+  if (userId && room.listeners.has(userId)) return true;
+  if (roomToken && room.inviteToken && room.inviteToken === roomToken) return true;
+  return false;
+}
 
 /** Clean up stale rooms (no update in 2 min) */
 function pruneStaleRooms() {
   const now = Date.now();
   for (const [hostId, room] of listeningRooms) {
+    pruneRoomListeners(room);
     if (now - room.updatedAt > 120_000) listeningRooms.delete(hostId);
   }
 }
@@ -2878,15 +2909,23 @@ router.put('/listening-room', authRequired, async (req: Request, res: Response) 
       progress: progress ?? existing?.progress ?? 0,
       isPlaying: isPlaying ?? existing?.isPlaying ?? false,
       isPublic: isPublic ?? existing?.isPublic ?? true,
+      inviteToken: (isPublic ?? existing?.isPublic ?? true) ? (existing?.inviteToken || null) : (existing?.inviteToken || createInviteToken()),
       updatedAt: Date.now(),
       listeners: existing?.listeners || new Map(),
       suggestions: existing?.suggestions || [],
     };
+    pruneRoomListeners(room);
     listeningRooms.set(hostId, room);
     const listeners = Array.from(room.listeners.values()).map(l => ({
       userId: l.userId, name: l.name, avatar: l.avatar,
     }));
-    res.json({ ok: true, listenersCount: listeners.length, listeners, suggestions: room.suggestions });
+    res.json({
+      ok: true,
+      listenersCount: listeners.length,
+      listeners,
+      suggestions: room.suggestions,
+      inviteToken: room.inviteToken,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2903,6 +2942,15 @@ router.get('/listening-room/:hostId', authOptional, async (req: Request, res: Re
   const hostId = req.params.hostId as string;
   const room = listeningRooms.get(hostId);
   if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+  pruneRoomListeners(room);
+  const roomToken = extractRoomToken(req);
+  if (!canAccessRoom(room, req.user?.id || null, roomToken)) {
+    return res.status(403).json({ error: 'Нет доступа к комнате' });
+  }
+  if (req.user?.id && room.listeners.has(req.user.id)) {
+    const existingListener = room.listeners.get(req.user.id)!;
+    room.listeners.set(req.user.id, { ...existingListener, lastSeenAt: Date.now() });
+  }
   const listeners = Array.from(room.listeners.values()).map(l => ({
     userId: l.userId, name: l.name, avatar: l.avatar,
   }));
@@ -2919,6 +2967,7 @@ router.get('/listening-room/:hostId', authOptional, async (req: Request, res: Re
     listenersCount: listeners.length,
     listeners,
     suggestions: room.suggestions,
+    isPublic: room.isPublic,
   });
 });
 
@@ -2927,11 +2976,22 @@ router.post('/listening-room/:hostId/join', authRequired, async (req: Request, r
   const hostId = req.params.hostId as string;
   const room = listeningRooms.get(hostId);
   if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+  pruneRoomListeners(room);
+  const roomToken = extractRoomToken(req);
+  if (!canAccessRoom(room, req.user!.id, roomToken)) {
+    return res.status(403).json({ error: 'Нет доступа к комнате' });
+  }
   const user = await queryOne<{ id: string; name: string; avatar: string }>(
     'SELECT id, name, avatar FROM users WHERE id = $1', [req.user!.id]
   );
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  room.listeners.set(user.id, { userId: user.id, name: user.name, avatar: user.avatar || '', joinedAt: Date.now() });
+  room.listeners.set(user.id, {
+    userId: user.id,
+    name: user.name,
+    avatar: user.avatar || '',
+    joinedAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
   res.json({
     trackId: room.trackId,
     trackTitle: room.trackTitle,
@@ -2939,6 +2999,7 @@ router.post('/listening-room/:hostId/join', authRequired, async (req: Request, r
     trackCover: room.trackCover,
     progress: room.progress,
     isPlaying: room.isPlaying,
+    inviteToken: room.isPublic ? null : room.inviteToken,
   });
 });
 
@@ -2956,6 +3017,14 @@ router.post('/listening-room/:hostId/suggest', authRequired, async (req: Request
     const hostId = req.params.hostId as string;
     const room = listeningRooms.get(hostId);
     if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+    pruneRoomListeners(room);
+    const roomToken = extractRoomToken(req);
+    if (!canAccessRoom(room, req.user!.id, roomToken)) {
+      return res.status(403).json({ error: 'Нет доступа к комнате' });
+    }
+    if (req.user!.id !== hostId && !room.listeners.has(req.user!.id)) {
+      return res.status(403).json({ error: 'Только участники комнаты могут предлагать треки' });
+    }
 
     const { trackId } = req.body;
     if (!trackId) return res.status(400).json({ error: 'trackId обязателен' });
@@ -3000,6 +3069,7 @@ router.delete('/listening-room/:hostId/suggest/:trackId', authRequired, (req: Re
   const hostId = req.params.hostId as string;
   const room = listeningRooms.get(hostId);
   if (!room) return res.status(404).json({ error: 'Комната не найдена' });
+  pruneRoomListeners(room);
   // Only host can remove suggestions
   if (req.user!.id !== hostId) return res.status(403).json({ error: 'Только хост может управлять предложениями' });
   room.suggestions = room.suggestions.filter(s => s.trackId !== req.params.trackId);
@@ -3214,11 +3284,23 @@ router.get('/public-rooms', async (_req: Request, res: Response) => {
   try {
     pruneStaleRooms();
     const rooms: any[] = [];
+    const publicHostIds: string[] = [];
     for (const [hostId, room] of listeningRooms) {
       if (!room.isPublic) continue; // skip private (invite-only) rooms
-      const host = await queryOne<{ name: string; avatar: string }>(
-        'SELECT name, avatar FROM users WHERE id = $1', [hostId]
-      );
+      pruneRoomListeners(room);
+      publicHostIds.push(hostId);
+    }
+    const placeholders = publicHostIds.map((_, i) => `$${i + 1}`).join(',');
+    const hosts = publicHostIds.length > 0
+      ? await query<{ id: string; name: string; avatar: string }>(
+        `SELECT id, name, avatar FROM users WHERE id IN (${placeholders})`,
+        publicHostIds
+      )
+      : [];
+    const hostMap = new Map(hosts.map(host => [host.id, host]));
+    for (const [hostId, room] of listeningRooms) {
+      if (!room.isPublic) continue;
+      const host = hostMap.get(hostId);
       rooms.push({
         hostId,
         hostName: host?.name || 'Unknown',

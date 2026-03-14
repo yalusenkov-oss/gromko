@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { Radio, RotateCcw, X } from 'lucide-react';
 import { useStore } from '../store';
 import { apiUrl } from '../lib/api';
+import { audioEngine } from '../audio/engine';
 
 function getToken(): string | null {
   return localStorage.getItem('gromko_token');
@@ -14,6 +15,7 @@ function getToken(): string | null {
 export default function RoomBanner() {
   const {
     joinedRoomHostId,
+    joinedRoomInviteToken,
     joinedRoomDesync,
     joinedRoomState,
     setJoinedRoom,
@@ -30,11 +32,15 @@ export default function RoomBanner() {
       try {
         await fetch(apiUrl(`/listening-room/${joinedRoomHostId}/leave`), {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(joinedRoomInviteToken ? { 'X-Room-Token': joinedRoomInviteToken } : {}),
+          },
         });
       } catch { /* ignore */ }
     }
     setJoinedRoom(null);
+    audioEngine.pause();
   };
 
   const handleResync = (e: React.MouseEvent) => {
@@ -46,7 +52,7 @@ export default function RoomBanner() {
   return (
     <div className="fixed left-2 right-2 z-[64] md:hidden" style={{ bottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 4px)' }}>
       <Link
-        to={`/user/${joinedRoomHostId}`}
+        to={`/user/${joinedRoomHostId}${joinedRoomInviteToken ? `?room=${encodeURIComponent(joinedRoomInviteToken)}` : ''}`}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border backdrop-blur-xl shadow-lg ${
           joinedRoomDesync
             ? 'bg-amber-900/80 border-amber-500/30'
