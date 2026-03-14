@@ -147,6 +147,7 @@ export async function initRecommendationSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_user_events_created ON user_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_events_user_type ON user_events(user_id, event_type);
   `);
+  await execute(`ALTER TABLE user_taste_profile ADD COLUMN IF NOT EXISTS timezone TEXT`);
 }
 
 // ─── Event Recording ───
