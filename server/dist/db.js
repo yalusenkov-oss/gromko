@@ -169,6 +169,7 @@ export async function initSchema() {
         role TEXT NOT NULL DEFAULT 'user',
         avatar TEXT,
         country TEXT,
+        timezone TEXT,
         is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
         liked_tracks TEXT[] NOT NULL DEFAULT '{}',
         liked_albums TEXT[] NOT NULL DEFAULT '{}',
@@ -234,6 +235,7 @@ export async function initSchema() {
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_albums TEXT[] NOT NULL DEFAULT '{}'`);
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS liked_artists TEXT[] NOT NULL DEFAULT '{}'`);
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT`);
         // Migration: add cover_path and album_name to submissions
         await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_path TEXT`);
         await client.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS album_name TEXT`);
@@ -306,6 +308,7 @@ export async function initSchema() {
         skip_rate DOUBLE PRECISION DEFAULT 0.2,
         exploration_score DOUBLE PRECISION DEFAULT 0.5,
         time_preferences JSONB NOT NULL DEFAULT '{}',
+        timezone TEXT,
         events_processed INTEGER DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );

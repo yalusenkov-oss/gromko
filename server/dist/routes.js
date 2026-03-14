@@ -138,11 +138,11 @@ const uploadFields = multer({
 /** POST /api/auth/register */
 router.post('/auth/register', async (req, res) => {
     try {
-        const { name, email, password, country, username } = req.body;
+        const { name, email, password, country, username, timezone } = req.body;
         if (!name || !email || !password) {
             return res.status(400).json({ error: 'Имя, email и пароль обязательны' });
         }
-        const result = await registerUser(name, email, password, country, username);
+        const result = await registerUser(name, email, password, country, username, timezone);
         res.status(201).json(result);
     }
     catch (err) {
@@ -152,11 +152,11 @@ router.post('/auth/register', async (req, res) => {
 /** POST /api/auth/login */
 router.post('/auth/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, timezone } = req.body;
         if (!email || !password) {
             return res.status(400).json({ error: 'Email и пароль обязательны' });
         }
-        const result = await loginUser(email, password);
+        const result = await loginUser(email, password, timezone);
         res.json(result);
     }
     catch (err) {
@@ -194,7 +194,7 @@ router.get('/auth/me', authRequired, (req, res) => {
 /** PUT /api/auth/me — update profile */
 router.put('/auth/me', authRequired, async (req, res) => {
     try {
-        const { name, avatar, bio, username } = req.body;
+        const { name, avatar, bio, username, timezone } = req.body;
         const updates = [];
         const params = [];
         let idx = 1;
@@ -209,6 +209,10 @@ router.put('/auth/me', authRequired, async (req, res) => {
         if (bio !== undefined) {
             updates.push(`bio = $${idx++}`);
             params.push(bio);
+        }
+        if (timezone !== undefined) {
+            updates.push(`timezone = $${idx++}`);
+            params.push(timezone || null);
         }
         if (username !== undefined) {
             const clean = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');

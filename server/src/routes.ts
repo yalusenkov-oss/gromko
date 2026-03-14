@@ -173,11 +173,11 @@ const uploadFields = multer({
 /** POST /api/auth/register */
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, password, country, username } = req.body;
+    const { name, email, password, country, username, timezone } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Имя, email и пароль обязательны' });
     }
-    const result = await registerUser(name, email, password, country, username);
+    const result = await registerUser(name, email, password, country, username, timezone);
     res.status(201).json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -187,11 +187,11 @@ router.post('/auth/register', async (req: Request, res: Response) => {
 /** POST /api/auth/login */
 router.post('/auth/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, timezone } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email и пароль обязательны' });
     }
-    const result = await loginUser(email, password);
+    const result = await loginUser(email, password, timezone);
     res.json(result);
   } catch (err: any) {
     res.status(401).json({ error: err.message });
@@ -230,7 +230,7 @@ router.get('/auth/me', authRequired, (req: Request, res: Response) => {
 /** PUT /api/auth/me — update profile */
 router.put('/auth/me', authRequired, async (req: Request, res: Response) => {
   try {
-    const { name, avatar, bio, username } = req.body;
+    const { name, avatar, bio, username, timezone } = req.body;
     const updates: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -238,6 +238,7 @@ router.put('/auth/me', authRequired, async (req: Request, res: Response) => {
     if (name) { updates.push(`name = $${idx++}`); params.push(name); }
     if (avatar) { updates.push(`avatar = $${idx++}`); params.push(avatar); }
     if (bio !== undefined) { updates.push(`bio = $${idx++}`); params.push(bio); }
+    if (timezone !== undefined) { updates.push(`timezone = $${idx++}`); params.push(timezone || null); }
     if (username !== undefined) {
       const clean = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
       if (clean.length < 3) return res.status(400).json({ error: 'Имя пользователя должно содержать минимум 3 символа' });

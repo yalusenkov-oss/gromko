@@ -100,7 +100,8 @@ export default function AuthModal() {
         setLoading(false);
         return;
       }
-      const result = await register(name, email, password, country, username);
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const result = await register(name, email, password, country, username, timezone);
       if (result === true) {
         if (artists.length > 0) {
           setStep('artists');

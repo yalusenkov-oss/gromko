@@ -17,6 +17,7 @@ export interface AuthUser {
     avatar: string | null;
     bio: string | null;
     country: string | null;
+    timezone: string | null;
     isBlocked: boolean;
     likedTracks: string[];
     likedAlbums: string[];
@@ -30,11 +31,11 @@ declare global {
         }
     }
 }
-export declare function registerUser(name: string, email: string, password: string, country?: string, username?: string): Promise<{
+export declare function registerUser(name: string, email: string, password: string, country?: string, username?: string, timezone?: string): Promise<{
     user: AuthUser;
     token: string;
 }>;
-export declare function loginUser(email: string, password: string): Promise<{
+export declare function loginUser(email: string, password: string, timezone?: string): Promise<{
     user: AuthUser;
     token: string;
 }>;

@@ -24,6 +24,25 @@ function verifyToken(token) {
         return null;
     }
 }
+function normalizeTimezone(value) {
+    if (typeof value !== 'string')
+        return null;
+    const timezone = value.trim();
+    if (!timezone)
+        return null;
+    try {
+        Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+        return timezone;
+    }
+    catch {
+        return null;
+    }
+}
+function syncUserTimezone(userId, timezone) {
+    if (!timezone)
+        return;
+    execute(`UPDATE users SET timezone = $1 WHERE id = $2 AND COALESCE(timezone, '') != $1`, [timezone, userId]).catch(() => { });
+}
 function formatUser(row) {
     return {
         id: row.id,
@@ -34,6 +53,7 @@ function formatUser(row) {
         avatar: row.avatar,
         bio: row.bio || null,
         country: row.country || null,
+        timezone: row.timezone || null,
         isBlocked: row.is_blocked,
         likedTracks: row.liked_tracks || [],
         likedAlbums: row.liked_albums || [],
@@ -42,7 +62,7 @@ function formatUser(row) {
     };
 }
 // ─── Auth functions ───
-export async function registerUser(name, email, password, country, username) {
+export async function registerUser(name, email, password, country, username, timezone) {
     // Check if email taken
     const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
     if (existing) {
@@ -66,13 +86,14 @@ export async function registerUser(name, email, password, country, username) {
     const id = uuid();
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const avatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=ef4444`;
-    await execute(`INSERT INTO users (id, name, username, email, password_hash, role, avatar, country)
-     VALUES ($1, $2, $3, $4, $5, 'user', $6, $7)`, [id, name, finalUsername, email, passwordHash, avatar, country || null]);
+    const normalizedTimezone = normalizeTimezone(timezone);
+    await execute(`INSERT INTO users (id, name, username, email, password_hash, role, avatar, country, timezone)
+     VALUES ($1, $2, $3, $4, $5, 'user', $6, $7, $8)`, [id, name, finalUsername, email, passwordHash, avatar, country || null, normalizedTimezone]);
     const user = await queryOne('SELECT * FROM users WHERE id = $1', [id]);
     const token = signToken({ userId: id, email, role: 'user' });
     return { user: formatUser(user), token };
 }
-export async function loginUser(email, password) {
+export async function loginUser(email, password, timezone) {
     const row = await queryOne('SELECT * FROM users WHERE email = $1', [email]);
     if (!row) {
         throw new Error('Неверный email или пароль');
@@ -83,6 +104,11 @@ export async function loginUser(email, password) {
     const valid = await bcrypt.compare(password, row.password_hash);
     if (!valid) {
         throw new Error('Неверный email или пароль');
+    }
+    const normalizedTimezone = normalizeTimezone(timezone);
+    if (normalizedTimezone && row.timezone !== normalizedTimezone) {
+        await execute(`UPDATE users SET timezone = $1 WHERE id = $2`, [normalizedTimezone, row.id]);
+        row.timezone = normalizedTimezone;
     }
     const user = formatUser(row);
     const token = signToken({ userId: user.id, email: user.email, role: user.role });
@@ -104,10 +130,15 @@ export function authOptional(req, _res, next) {
     if (!payload) {
         return next();
     }
+    const requestTimezone = normalizeTimezone(req.headers['x-timezone']);
     // Attach user asynchronously
     getUserById(payload.userId)
         .then((user) => {
         if (user && !user.isBlocked) {
+            if (requestTimezone && user.timezone !== requestTimezone) {
+                syncUserTimezone(user.id, requestTimezone);
+                user.timezone = requestTimezone;
+            }
             req.user = user;
         }
         next();
@@ -127,6 +158,7 @@ export function authRequired(req, res, next) {
         res.status(401).json({ error: 'Недействительный токен' });
         return;
     }
+    const requestTimezone = normalizeTimezone(req.headers['x-timezone']);
     getUserById(payload.userId)
         .then((user) => {
         if (!user) {
@@ -136,6 +168,10 @@ export function authRequired(req, res, next) {
         if (user.isBlocked) {
             res.status(403).json({ error: 'Аккаунт заблокирован' });
             return;
+        }
+        if (requestTimezone && user.timezone !== requestTimezone) {
+            syncUserTimezone(user.id, requestTimezone);
+            user.timezone = requestTimezone;
         }
         req.user = user;
         next();

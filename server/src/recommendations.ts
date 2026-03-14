@@ -71,6 +71,34 @@ function normalizeWeights<T extends Record<string, number>>(weights: T): T {
 
 const SCORE_WEIGHTS = normalizeWeights(SCORE_WEIGHTS_RAW);
 
+function getTimeSlot(date: Date, useUtc = false): 'morning' | 'day' | 'evening' | 'night' {
+  const hour = useUtc ? date.getUTCHours() : date.getHours();
+  if (hour >= 6 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 18) return 'day';
+  if (hour >= 18 && hour < 23) return 'evening';
+  return 'night';
+}
+
+function getTimeSlotForTimezone(date: Date, timezone?: string | null): 'morning' | 'day' | 'evening' | 'night' {
+  if (!timezone) return getTimeSlot(date, true);
+
+  try {
+    const hourString = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: timezone,
+    }).format(date);
+    const hour = Number(hourString);
+    if (!Number.isFinite(hour)) return getTimeSlot(date, true);
+    if (hour >= 6 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'day';
+    if (hour >= 18 && hour < 23) return 'evening';
+    return 'night';
+  } catch {
+    return getTimeSlot(date, true);
+  }
+}
+
 // ─── DB Migrations ───
 
 export async function initRecommendationSchema(): Promise<void> {
@@ -106,6 +134,7 @@ export async function initRecommendationSchema(): Promise<void> {
       exploration_score DOUBLE PRECISION DEFAULT 0.5,  -- склонность к новому (0-1)
       -- Time of day preferences: {"morning": 0.1, "day": 0.3, "evening": 0.4, "night": 0.2}
       time_preferences JSONB NOT NULL DEFAULT '{}',
+      timezone TEXT,
       -- Total events processed
       events_processed INTEGER DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -134,21 +163,124 @@ interface UserEvent {
   sessionId?: string;
 }
 
+const EVENT_INSERT_RETRIES = 3;
+const EVENT_RETRY_DELAY_MS = 250;
+const EVENT_BATCH_SIZE = 50;
+const EVENT_FLUSH_INTERVAL_MS = 1000;
+const EVENT_QUEUE_MAX_SIZE = 5000;
+const PROFILE_REBUILD_DEBOUNCE_MS = 15000;
+
+const pendingProfileRebuilds = new Map<string, ReturnType<typeof setTimeout>>();
+const activeProfileRebuilds = new Set<string>();
+const queuedEvents: UserEvent[] = [];
+let eventFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let eventFlushInProgress = false;
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function scheduleTasteProfileRebuild(userId: string): void {
+  const existingTimer = pendingProfileRebuilds.get(userId);
+  if (existingTimer) clearTimeout(existingTimer);
+
+  const timer = setTimeout(async () => {
+    pendingProfileRebuilds.delete(userId);
+    if (activeProfileRebuilds.has(userId)) return;
+
+    activeProfileRebuilds.add(userId);
+    try {
+      await rebuildTasteProfile(userId);
+    } catch (err: any) {
+      console.error('rebuildTasteProfile error:', err?.message || err);
+    } finally {
+      activeProfileRebuilds.delete(userId);
+    }
+  }, PROFILE_REBUILD_DEBOUNCE_MS);
+
+  pendingProfileRebuilds.set(userId, timer);
+}
+
+function scheduleEventFlush(immediate = false): void {
+  if (eventFlushTimer) {
+    if (!immediate) return;
+    clearTimeout(eventFlushTimer);
+    eventFlushTimer = null;
+  }
+
+  eventFlushTimer = setTimeout(() => {
+    eventFlushTimer = null;
+    void flushEventQueue();
+  }, immediate ? 0 : EVENT_FLUSH_INTERVAL_MS);
+}
+
+async function insertEventBatch(batch: UserEvent[]): Promise<boolean> {
+  const values: any[] = [];
+  const placeholders = batch.map((event, index) => {
+    const offset = index * 9;
+    values.push(
+      event.userId,
+      event.eventType,
+      event.trackId || null,
+      event.artistSlug || null,
+      event.genre || null,
+      event.context || null,
+      event.durationListened || 0,
+      event.trackDuration || 0,
+      event.sessionId || null,
+    );
+    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`;
+  }).join(', ');
+
+  for (let attempt = 1; attempt <= EVENT_INSERT_RETRIES; attempt++) {
+    try {
+      await execute(`
+        INSERT INTO user_events (
+          user_id, event_type, track_id, artist_slug, genre, context, duration_listened, track_duration, session_id
+        ) VALUES ${placeholders}
+      `, values);
+      return true;
+    } catch (err: any) {
+      if (attempt === EVENT_INSERT_RETRIES) {
+        console.error('recordEvent batch error:', err?.message || err);
+        return false;
+      }
+      await delay(EVENT_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  return false;
+}
+
+async function flushEventQueue(): Promise<void> {
+  if (eventFlushInProgress || queuedEvents.length === 0) return;
+
+  eventFlushInProgress = true;
+  try {
+    while (queuedEvents.length > 0) {
+      const batch = queuedEvents.splice(0, EVENT_BATCH_SIZE);
+      const inserted = await insertEventBatch(batch);
+      if (!inserted) continue;
+
+      const affectedUsers = new Set(batch.map(event => event.userId));
+      for (const userId of affectedUsers) {
+        scheduleTasteProfileRebuild(userId);
+      }
+    }
+  } finally {
+    eventFlushInProgress = false;
+    if (queuedEvents.length > 0) scheduleEventFlush(true);
+  }
+}
+
 export async function recordEvent(event: UserEvent): Promise<void> {
-  execute(`
-    INSERT INTO user_events (user_id, event_type, track_id, artist_slug, genre, context, duration_listened, track_duration, session_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  `, [
-    event.userId,
-    event.eventType,
-    event.trackId || null,
-    event.artistSlug || null,
-    event.genre || null,
-    event.context || null,
-    event.durationListened || 0,
-    event.trackDuration || 0,
-    event.sessionId || null,
-  ]).catch(err => console.error('recordEvent error:', err.message));
+  if (queuedEvents.length >= EVENT_QUEUE_MAX_SIZE) {
+    queuedEvents.shift();
+    console.error('recordEvent queue overflow: dropping oldest event');
+  }
+
+  queuedEvents.push(event);
+  scheduleEventFlush(queuedEvents.length >= EVENT_BATCH_SIZE);
 }
 
 // ─── Taste Profile Computation ───
@@ -163,9 +295,11 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
     SELECT ue.event_type, ue.track_id, ue.artist_slug, ue.genre,
            ue.duration_listened, ue.track_duration, ue.created_at,
            t.genre as track_genre, t.artist_slug as track_artist_slug,
-           t.meta_bpm as bpm
+           t.meta_bpm as bpm,
+           u.timezone as user_timezone
     FROM user_events ue
     LEFT JOIN tracks t ON t.id = ue.track_id
+    LEFT JOIN users u ON u.id = ue.user_id
     WHERE ue.user_id = $1 AND ue.created_at > NOW() - INTERVAL '90 days'
     ORDER BY ue.created_at DESC
   `, [userId]);
@@ -182,10 +316,11 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
   let totalListenRatios = 0;
   let listenRatioCount = 0;
   // ── Skip counting ──
-  let skipCount = 0;
-  let playCount = 0;
+  const startedTracks = new Set<string>();
+  const skippedTracks = new Set<string>();
   // ── Time of day ──
   const timeSlots: Record<string, number> = { morning: 0, day: 0, evening: 0, night: 0 };
+  const userTimezone = events[0]?.user_timezone || null;
 
   // Apply recency decay: recent events matter more
   const now = Date.now();
@@ -226,16 +361,16 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
     }
 
     // Skip/play counting
-    if (ev.event_type === 'skip' || ev.event_type === 'skip_early') skipCount++;
-    if (ev.event_type === 'skip_late') skipCount += 0.25;
-    if (ev.event_type === 'play') playCount++;
+    if (ev.track_id && ['play', 'finish', 'skip', 'skip_early', 'skip_late'].includes(ev.event_type)) {
+      startedTracks.add(ev.track_id);
+    }
+    if (ev.track_id && ['skip', 'skip_early', 'skip_late'].includes(ev.event_type)) {
+      skippedTracks.add(ev.track_id);
+    }
 
     // Time of day
-    const hour = new Date(ev.created_at).getHours();
-    if (hour >= 6 && hour < 12) timeSlots.morning++;
-    else if (hour >= 12 && hour < 18) timeSlots.day++;
-    else if (hour >= 18 && hour < 23) timeSlots.evening++;
-    else timeSlots.night++;
+    const slot = getTimeSlotForTimezone(new Date(ev.created_at), userTimezone);
+    timeSlots[slot]++;
   }
 
   // Normalize genre scores to 0-100
@@ -264,7 +399,7 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
   const avgListenRatio = listenRatioCount > 0 ? totalListenRatios / listenRatioCount : 0.7;
 
   // Skip rate
-  const skipRate = playCount > 0 ? skipCount / playCount : 0.2;
+  const skipRate = startedTracks.size > 0 ? skippedTracks.size / startedTracks.size : 0.2;
 
   // Exploration score: users who listen to many different genres/artists are more exploratory
   const uniqueGenres = genreScores.size;
@@ -284,13 +419,13 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
       user_id, genre_scores, artist_scores,
       preferred_bpm_min, preferred_bpm_max,
       avg_listen_ratio, skip_rate, exploration_score,
-      time_preferences, events_processed, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+      time_preferences, timezone, events_processed, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
     ON CONFLICT (user_id) DO UPDATE SET
       genre_scores = $2, artist_scores = $3,
       preferred_bpm_min = $4, preferred_bpm_max = $5,
       avg_listen_ratio = $6, skip_rate = $7, exploration_score = $8,
-      time_preferences = $9, events_processed = $10, updated_at = NOW()
+      time_preferences = $9, timezone = $10, events_processed = $11, updated_at = NOW()
   `, [
     userId,
     JSON.stringify(normalizedGenres),
@@ -298,6 +433,7 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
     bpmMin, bpmMax,
     avgListenRatio, skipRate, exploration,
     JSON.stringify(timePrefs),
+    userTimezone,
     events.length,
   ]);
 }
@@ -388,12 +524,7 @@ function scoreTrack(
   const explorationFactor = exploration; // 0-1
   const familiarWeight = 1 - explorationFactor * 0.4; // 0.6-1.0
   const discoveryWeight = explorationFactor * 0.3;     // 0-0.3
-  const currentHour = new Date().getHours();
-  const currentSlot =
-    currentHour >= 6 && currentHour < 12 ? 'morning' :
-    currentHour >= 12 && currentHour < 18 ? 'day' :
-    currentHour >= 18 && currentHour < 23 ? 'evening' :
-    'night';
+  const currentSlot = getTimeSlotForTimezone(new Date(), profile.timezone);
   const slotPreference = timePreferences[currentSlot] ?? 0.25;
   const timeMultiplier = 0.9 + slotPreference * 0.4; // 0.9 - 1.3
 
@@ -447,6 +578,18 @@ export async function forYou(userId: string | null, limit = 20): Promise<any[]> 
     ? await getRecentHistory(userId)
     : { played: new Set<string>(), skipped: new Set<string>() };
   const { played, skipped } = history;
+  const topGenres = profile
+    ? Object.entries(profile.genre_scores || {})
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 5)
+      .map(([genre]) => genre)
+    : [];
+  const topArtists = profile
+    ? Object.entries(profile.artist_scores || {})
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 5)
+      .map(([artistSlug]) => artistSlug)
+    : [];
 
   // Get candidate tracks from multiple pools for diversity
   const [recent, popular, random] = await Promise.all([
@@ -468,31 +611,70 @@ export async function forYou(userId: string | null, limit = 20): Promise<any[]> 
   }
 
   // Collaborative filtering: if user exists, find tracks liked by similar users
-  let collabBoost = new Set<string>();
-  if (userId) {
+  let collabBoost = new Map<string, number>();
+  if (userId && (topArtists.length > 0 || topGenres.length > 0)) {
     try {
       const collabTracks = await query(`
-        SELECT DISTINCT ue2.track_id FROM user_events ue1
-        JOIN user_events ue2 ON ue2.user_id = ue1.user_id
-          AND ue2.track_id IS NOT NULL
-          AND ue2.event_type IN ('like', 'finish', 'replay', 'add_to_playlist')
-        WHERE ue1.user_id IN (
-          -- Find users with similar taste (same top artists/genres)
-          SELECT DISTINCT ue3.user_id FROM user_events ue3
-          WHERE ue3.user_id != $1
-            AND ue3.artist_slug IN (
-              SELECT artist_slug FROM user_events
-              WHERE user_id = $1 AND event_type IN ('like','finish')
-              AND artist_slug IS NOT NULL
-              GROUP BY artist_slug ORDER BY COUNT(*) DESC LIMIT 5
+        WITH similar_users AS (
+          SELECT
+            ue.user_id,
+            COUNT(*) AS overlap_events,
+            COUNT(DISTINCT ue.artist_slug) FILTER (WHERE ue.artist_slug IS NOT NULL AND ue.artist_slug = ANY($2::text[])) AS artist_overlap,
+            COUNT(DISTINCT ue.genre) FILTER (WHERE ue.genre IS NOT NULL AND ue.genre = ANY($3::text[])) AS genre_overlap
+          FROM user_events ue
+          WHERE ue.user_id != $1
+            AND ue.created_at > NOW() - INTERVAL '30 days'
+            AND (
+              ue.artist_slug = ANY($2::text[])
+              OR ue.genre = ANY($3::text[])
             )
-            AND ue3.created_at > NOW() - INTERVAL '30 days'
-          LIMIT 20
+          GROUP BY ue.user_id
+          ORDER BY artist_overlap DESC, genre_overlap DESC, overlap_events DESC
+          LIMIT 25
         )
-        AND ue2.created_at > NOW() - INTERVAL '30 days'
+        SELECT
+          ue.track_id,
+          SUM(
+            su.artist_overlap * 1.5 +
+            su.genre_overlap * 1.0 +
+            su.overlap_events * 0.1 +
+            CASE ue.event_type
+              WHEN 'add_to_playlist' THEN 2.5
+              WHEN 'like' THEN 2.0
+              WHEN 'replay' THEN 1.8
+              WHEN 'finish' THEN 1.2
+              ELSE 0.5
+            END
+          ) AS collab_score,
+          COUNT(DISTINCT ue.user_id) AS supporting_users
+        FROM similar_users su
+        JOIN user_events ue ON ue.user_id = su.user_id
+        WHERE ue.track_id IS NOT NULL
+          AND ue.event_type IN ('like', 'finish', 'replay', 'add_to_playlist')
+          AND ue.created_at > NOW() - INTERVAL '30 days'
+          AND ue.track_id NOT IN (
+            SELECT DISTINCT track_id
+            FROM user_events
+            WHERE user_id = $1
+              AND track_id IS NOT NULL
+              AND event_type IN ('play', 'finish', 'skip', 'skip_early', 'skip_late', 'dislike')
+          )
+        GROUP BY ue.track_id
+        ORDER BY collab_score DESC, supporting_users DESC
         LIMIT 50
-      `, [userId]);
-      collabBoost = new Set(collabTracks.map((r: any) => r.track_id));
+      `, [userId, topArtists, topGenres]);
+
+      const maxCollabScore = collabTracks.reduce((max: number, row: any) => {
+        const score = Number(row.collab_score || 0);
+        return Math.max(max, score);
+      }, 0);
+
+      for (const row of collabTracks) {
+        const rawScore = Number(row.collab_score || 0);
+        if (!row.track_id || rawScore <= 0) continue;
+        const normalized = maxCollabScore > 0 ? rawScore / maxCollabScore : 0;
+        collabBoost.set(row.track_id, normalized);
+      }
     } catch { /* collaborative filtering is best-effort */ }
   }
 
@@ -500,7 +682,8 @@ export async function forYou(userId: string | null, limit = 20): Promise<any[]> 
   const scored = candidates.map((t: any) => {
     let score = scoreTrack(t, profile, played, skipped);
     // Collaborative boost: tracks that similar users enjoy
-    if (collabBoost.has(t.id)) score += 0.15;
+    const collabScore = collabBoost.get(t.id);
+    if (collabScore) score += 0.18 * collabScore;
     return { ...t, score };
   });
 
@@ -659,16 +842,104 @@ export async function similarTracks(trackId: string, limit = 10): Promise<any[]>
   const track = await queryOne('SELECT * FROM tracks WHERE id = $1', [trackId]);
   if (!track) return [];
 
-  // Find tracks with matching genre, prioritize same artist or similar BPM
-  const candidates = await query(`
-    SELECT * FROM tracks
-    WHERE status = 'ready' AND id != $1
-    ORDER BY
-      CASE WHEN genre = $2 THEN 0 ELSE 1 END,
-      CASE WHEN artist_slug = $3 THEN 0 ELSE 1 END,
-      plays DESC
-    LIMIT 100
-  `, [trackId, track.genre, track.artist_slug]);
+  const candidateQueries: Promise<any[]>[] = [
+    query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready' AND id != $1
+      ORDER BY
+        CASE WHEN genre = $2 THEN 0 ELSE 1 END,
+        CASE WHEN artist_slug = $3 THEN 0 ELSE 1 END,
+        plays DESC
+      LIMIT 120
+    `, [trackId, track.genre, track.artist_slug]),
+  ];
+
+  if (track.genre) {
+    candidateQueries.push(query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready'
+        AND id != $1
+        AND genre = $2
+      ORDER BY created_at DESC
+      LIMIT 60
+    `, [trackId, track.genre]));
+  }
+
+  if (track.meta_bpm) {
+    candidateQueries.push(query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready'
+        AND id != $1
+        AND meta_bpm IS NOT NULL
+        AND meta_bpm BETWEEN $2 AND $3
+      ORDER BY plays DESC
+      LIMIT 60
+    `, [trackId, Math.max(40, track.meta_bpm - 15), Math.min(250, track.meta_bpm + 15)]));
+  }
+
+  const coListenedRows = await query(`
+    WITH source_listeners AS (
+      SELECT DISTINCT user_id
+      FROM user_events
+      WHERE track_id = $1
+        AND event_type IN ('play', 'finish', 'like', 'replay', 'add_to_playlist')
+        AND user_id IS NOT NULL
+        AND created_at > NOW() - INTERVAL '120 days'
+    )
+    SELECT
+      ue.track_id,
+      COUNT(DISTINCT ue.user_id) AS shared_users,
+      SUM(
+        CASE ue.event_type
+          WHEN 'add_to_playlist' THEN 2.5
+          WHEN 'like' THEN 2.0
+          WHEN 'replay' THEN 1.8
+          WHEN 'finish' THEN 1.2
+          ELSE 0.6
+        END
+      ) AS engagement_score
+    FROM user_events ue
+    JOIN source_listeners sl ON sl.user_id = ue.user_id
+    WHERE ue.track_id IS NOT NULL
+      AND ue.track_id != $1
+      AND ue.event_type IN ('play', 'finish', 'like', 'replay', 'add_to_playlist')
+      AND ue.created_at > NOW() - INTERVAL '120 days'
+    GROUP BY ue.track_id
+    HAVING COUNT(DISTINCT ue.user_id) >= 2
+    ORDER BY shared_users DESC, engagement_score DESC
+    LIMIT 60
+  `, [trackId]);
+
+  if (coListenedRows.length > 0) {
+    const collabIds = coListenedRows.map((row: any) => row.track_id);
+    const placeholders = collabIds.map((_: any, i: number) => `$${i + 1}`).join(',');
+    candidateQueries.push(query(
+      `SELECT * FROM tracks WHERE status = 'ready' AND id IN (${placeholders})`,
+      collabIds
+    ));
+  }
+
+  const pools = await Promise.all(candidateQueries);
+  const seen = new Set<string>();
+  const candidates: any[] = [];
+  for (const pool of pools) {
+    for (const candidate of pool) {
+      if (!seen.has(candidate.id)) {
+        seen.add(candidate.id);
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  const collabMap = new Map<string, { sharedUsers: number; engagementScore: number }>();
+  const maxSharedUsers = coListenedRows.reduce((max: number, row: any) => Math.max(max, Number(row.shared_users || 0)), 0);
+  const maxEngagementScore = coListenedRows.reduce((max: number, row: any) => Math.max(max, Number(row.engagement_score || 0)), 0);
+  for (const row of coListenedRows) {
+    collabMap.set(row.track_id, {
+      sharedUsers: Number(row.shared_users || 0),
+      engagementScore: Number(row.engagement_score || 0),
+    });
+  }
 
   const scored = candidates.map((t: any) => {
     let sim = 0;
@@ -693,7 +964,19 @@ export async function similarTracks(trackId: string, limit = 10): Promise<any[]>
       sim += Math.max(0, 0.05 * (1 - yearDiff / 10));
     }
 
+    const collab = collabMap.get(t.id);
+    if (collab) {
+      const sharedUsersScore = maxSharedUsers > 0 ? collab.sharedUsers / maxSharedUsers : 0;
+      const engagementScore = maxEngagementScore > 0 ? collab.engagementScore / maxEngagementScore : 0;
+      sim += sharedUsersScore * 0.22 + engagementScore * 0.12;
+    }
+
     sim += Math.min(0.10, (t.plays || 0) / 5000);
+
+    if (t.created_at) {
+      const ageMs = Date.now() - new Date(t.created_at).getTime();
+      sim += Math.max(0, 0.04 * (1 - ageMs / (180 * 24 * 60 * 60 * 1000)));
+    }
 
     return { ...t, score: sim };
   });
@@ -753,20 +1036,34 @@ export async function similarArtists(artistSlug: string, limit = 6): Promise<any
 // ────────────────────────────────────────────
 
 export async function continueListening(userId: string, limit = 10): Promise<any[]> {
-  // Tracks the user started but didn't finish, or listened recently
+  // Tracks the user started but did not complete recently
   const recent = await query(`
     SELECT DISTINCT ON (ue.track_id) ue.track_id, ue.created_at,
-           ue.duration_listened, ue.track_duration
+           ue.event_type, ue.duration_listened, ue.track_duration
     FROM user_events ue
     WHERE ue.user_id = $1
-      AND ue.event_type IN ('play', 'finish')
+      AND ue.track_id IS NOT NULL
+      AND ue.event_type IN ('play', 'finish', 'skip', 'skip_early', 'skip_late')
       AND ue.created_at > NOW() - INTERVAL '7 days'
     ORDER BY ue.track_id, ue.created_at DESC
   `, [userId]);
 
   if (recent.length === 0) return [];
 
-  const trackIds = recent.map((r: any) => r.track_id);
+  const unfinished = recent.filter((row: any) => {
+    const listened = Number(row.duration_listened || 0);
+    const duration = Number(row.track_duration || 0);
+    const ratio = duration > 0 ? listened / duration : 0;
+
+    if (row.event_type === 'finish') return false;
+    if (ratio >= 0.98) return false;
+    if (ratio <= 0.05) return false;
+    return true;
+  });
+
+  if (unfinished.length === 0) return [];
+
+  const trackIds = unfinished.map((r: any) => r.track_id);
   const placeholders = trackIds.map((_: any, i: number) => `$${i + 1}`).join(',');
   const tracks = await query(
     `SELECT * FROM tracks WHERE id IN (${placeholders}) AND status = 'ready'`,
@@ -774,7 +1071,7 @@ export async function continueListening(userId: string, limit = 10): Promise<any
   );
 
   // Sort: most recently listened first
-  const recentMap = new Map(recent.map((r: any) => [r.track_id, r]));
+  const recentMap = new Map(unfinished.map((r: any) => [r.track_id, r]));
   tracks.sort((a: any, b: any) => {
     const ra = recentMap.get(a.id);
     const rb = recentMap.get(b.id);

@@ -77,6 +77,7 @@ export interface User {
   role: Role;
   avatar: string;
   bio: string;
+  timezone?: string;
   joinedAt: string;
   isBlocked: boolean;
   likedTracks: string[];
@@ -109,7 +110,9 @@ function setToken(token: string | null) {
 async function apiFetch(path: string, opts: RequestInit = {}): Promise<any> {
   const token = getToken();
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string> || {}) };
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (timezone) headers['X-Timezone'] = timezone;
   if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const res = await fetch(apiUrl(path), { ...opts, headers });
   const data = await res.json().catch(() => ({}));
@@ -124,6 +127,7 @@ function mapUser(u: any): User {
     role: u.role || 'user',
     avatar: u.avatar || '',
     bio: u.bio || '',
+    timezone: u.timezone || '',
     joinedAt: u.createdAt || u.created_at || '',
     isBlocked: u.isBlocked ?? u.is_blocked ?? false,
     likedTracks: u.likedTracks || u.liked_tracks || [],
@@ -189,9 +193,9 @@ interface AppStore {
   dataReady: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, password: string, country?: string, username?: string) => Promise<true | string>;
+  register: (name: string, email: string, password: string, country?: string, username?: string, timezone?: string) => Promise<true | string>;
   restoreSession: () => Promise<void>;
-  updateProfile: (data: { name?: string; avatar?: string; bio?: string; username?: string }) => Promise<boolean>;
+  updateProfile: (data: { name?: string; avatar?: string; bio?: string; username?: string; timezone?: string }) => Promise<boolean>;
 
   tracks: Track[];
   artists: Artist[];
@@ -293,7 +297,8 @@ export const useStore = create<AppStore>((set, get) => ({
 
   login: async (email, password) => {
     try {
-      const data = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const data = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password, timezone }) });
       setToken(data.token);
       set({ currentUser: mapUser(data.user) });
       return true;
@@ -302,9 +307,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
   logout: () => { setToken(null); set({ currentUser: null }); },
 
-  register: async (name, email, password, country, username) => {
+  register: async (name, email, password, country, username, timezone) => {
     try {
-      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, country, username }) });
+      const data = await apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, country, username, timezone }) });
       setToken(data.token);
       set({ currentUser: mapUser(data.user) });
       return true;
