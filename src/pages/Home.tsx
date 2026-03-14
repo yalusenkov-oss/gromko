@@ -1,5 +1,5 @@
 import { useStore, Track } from '../store';
-import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Sparkles, Shuffle, Heart, Zap, Radio, Headphones, Lock } from 'lucide-react';
+import { Play, Pause, TrendingUp, Users, ChevronRight, Flame, Sparkles, Shuffle, Zap, Radio, Headphones, Lock } from 'lucide-react';
 import { formatPlays } from '../utils/format';
 import TrackCard from '../components/TrackCard';
 import { Link } from 'react-router-dom';
@@ -48,7 +48,6 @@ export default function Home() {
   const isLoggedIn = !!currentUser;
   const { data: forYouTracks, loading: forYouLoading } = useRecommendations('/recommendations/for-you?limit=5', isLoggedIn);
   const { data: newForYouTracks, loading: newForYouLoading } = useRecommendations('/recommendations/new-for-you?limit=6', true);
-  const { data: rediscoverTracks, loading: rediscoverLoading } = useRecommendations('/recommendations/rediscover?limit=6', isLoggedIn);
 
   // Popular users & public rooms
   const [popularUsers, setPopularUsers] = useState<PopularUser[]>([]);
@@ -288,50 +287,6 @@ export default function Home() {
             />
           )}
         </section>
-
-        {/* Rediscover — forgotten favorites */}
-        {isLoggedIn && (
-          <section>
-            <div className="flex items-center gap-2 mb-5">
-              <Heart size={20} className="text-pink-400" />
-              <h2 className="text-xl font-bold">Забытые хиты</h2>
-              <span className="text-xs text-zinc-500 ml-1">треки, которые вы давно не слушали</span>
-            </div>
-            {rediscoverLoading ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className="aspect-square rounded-xl bg-zinc-900 animate-pulse border border-zinc-800" />
-                ))}
-              </div>
-            ) : rediscoverTracks.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {rediscoverTracks.map(track => (
-                  <div key={track.id} className="group relative block rounded-xl overflow-hidden cursor-pointer" onClick={() => playTrack(track, rediscoverTracks)}>
-                    <div className="aspect-square">
-                      <img src={track.cover} alt={track.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                    </div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center shadow-lg">
-                        <Play size={18} fill="white" className="text-white ml-0.5" />
-                      </div>
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                      <p className="text-white text-sm font-semibold truncate">{track.title}</p>
-                      <p className="text-zinc-400 text-xs truncate">{track.artist}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <SectionEmptyState
-                icon={Heart}
-                title="Пока нечего возвращать"
-                description="Когда накопятся любимые треки, к которым вы давно не возвращались, они появятся здесь."
-              />
-            )}
-          </section>
-        )}
 
         {/* Популярное — icon grid of popular tracks */}
         <section>
