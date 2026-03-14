@@ -26,6 +26,7 @@ import AdminPanel from './pages/AdminPanel';
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
+    // Ensure body scroll is unlocked after navigation
     document.body.style.position = '';
     document.body.style.top = '';
     document.body.style.left = '';
@@ -54,9 +55,10 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
   const { player, joinedRoomHostId, joinedRoomState } = useStore();
   const hasTrack = !!player.currentTrack;
   const inRoom = !!joinedRoomHostId && !!joinedRoomState;
-  useRoomBroadcast();
-  useRoomListener();
+  useRoomBroadcast(); // keep listening room alive globally
+  useRoomListener(); // keep joined room alive globally
 
+  // Extra 52px on mobile when room banner is visible
   const mobileBottom = hasTrack
     ? `calc(120px + env(safe-area-inset-bottom, 0px)${inRoom ? ' + 52px' : ''})`
     : `calc(56px + env(safe-area-inset-bottom, 0px)${inRoom ? ' + 52px' : ''})`;
@@ -82,6 +84,7 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Redirect /login and /register to open modal on home page
 function LoginRedirect() {
   const { openAuthModal } = useStore();
   useEffect(() => { openAuthModal('login'); }, []);
@@ -117,9 +120,14 @@ export function App() {
     <BrowserRouter>
       <ScrollToTop />
       <Routes>
+        {/* Auth redirects — open modal over current page */}
         <Route path="/login" element={<LoginRedirect />} />
         <Route path="/register" element={<RegisterRedirect />} />
+
+        {/* Admin — без навбара и плеера */}
         <Route path="/admin/*" element={<AdminPanel />} />
+
+        {/* Public routes */}
         <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
         <Route path="/tracks" element={<PublicLayout><TracksPage /></PublicLayout>} />
         <Route path="/track/:id" element={<PublicLayout><TrackPage /></PublicLayout>} />
@@ -132,6 +140,8 @@ export function App() {
         <Route path="/liked" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/liked/:userId" element={<PublicLayout><LikedPage /></PublicLayout>} />
         <Route path="/submit" element={<PublicLayout><SubmitPage /></PublicLayout>} />
+
+        {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

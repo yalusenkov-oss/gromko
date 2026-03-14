@@ -46,14 +46,19 @@ export default function Navbar() {
   useEffect(() => {
     if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current);
     const q = searchVal.trim();
-    if (q.length < 2) { setSuggestedUsers([]); return; }
+    if (q.length < 2) {
+      setSuggestedUsers([]);
+      return;
+    }
     userSearchTimeout.current = setTimeout(() => {
       fetch(apiUrl(`/users/search?q=${encodeURIComponent(q)}&limit=3`))
         .then(r => r.ok ? r.json() : [])
         .then(d => setSuggestedUsers(Array.isArray(d) ? d : []))
         .catch(() => setSuggestedUsers([]));
     }, 300);
-    return () => { if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current); };
+    return () => {
+      if (userSearchTimeout.current) clearTimeout(userSearchTimeout.current);
+    };
   }, [searchVal]);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -83,12 +88,10 @@ export default function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-xl border-b border-white/5" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       <div className="max-w-7xl mx-auto px-3 md:px-6 flex items-center gap-3 md:gap-4 h-14 md:h-16">
-        {/* Logo */}
         <Link to="/" className="flex items-center shrink-0 ml-3 md:ml-0">
           <span className="text-white font-black text-lg md:text-xl tracking-tight">GROMQ</span>
         </Link>
 
-        {/* Mobile search */}
         <form onSubmit={handleSearch} className="flex-1 md:hidden relative min-w-0" ref={mobileSearchRef}>
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -107,8 +110,12 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Артисты</div>
                   {suggestedArtists.map(a => (
-                    <Link key={a.id} to={`/artist/${a.slug}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={a.id}
+                      to={`/artist/${a.slug}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       <img src={a.photo} alt={a.name} className="w-8 h-8 rounded-full object-cover" />
                       <div><p className="text-white text-sm font-medium">{a.name}</p></div>
                     </Link>
@@ -119,10 +126,17 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-t border-white/5">Треки</div>
                   {suggestedTracks.map(t => (
-                    <Link key={t.id} to={`/track/${t.id}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={t.id}
+                      to={`/track/${t.id}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       <img src={t.cover} alt={t.title} className="w-8 h-8 rounded-lg object-cover" />
-                      <div className="min-w-0"><p className="text-white text-sm font-medium truncate">{t.title}</p><p className="text-zinc-500 text-xs truncate">{t.artist}</p></div>
+                      <div className="min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{t.title}</p>
+                        <p className="text-zinc-500 text-xs truncate">{t.artist}</p>
+                      </div>
                     </Link>
                   ))}
                 </div>
@@ -131,37 +145,47 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-t border-white/5">Пользователи</div>
                   {suggestedUsers.map(u => (
-                    <Link key={u.id} to={`/user/${u.id}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={u.id}
+                      to={`/user/${u.id}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       {u.avatar ? (
                         <img src={u.avatar.startsWith('http') ? u.avatar : apiUrl(`/uploads/${u.avatar.replace(/^\/uploads\//, '')}`)} alt={u.name} className="w-8 h-8 rounded-full object-cover" />
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center shrink-0"><span className="text-white text-xs font-bold">{u.name[0]?.toUpperCase()}</span></div>
+                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                          <span className="text-white text-xs font-bold">{u.name[0]?.toUpperCase()}</span>
+                        </div>
                       )}
                       <div className="min-w-0"><p className="text-white text-sm font-medium truncate">{u.name}</p></div>
                     </Link>
                   ))}
                 </div>
               )}
-              <Link to={`/search?q=${encodeURIComponent(searchVal.trim())}`} onClick={() => setShowSuggestions(false)}
-                className="block px-3 py-2.5 text-center text-red-400 text-xs font-medium border-t border-white/5 hover:bg-white/5 transition-colors">
+              <Link
+                to={`/search?q=${encodeURIComponent(searchVal.trim())}`}
+                onClick={() => setShowSuggestions(false)}
+                className="block px-3 py-2.5 text-center text-red-400 text-xs font-medium border-t border-white/5 hover:bg-white/5 transition-colors"
+              >
                 Показать все результаты →
               </Link>
             </div>
           )}
         </form>
 
-        {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-1 ml-6">
           {navLinks.map(l => (
-            <Link key={l.to} to={l.to}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${location.pathname === l.to ? 'text-white bg-white/10' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>
+            <Link
+              key={l.to}
+              to={l.to}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${location.pathname === l.to ? 'text-white bg-white/10' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+            >
               {l.label}
             </Link>
           ))}
         </div>
 
-        {/* Desktop search */}
         <form onSubmit={handleSearch} className="flex-1 max-w-md mx-4 hidden md:block relative" ref={searchRef}>
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -180,8 +204,12 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Артисты</div>
                   {suggestedArtists.map(a => (
-                    <Link key={a.id} to={`/artist/${a.slug}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={a.id}
+                      to={`/artist/${a.slug}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       <img src={a.photo} alt={a.name} className="w-8 h-8 rounded-full object-cover" />
                       <div>
                         <p className="text-white text-sm font-medium">{a.name}</p>
@@ -195,8 +223,12 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-t border-white/5">Треки</div>
                   {suggestedTracks.map(t => (
-                    <Link key={t.id} to={`/track/${t.id}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={t.id}
+                      to={`/track/${t.id}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       <img src={t.cover} alt={t.title} className="w-8 h-8 rounded-lg object-cover" />
                       <div className="min-w-0">
                         <p className="text-white text-sm font-medium truncate">{t.title}</p>
@@ -210,8 +242,12 @@ export default function Navbar() {
                 <div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-t border-white/5">Пользователи</div>
                   {suggestedUsers.map(u => (
-                    <Link key={u.id} to={`/user/${u.id}`} onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                    <Link
+                      key={u.id}
+                      to={`/user/${u.id}`}
+                      onClick={() => { setShowSuggestions(false); setSearchVal(''); }}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
                       {u.avatar ? (
                         <img src={u.avatar.startsWith('http') ? u.avatar : apiUrl(`/uploads/${u.avatar.replace(/^\/uploads\//, '')}`)} alt={u.name} className="w-8 h-8 rounded-full object-cover" />
                       ) : (
@@ -227,15 +263,17 @@ export default function Navbar() {
                   ))}
                 </div>
               )}
-              <Link to={`/search?q=${encodeURIComponent(searchVal.trim())}`} onClick={() => { setShowSuggestions(false); }}
-                className="block px-3 py-2.5 text-center text-red-400 text-xs font-medium border-t border-white/5 hover:bg-white/5 transition-colors">
+              <Link
+                to={`/search?q=${encodeURIComponent(searchVal.trim())}`}
+                onClick={() => { setShowSuggestions(false); }}
+                className="block px-3 py-2.5 text-center text-red-400 text-xs font-medium border-t border-white/5 hover:bg-white/5 transition-colors"
+              >
                 Показать все результаты →
               </Link>
             </div>
           )}
         </form>
 
-        {/* Right side buttons */}
         <div className="ml-auto flex items-center gap-2">
           {currentUser ? (
             <>

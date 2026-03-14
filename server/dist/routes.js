@@ -645,7 +645,7 @@ router.post('/events', authRequired, async (req, res) => {
     const { eventType, trackId, artistSlug, genre, context, durationListened, trackDuration, sessionId } = req.body;
     if (!eventType)
         return res.status(400).json({ error: 'eventType required' });
-    const validEvents = ['play', 'finish', 'skip', 'replay', 'like', 'unlike', 'dislike',
+    const validEvents = ['play', 'finish', 'skip', 'skip_early', 'skip_late', 'replay', 'seek_back', 'replay_segment', 'like', 'unlike', 'dislike',
         'add_to_playlist', 'share', 'follow_artist', 'open_track', 'open_artist',
         'search', 'queue_next'];
     if (!validEvents.includes(eventType)) {

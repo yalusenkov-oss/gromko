@@ -87,6 +87,24 @@ class AudioEngine {
   private _autoRadioLoading: boolean = false; // prevent double-fetch for auto-radio
   private _recentTrackIds: string[] = []; // last N tracks for recommendation context
 
+  private recordSeekSignal(previousTime: number, nextTime: number): void {
+    if (!this.currentTrack) return;
+    const backwardDelta = previousTime - nextTime;
+    if (backwardDelta >= 10) {
+      this.recordEvent('replay_segment', {
+        context: `${Math.round(previousTime)}->${Math.round(nextTime)}`,
+        durationListened: previousTime,
+        trackDuration: this.audio.duration || this.currentTrack.duration || 0,
+      });
+    } else if (backwardDelta >= 3) {
+      this.recordEvent('seek_back', {
+        context: `${Math.round(previousTime)}->${Math.round(nextTime)}`,
+        durationListened: previousTime,
+        trackDuration: this.audio.duration || this.currentTrack.duration || 0,
+      });
+    }
+  }
+
   constructor() {
     this.audio = new Audio();
     this.audio.preload = 'auto';
@@ -186,14 +204,20 @@ class AudioEngine {
   /** Seek to position (0-1) */
   seek(progress: number): void {
     if (!this.audio.duration || isNaN(this.audio.duration)) return;
-    this.audio.currentTime = progress * this.audio.duration;
+    const previousTime = this.audio.currentTime;
+    const nextTime = progress * this.audio.duration;
+    this.recordSeekSignal(previousTime, nextTime);
+    this.audio.currentTime = nextTime;
     this.notify();
   }
 
   /** Seek to specific time in seconds */
   seekTo(seconds: number): void {
     if (!this.audio.duration || isNaN(this.audio.duration)) return;
-    this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration));
+    const previousTime = this.audio.currentTime;
+    const nextTime = Math.max(0, Math.min(seconds, this.audio.duration));
+    this.recordSeekSignal(previousTime, nextTime);
+    this.audio.currentTime = nextTime;
     this.notify();
   }
 
@@ -205,14 +229,12 @@ class AudioEngine {
     if (this.currentTrack) {
       const progress = this.audio.duration > 0 ? this.audio.currentTime / this.audio.duration : 0;
       if (progress < 0.3 && this.audio.currentTime < 30) {
-        // Skipped early — negative signal
-        this.recordEvent('skip', {
+        this.recordEvent('skip_early', {
           durationListened: this.audio.currentTime,
           trackDuration: this.audio.duration || this.currentTrack.duration || 0,
         });
-      } else if (progress > 0.85) {
-        // Finished most of the track — positive signal
-        this.recordEvent('finish', {
+      } else if (progress < 0.98 && !this._endedFallbackFired) {
+        this.recordEvent('skip_late', {
           durationListened: this.audio.currentTime,
           trackDuration: this.audio.duration || this.currentTrack.duration || 0,
         });

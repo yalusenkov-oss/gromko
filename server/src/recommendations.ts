@@ -35,8 +35,13 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   replay:           6,   // переслушал — ещё сильнее
   like:             7,
   unlike:          -5,
+  dislike:         -7,
   add_to_playlist:  8,
-  skip:            -4,   // скипнул в первые 15 сек
+  skip:            -4,   // legacy fallback
+  skip_early:      -6,   // скипнул почти сразу — сильный негативный сигнал
+  skip_late:       -1,   // поздний скип — слабый негативный сигнал
+  seek_back:        2,   // вернулся назад — интерес к моменту
+  replay_segment:   4,   // переслушал сегмент — сильный локальный интерес
   share:            6,
   follow_artist:    5,
   open_track:       1,
@@ -44,6 +49,27 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   search:           2,
   queue_next:       4,
 };
+
+const SCORE_WEIGHTS_RAW = {
+  genreAffinity: 0.30,
+  artistAffinity: 0.25,
+  bpmFit: 0.15,
+  popularity: 0.08,
+  freshness: 0.07,
+  discoveryBonus: 0.10,
+  artistLikeness: 0.03,
+  randomness: 0.12,
+} as const;
+
+function normalizeWeights<T extends Record<string, number>>(weights: T): T {
+  const total = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
+  if (total <= 0) throw new Error('Recommendation score weights must sum to > 0');
+  return Object.fromEntries(
+    Object.entries(weights).map(([key, value]) => [key, value / total])
+  ) as T;
+}
+
+const SCORE_WEIGHTS = normalizeWeights(SCORE_WEIGHTS_RAW);
 
 // ─── DB Migrations ───
 
@@ -200,7 +226,8 @@ export async function rebuildTasteProfile(userId: string): Promise<void> {
     }
 
     // Skip/play counting
-    if (ev.event_type === 'skip') skipCount++;
+    if (ev.event_type === 'skip' || ev.event_type === 'skip_early') skipCount++;
+    if (ev.event_type === 'skip_late') skipCount += 0.25;
     if (ev.event_type === 'play') playCount++;
 
     // Time of day
@@ -317,6 +344,7 @@ function scoreTrack(
 
   const genreScores: Record<string, number> = profile.genre_scores || {};
   const artistScores: Record<string, number> = profile.artist_scores || {};
+  const timePreferences: Record<string, number> = profile.time_preferences || {};
   const exploration: number = profile.exploration_score ?? 0.5;
 
   // Base components
@@ -360,19 +388,31 @@ function scoreTrack(
   const explorationFactor = exploration; // 0-1
   const familiarWeight = 1 - explorationFactor * 0.4; // 0.6-1.0
   const discoveryWeight = explorationFactor * 0.3;     // 0-0.3
+  const currentHour = new Date().getHours();
+  const currentSlot =
+    currentHour >= 6 && currentHour < 12 ? 'morning' :
+    currentHour >= 12 && currentHour < 18 ? 'day' :
+    currentHour >= 18 && currentHour < 23 ? 'evening' :
+    'night';
+  const slotPreference = timePreferences[currentSlot] ?? 0.25;
+  const timeMultiplier = 0.9 + slotPreference * 0.4; // 0.9 - 1.3
 
   // Final score
   const score =
-    familiarWeight * (0.30 * genreAffinity + 0.25 * artistAffinity + 0.15 * bpmFit) +
-    0.08 * popularity +
-    0.07 * freshness +
-    discoveryWeight * discoveryBonus +
-    0.03 * artistLikeness +
-    0.12 * Math.random() // randomness for variety
+    familiarWeight * (
+      SCORE_WEIGHTS.genreAffinity * genreAffinity +
+      SCORE_WEIGHTS.artistAffinity * artistAffinity +
+      SCORE_WEIGHTS.bpmFit * bpmFit
+    ) +
+    SCORE_WEIGHTS.popularity * popularity +
+    SCORE_WEIGHTS.freshness * freshness +
+    discoveryWeight * (SCORE_WEIGHTS.discoveryBonus * discoveryBonus) +
+    SCORE_WEIGHTS.artistLikeness * artistLikeness +
+    SCORE_WEIGHTS.randomness * Math.random()
     - repetitionPenalty
     - skipPenalty;
 
-  return score;
+  return score * timeMultiplier;
 }
 
 /**
@@ -387,7 +427,7 @@ async function getRecentHistory(userId: string): Promise<{ played: Set<string>; 
 
   const skipped = await query(`
     SELECT DISTINCT track_id FROM user_events
-    WHERE user_id = $1 AND event_type = 'skip'
+    WHERE user_id = $1 AND event_type IN ('skip', 'skip_early', 'skip_late', 'dislike')
     AND created_at > NOW() - INTERVAL '7 days'
   `, [userId]);
 
@@ -697,9 +737,15 @@ export async function similarArtists(artistSlug: string, limit = 6): Promise<any
     `, [artistSlug, artist.genre, limit]);
   }
 
-  const slugs = coListened.map((r: any) => r.artist_slug).slice(0, limit);
+  const ranked = coListened.slice(0, limit);
+  const slugs = ranked.map((r: any) => r.artist_slug);
   const placeholders = slugs.map((_: any, i: number) => `$${i + 1}`).join(',');
-  return query(`SELECT * FROM artists WHERE slug IN (${placeholders}) ORDER BY total_plays DESC`, slugs);
+  const artists = await query(`SELECT * FROM artists WHERE slug IN (${placeholders})`, slugs);
+  const artistMap = new Map(artists.map((artist: any) => [artist.slug, artist]));
+
+  return ranked
+    .map((row: any) => artistMap.get(row.artist_slug))
+    .filter(Boolean);
 }
 
 // ────────────────────────────────────────────
@@ -743,20 +789,45 @@ export async function continueListening(userId: string, limit = 10): Promise<any
 // ────────────────────────────────────────────
 
 export async function newForYou(userId: string | null, limit = 10): Promise<any[]> {
-  const profile = userId ? await getTasteProfile(userId) : null;
+  if (!userId) {
+    return query(`
+      SELECT * FROM tracks WHERE status = 'ready'
+      ORDER BY created_at DESC LIMIT $1
+    `, [limit * 4]).then((candidates: any[]) => {
+      const result: any[] = [];
+      const seenAlbums = new Set<string>();
+      for (const t of candidates) {
+        const albumKey = (t.meta_album && t.meta_album.trim()) ? `${t.artist_slug}::${t.meta_album}` : '';
+        if (albumKey && seenAlbums.has(albumKey)) continue;
+        if (albumKey) seenAlbums.add(albumKey);
+        result.push(t);
+        if (result.length >= limit) break;
+      }
+      return result;
+    });
+  }
+
+  const profile = await getTasteProfile(userId);
+  const history = await getRecentHistory(userId);
+  const { played, skipped } = history;
 
   let topGenres: string[] = [];
+  let topArtists: string[] = [];
 
   if (profile) {
     const genreScores: Record<string, number> = profile.genre_scores || {};
+    const artistScores: Record<string, number> = profile.artist_scores || {};
     topGenres = Object.entries(genreScores)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([g]) => g);
+    topArtists = Object.entries(artistScores)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([slug]) => slug);
   }
 
-  // If no taste profile genres, try to infer from liked tracks / play history
-  if (topGenres.length === 0 && userId) {
+  if (topGenres.length === 0) {
     const liked = await query(`
       SELECT DISTINCT t.genre FROM tracks t
       JOIN users u ON t.id = ANY(u.liked_tracks)
@@ -766,63 +837,111 @@ export async function newForYou(userId: string | null, limit = 10): Promise<any[
     if (liked.length > 0) {
       topGenres = liked.map((r: any) => r.genre);
     } else {
-      // Fallback: genres from play history
-      const played = await query(`
+      const playedGenres = await query(`
         SELECT t.genre, COUNT(*) as cnt FROM user_events ue
         JOIN tracks t ON t.id = ue.track_id
-        WHERE ue.user_id = $1 AND ue.event_type IN ('play','finish')
+        WHERE ue.user_id = $1 AND ue.event_type IN ('play','finish','replay','like')
           AND t.genre IS NOT NULL
         GROUP BY t.genre ORDER BY cnt DESC LIMIT 5
       `, [userId]);
-      topGenres = played.map((r: any) => r.genre);
+      topGenres = playedGenres.map((r: any) => r.genre);
     }
   }
 
-  let candidates: any[];
-  if (topGenres.length === 0) {
-    // Truly no data — general new releases
-    candidates = await query(`
+  if (topArtists.length === 0) {
+    const playedArtists = await query(`
+      SELECT t.artist_slug, COUNT(*) as cnt FROM user_events ue
+      JOIN tracks t ON t.id = ue.track_id
+      WHERE ue.user_id = $1 AND ue.event_type IN ('play','finish','replay','like')
+        AND t.artist_slug IS NOT NULL
+      GROUP BY t.artist_slug ORDER BY cnt DESC LIMIT 5
+    `, [userId]);
+    topArtists = playedArtists.map((r: any) => r.artist_slug);
+  }
+
+  if (topGenres.length === 0 && topArtists.length === 0) {
+    return query(`
       SELECT * FROM tracks WHERE status = 'ready'
       ORDER BY created_at DESC LIMIT $1
-    `, [limit * 4]);
-  } else {
-    const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
-    // Personalized: new in user's genres (last 30 days)
-    candidates = await query(`
+    `, [limit * 4]).then((rows: any[]) => rows.slice(0, limit));
+  }
+
+  const queries: Promise<any[]>[] = [
+    query(`
       SELECT * FROM tracks
       WHERE status = 'ready'
+        AND created_at > NOW() - INTERVAL '45 days'
+      ORDER BY created_at DESC
+      LIMIT $1
+    `, [limit * 20]),
+  ];
+
+  if (topGenres.length > 0) {
+    const placeholders = topGenres.map((_, i) => `$${i + 1}`).join(',');
+    queries.push(query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready'
+        AND created_at > NOW() - INTERVAL '45 days'
         AND genre IN (${placeholders})
-        AND created_at > NOW() - INTERVAL '30 days'
       ORDER BY created_at DESC
       LIMIT $${topGenres.length + 1}
-    `, [...topGenres, limit * 4]);
+    `, [...topGenres, limit * 12]));
+  }
 
-    // If not enough personalized results, pad with general new releases
-    if (candidates.length < limit) {
-      const existingIds = new Set(candidates.map((t: any) => t.id));
-      const padding = await query(`
-        SELECT * FROM tracks WHERE status = 'ready'
-        ORDER BY created_at DESC LIMIT $1
-      `, [limit * 4]);
-      for (const t of padding) {
-        if (!existingIds.has(t.id)) {
-          candidates.push(t);
-          if (candidates.length >= limit * 4) break;
-        }
+  if (topArtists.length > 0) {
+    const placeholders = topArtists.map((_, i) => `$${i + 1}`).join(',');
+    queries.push(query(`
+      SELECT * FROM tracks
+      WHERE status = 'ready'
+        AND created_at > NOW() - INTERVAL '45 days'
+        AND artist_slug IN (${placeholders})
+      ORDER BY created_at DESC
+      LIMIT $${topArtists.length + 1}
+    `, [...topArtists, limit * 10]));
+  }
+
+  const pools = await Promise.all(queries);
+  const seen = new Set<string>();
+  const candidates: any[] = [];
+  for (const pool of pools) {
+    for (const track of pool) {
+      if (!seen.has(track.id)) {
+        seen.add(track.id);
+        candidates.push(track);
       }
     }
   }
 
-  // Deduplicate: max 1 track per album (meta_album or artist_slug fallback)
+  const topGenreSet = new Set(topGenres);
+  const topArtistSet = new Set(topArtists);
+  const scored = candidates.map((track: any) => {
+    let score = scoreTrack(track, profile, played, skipped);
+    if (topGenreSet.has(track.genre)) score += 0.12;
+    if (topArtistSet.has(track.artist_slug)) score += 0.18;
+    if (track.created_at) {
+      const ageMs = Date.now() - new Date(track.created_at).getTime();
+      const freshBoost = Math.max(0, 1 - ageMs / (45 * 24 * 60 * 60 * 1000));
+      score += freshBoost * 0.35;
+    }
+    return { ...track, score };
+  });
+
+  scored.sort((a: any, b: any) => b.score - a.score);
+
   const result: any[] = [];
   const seenAlbums = new Set<string>();
-  for (const t of candidates) {
-    const albumKey = (t.meta_album && t.meta_album.trim()) ? `${t.artist_slug}::${t.meta_album}` : '';
+  const seenArtists = new Map<string, number>();
+  for (const track of scored) {
+    const albumKey = (track.meta_album && track.meta_album.trim()) ? `${track.artist_slug}::${track.meta_album}` : '';
     if (albumKey && seenAlbums.has(albumKey)) continue;
+    const artistCount = seenArtists.get(track.artist_slug) || 0;
+    if (artistCount >= 2) continue;
     if (albumKey) seenAlbums.add(albumKey);
-    result.push(t);
+    seenArtists.set(track.artist_slug, artistCount + 1);
+    result.push(track);
     if (result.length >= limit) break;
   }
+
   return result;
 }
 
