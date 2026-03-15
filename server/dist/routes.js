@@ -44,6 +44,19 @@ function mapAudioPublicPathToFs(publicPath) {
     const rel = publicPath.replace(/^\/audio\//, '');
     return path.join(PATHS.audio, rel);
 }
+function resolveUploadPath(filePath) {
+    if (!filePath || typeof filePath !== 'string')
+        return null;
+    const candidates = [
+        filePath,
+        path.join(PATHS.uploads, path.basename(filePath)),
+    ];
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate))
+            return candidate;
+    }
+    return null;
+}
 function resolveTrackSourcePath(trackId, row) {
     const dir = trackAudioDir(trackId);
     const preferred = [
@@ -1625,9 +1638,11 @@ router.get('/admin/submissions', adminRequired, async (_req, res) => {
     ORDER BY s.created_at DESC
   `);
     res.json(subs.map((s) => {
+        const resolvedAudioPath = resolveUploadPath(s.file_path);
+        const resolvedCoverPath = resolveUploadPath(s.cover_path);
         // Convert absolute file paths to relative URLs for admin preview
-        const audioUrl = s.file_path ? `/uploads/${path.basename(s.file_path)}` : null;
-        const coverUrl = s.cover_path ? `/uploads/${path.basename(s.cover_path)}` : null;
+        const audioUrl = resolvedAudioPath ? `/uploads/${path.basename(resolvedAudioPath)}` : null;
+        const coverUrl = resolvedCoverPath ? `/uploads/${path.basename(resolvedCoverPath)}` : null;
         return {
             id: s.id, userId: s.user_id, title: s.title, artist: s.artist,
             genre: s.genre, year: s.year, comment: s.comment,
@@ -1750,14 +1765,17 @@ router.get('/submissions/spotify/health', authRequired, async (_req, res) => {
 /** GET /api/submissions/my — current user's submissions */
 router.get('/submissions/my', authRequired, async (req, res) => {
     const subs = await query('SELECT * FROM submissions WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
-    res.json(subs.map((s) => ({
-        id: s.id, title: s.title, artist: s.artist, genre: s.genre, year: s.year,
-        comment: s.comment, status: s.status, rejectReason: s.reject_reason,
-        releaseId: s.release_id || null,
-        albumName: s.album_name || null,
-        coverUrl: s.cover_path ? `/uploads/${path.basename(s.cover_path)}` : null,
-        createdAt: s.created_at,
-    })));
+    res.json(subs.map((s) => {
+        const resolvedCoverPath = resolveUploadPath(s.cover_path);
+        return {
+            id: s.id, title: s.title, artist: s.artist, genre: s.genre, year: s.year,
+            comment: s.comment, status: s.status, rejectReason: s.reject_reason,
+            releaseId: s.release_id || null,
+            albumName: s.album_name || null,
+            coverUrl: resolvedCoverPath ? `/uploads/${path.basename(resolvedCoverPath)}` : null,
+            createdAt: s.created_at,
+        };
+    }));
 });
 /** PUT /api/admin/submissions/:id/approve — approve & process */
 router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => {
@@ -1767,12 +1785,13 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
     if (sub.status !== 'pending' && sub.status !== 'deferred') {
         return res.status(400).json({ error: 'Заявка уже обработана' });
     }
-    // Check if file still exists
-    if (!sub.file_path || !fs.existsSync(sub.file_path)) {
+    const sourceAudioPath = resolveUploadPath(sub.file_path);
+    if (!sourceAudioPath) {
         return res.status(400).json({ error: 'Аудиофайл не найден на сервере' });
     }
+    const sourceCoverPath = resolveUploadPath(sub.cover_path);
     try {
-        const meta = await extractMetadata(sub.file_path);
+        const meta = await extractMetadata(sourceAudioPath);
         const trackId = uuid();
         const artist = sub.artist;
         const artistNames = parseArtistNames(artist);
@@ -1804,8 +1823,10 @@ router.put('/admin/submissions/:id/approve', adminRequired, async (req, res) => 
             await execute(`INSERT INTO track_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [trackId, artistId, i]);
         }
         // Enqueue for audio processing (with cover if available)
-        const coverPath = sub.cover_path && fs.existsSync(sub.cover_path) ? sub.cover_path : undefined;
-        enqueueTrack(trackId, sub.file_path, coverPath);
+        enqueueTrack(trackId, sourceAudioPath, sourceCoverPath || undefined);
+        if (sub.file_path !== sourceAudioPath || sub.cover_path !== sourceCoverPath) {
+            await execute('UPDATE submissions SET file_path = $1, cover_path = $2 WHERE id = $3', [sourceAudioPath, sourceCoverPath, sub.id]);
+        }
         // Update submission status
         await execute("UPDATE submissions SET status = 'approved' WHERE id = $1", [sub.id]);
         res.json({ ok: true, trackId, message: 'Трек одобрен и поставлен в очередь на обработку' });
