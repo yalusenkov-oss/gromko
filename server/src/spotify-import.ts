@@ -20,8 +20,11 @@ import { parseArtistNames } from './parse-artists.js';
 
 const SPOTIFLAC_URL = process.env.SPOTIFLAC_URL || 'http://localhost:3099';
 const PRIMARY_SERVICE = 'tidal';
-const FALLBACK_SERVICES = ['deezer', 'qobuz'];
-const RETRYABLE_DOWNLOAD_ERROR_RE = /\b524\b|timeout|timed\s*out|temporar/i;
+const FALLBACK_SERVICES = (process.env.SPOTIFY_IMPORT_FALLBACK_SERVICES || 'amazon,qobuz')
+  .split(',')
+  .map(value => value.trim().toLowerCase())
+  .filter(Boolean);
+const RETRYABLE_DOWNLOAD_ERROR_RE = /\b429\b|\b5\d{2}\b|\b524\b|timeout|timed\s*out|temporar|rate limit|too many requests|aborted/i;
 const TRANSPORT_ERROR_RE = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|network/i;
 const INTER_TRACK_DELAY_MS = Number(process.env.SPOTIFY_IMPORT_INTER_TRACK_DELAY_MS || 200);
 const DOWNLOAD_CONCURRENCY = Number(process.env.SPOTIFY_IMPORT_CONCURRENCY || 3);
@@ -179,7 +182,18 @@ function buildDownloadPayload(
   index: number,
   totalTracks: number,
   service: string,
+  streamingInfo?: {
+    tidal_url?: string;
+    amazon_url?: string;
+    isrc?: string;
+  } | null,
 ) {
+  const quality = service === 'qobuz' ? '6' : 'LOSSLESS';
+  const serviceUrl =
+    service === 'tidal' ? streamingInfo?.tidal_url :
+    service === 'amazon' ? streamingInfo?.amazon_url :
+    undefined;
+
   return {
     spotify_id: spotifyId,
     spotify_url: `https://open.spotify.com/track/${spotifyId}`,
@@ -194,15 +208,29 @@ function buildDownloadPayload(
     total_tracks: trackMeta.total_tracks || totalTracks,
     total_discs: trackMeta.total_discs || 1,
     service,
-    quality: 'LOSSLESS',
+    quality,
+    service_url: serviceUrl,
+    isrc: streamingInfo?.isrc || '',
   };
 }
 
+async function fetchStreamingInfo(spotifyId: string): Promise<{ tidal_url?: string; amazon_url?: string; isrc?: string } | null> {
+  try {
+    return await spotiflacFetch(`/api/streaming-urls?spotify_id=${encodeURIComponent(spotifyId)}`, undefined, 30000);
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    console.warn(`  ⚠️ Failed to prefetch streaming info for ${spotifyId}: ${msg}`);
+    return null;
+  }
+}
+
 async function downloadViaPrimaryService(
-  payloadFactory: (service: string) => any,
+  spotifyId: string,
+  payloadFactory: (service: string, streamingInfo: { tidal_url?: string; amazon_url?: string; isrc?: string } | null) => any,
 ): Promise<any> {
   const allServices = [PRIMARY_SERVICE, ...FALLBACK_SERVICES];
   const errors: string[] = [];
+  const streamingInfo = await fetchStreamingInfo(spotifyId);
 
   for (const service of allServices) {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -210,7 +238,7 @@ async function downloadViaPrimaryService(
         console.log(`  ⬇️ Trying download via ${service} (attempt ${attempt})`);
         return await spotiflacFetch('/api/download', {
           method: 'POST',
-          body: JSON.stringify(payloadFactory(service)),
+          body: JSON.stringify(payloadFactory(service, streamingInfo)),
         }, 5 * 60 * 1000);
       } catch (err: any) {
         const msg = err?.message || String(err);
@@ -337,7 +365,8 @@ async function runImport(job: SpotifyImportJob, genre: string) {
         }
 
         const downloadResult = await downloadViaPrimaryService(
-          (service) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service),
+          spotifyId,
+          (service, streamingInfo) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service, streamingInfo),
         );
 
         if (!downloadResult.success) {
@@ -686,7 +715,8 @@ async function runSubmission(job: SpotifyImportJob, userId: string, genre: strin
         }
 
         const downloadResult = await downloadViaPrimaryService(
-          (service) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service),
+          spotifyId,
+          (service, streamingInfo) => buildDownloadPayload(trackMeta, spotifyId, albumName, albumCover, i, tracks.length, service, streamingInfo),
         );
 
         if (!downloadResult.success) {

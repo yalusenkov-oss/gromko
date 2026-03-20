@@ -65,6 +65,7 @@ func main() {
 	})
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/api/metadata", handleMetadata)
+	mux.HandleFunc("/api/streaming-urls", handleStreamingURLs)
 	mux.HandleFunc("/api/download", handleDownload)
 	mux.HandleFunc("/api/search", handleSearch)
 
@@ -152,6 +153,8 @@ type DownloadRequest struct {
 	TotalDiscs  int    `json:"total_discs"`
 	Service     string `json:"service"` // tidal, qobuz, deezer, amazon
 	Quality     string `json:"quality"` // LOSSLESS, HIGH, etc.
+	ServiceURL  string `json:"service_url"`
+	ISRC        string `json:"isrc"`
 }
 
 type DownloadResponse struct {
@@ -161,6 +164,13 @@ type DownloadResponse struct {
 	FileSize int64  `json:"file_size,omitempty"`
 	Format   string `json:"format,omitempty"`
 	Error    string `json:"error,omitempty"`
+}
+
+type StreamingURLsResponse struct {
+	SpotifyID string `json:"spotify_id"`
+	TidalURL  string `json:"tidal_url,omitempty"`
+	AmazonURL string `json:"amazon_url,omitempty"`
+	ISRC      string `json:"isrc,omitempty"`
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request) {
@@ -218,23 +228,55 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	case "tidal":
 		downloader := backend.NewTidalDownloader("")
-		filename, err = downloader.Download(
-			req.SpotifyID, trackDir, req.Quality, "title-artist", false, 0,
-			req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist,
-			req.ReleaseDate, false, req.CoverURL, false,
-			req.TrackNumber, req.DiscNumber, req.TotalTracks, req.TotalDiscs,
-			"", "", spotifyURL, true, false, false, false,
-		)
+		if req.ServiceURL != "" {
+			filename, err = downloader.DownloadByURLWithFallback(
+				req.ServiceURL, trackDir, req.Quality, "title-artist", false, 0,
+				req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist,
+				req.ReleaseDate, false, req.CoverURL, false,
+				req.TrackNumber, req.DiscNumber, req.TotalTracks, req.TotalDiscs,
+				"", "", spotifyURL, true, false, false, false,
+			)
+		} else {
+			filename, err = downloader.Download(
+				req.SpotifyID, trackDir, req.Quality, "title-artist", false, 0,
+				req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist,
+				req.ReleaseDate, false, req.CoverURL, false,
+				req.TrackNumber, req.DiscNumber, req.TotalTracks, req.TotalDiscs,
+				"", "", spotifyURL, true, false, false, false,
+			)
+		}
+
+	case "amazon":
+		downloader := backend.NewAmazonDownloader()
+		if req.ServiceURL != "" {
+			filename, err = downloader.DownloadByURL(
+				req.ServiceURL, trackDir, req.Quality, "title-artist", "", "", false, 0,
+				req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist,
+				req.ReleaseDate, req.CoverURL, req.TrackNumber, req.DiscNumber,
+				req.TotalTracks, false, req.TotalDiscs, "", "", spotifyURL,
+				false, false, false,
+			)
+		} else {
+			filename, err = downloader.DownloadBySpotifyID(
+				req.SpotifyID, trackDir, req.Quality, "title-artist", "", "", false, 0,
+				req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist,
+				req.ReleaseDate, req.CoverURL, req.TrackNumber, req.DiscNumber,
+				req.TotalTracks, false, req.TotalDiscs, "", "", spotifyURL,
+				false, false, false,
+			)
+		}
 
 	case "qobuz":
-		// Need ISRC for Qobuz
-		songLinkClient := backend.NewSongLinkClient()
-		isrc, _ := songLinkClient.GetISRC(req.SpotifyID)
+		isrc := req.ISRC
+		if isrc == "" {
+			songLinkClient := backend.NewSongLinkClient()
+			isrc, _ = songLinkClient.GetISRC(req.SpotifyID)
+		}
 
 		downloader := backend.NewQobuzDownloader()
 		quality := req.Quality
 		if quality == "" || quality == "LOSSLESS" {
-			quality = "27" // Hi-Res
+			quality = "6"
 		}
 		filename, err = downloader.DownloadTrackWithISRC(
 			isrc, req.SpotifyID, trackDir, quality, "title-artist", false, 0,
@@ -276,6 +318,40 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 		FileName: filepath.Base(filename),
 		FileSize: fileInfo.Size(),
 		Format:   format,
+	})
+}
+
+func handleStreamingURLs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, 405, "Method not allowed")
+		return
+	}
+
+	spotifyID := r.URL.Query().Get("spotify_id")
+	if spotifyID == "" {
+		jsonError(w, 400, "Missing 'spotify_id' parameter")
+		return
+	}
+
+	client := backend.NewSongLinkClient()
+	urls, err := client.GetAllURLsFromSpotify(spotifyID, "")
+	if err != nil {
+		jsonError(w, 500, fmt.Sprintf("Failed to fetch streaming URLs: %v", err))
+		return
+	}
+
+	isrc := urls.ISRC
+	if isrc == "" {
+		if resolvedISRC, isrcErr := client.GetISRC(spotifyID); isrcErr == nil {
+			isrc = resolvedISRC
+		}
+	}
+
+	jsonResponse(w, 200, StreamingURLsResponse{
+		SpotifyID: spotifyID,
+		TidalURL:  urls.TidalURL,
+		AmazonURL: urls.AmazonURL,
+		ISRC:      isrc,
 	})
 }
 
