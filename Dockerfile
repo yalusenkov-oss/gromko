@@ -46,6 +46,7 @@ COPY --from=frontend-build /app/dist ./dist
 
 # Copy pre-compiled SpotiFLAC binary (no Go runtime needed!)
 COPY --from=spotiflac-build /spotiflac-server ./SpotiFLAC-main/bin/spotiflac-server
+COPY --from=spotiflac-build /spotiflac-server ./SpotiFLAC-main/bin/spotiflac-server-linux-amd64
 
 # Pre-create writable data dirs (Timeweb runs as non-root user 'app')
 RUN mkdir -p /app/data/uploads /app/data/audio /app/data/covers /app/data/waveforms /app/data/temp /tmp/pgdata /app/SpotiFLAC-main/downloads \

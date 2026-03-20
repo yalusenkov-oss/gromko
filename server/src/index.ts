@@ -79,9 +79,9 @@ function resolveSpotiflacLaunch(SPOTIFLAC_DIR: string): { cmd: string; args: str
   const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'amd64' : process.arch;
   const platform = process.platform === 'linux' ? 'linux' : process.platform;
   const binCandidates = [
+    path.join(SPOTIFLAC_DIR, 'bin', 'spotiflac-server'),
     path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-server-${platform}-${arch}`),
     path.join(SPOTIFLAC_DIR, 'bin', `spotiflac-${platform}-${arch}`),
-    path.join(SPOTIFLAC_DIR, 'bin', 'spotiflac-server'),
   ];
   for (const bin of binCandidates) {
     if (fs.existsSync(bin)) {
@@ -185,6 +185,7 @@ function buildSpotiflacBinary(SPOTIFLAC_DIR: string): string | null {
 
   const outDir = path.join(SPOTIFLAC_DIR, 'bin');
   const outBin = path.join(outDir, 'spotiflac-server');
+  const platformArchBin = path.join(outDir, `spotiflac-server-${process.platform}-${process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'amd64' : process.arch}`);
   fs.mkdirSync(outDir, { recursive: true });
 
   console.log(`  🔨 Building SpotiFLAC binary (this may take a minute on first run)...`);
@@ -215,6 +216,10 @@ function buildSpotiflacBinary(SPOTIFLAC_DIR: string): string | null {
   if (fs.existsSync(outBin)) {
     // Make executable
     try { fs.chmodSync(outBin, 0o755); } catch {}
+    try {
+      fs.copyFileSync(outBin, platformArchBin);
+      fs.chmodSync(platformArchBin, 0o755);
+    } catch {}
     const sizeMB = (fs.statSync(outBin).size / 1024 / 1024).toFixed(1);
     console.log(`  ✅ SpotiFLAC binary built: ${outBin} (${sizeMB} MB)`);
     return outBin;
