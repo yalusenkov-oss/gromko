@@ -125,7 +125,10 @@ async function spotiflacFetch(endpoint: string, options?: RequestInit, timeoutMs
         },
       });
     } catch (err: any) {
-      const msg = err?.message || String(err);
+      const aborted = controller.signal.aborted || err?.name === 'AbortError';
+      const msg = aborted
+        ? `таймаут ${Math.round(timeoutMs / 1000)}s`
+        : (err?.message || String(err));
       throw new Error(`SpotiFLAC недоступен (${url}): ${msg}`);
     }
     const raw = await res.text();
@@ -269,11 +272,11 @@ export async function checkSpotiflacHealth(): Promise<boolean> {
 }
 
 export async function fetchSpotifyMetadata(spotifyUrl: string): Promise<any> {
-  return spotiflacFetch(`/api/metadata?url=${encodeURIComponent(spotifyUrl)}`, undefined, 20000);
+  return spotiflacFetch(`/api/metadata?url=${encodeURIComponent(spotifyUrl)}`, undefined, 60000);
 }
 
 export async function searchSpotify(query: string, limit = 10): Promise<any> {
-  return spotiflacFetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`, undefined, 20000);
+  return spotiflacFetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`, undefined, 30000);
 }
 
 // ─── Import logic ───
